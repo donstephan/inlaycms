@@ -7,13 +7,13 @@
 #   docker run --rm <image> cat /opt/inlaycms/wrapper/inlaycms > ~/.local/bin/inlaycms && chmod +x ~/.local/bin/inlaycms
 #
 # Settings, from the environment:
-#   INLAY_IMAGE        the image to run (default: inlaycms)
+#   INLAY_IMAGE        the image to run (default: ghcr.io/donstephan/inlaycms)
 #   INLAY_DOCKER_ARGS  more `docker run` options, split on spaces: `-e CAPTCHA_SECRET` for a secret the site
 #                      declares, `--network host` to push to a server on this computer
 #   INLAY_*            every other INLAY_ setting is passed to the command; INLAY_DATA_DIR is mounted too
 set -euo pipefail
 
-image=${INLAY_IMAGE:-inlaycms}
+image=${INLAY_IMAGE:-ghcr.io/donstephan/inlaycms}
 here=$(pwd -P)
 
 # Files the command writes belong to you, not to root or the image's user.

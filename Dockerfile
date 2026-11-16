@@ -1,4 +1,5 @@
-FROM node:24-bookworm-slim AS build
+# The build stage runs on the builder's own platform: it only produces the tarball, which is plain JavaScript.
+FROM --platform=$BUILDPLATFORM node:24-bookworm-slim AS build
 # Keep in step with "packageManager" in package.json
 RUN npm install -g pnpm@12.16.1
 WORKDIR /app

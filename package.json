@@ -1,7 +1,24 @@
 {
   "name": "inlaycms",
   "version": "0.1.0",
+  "description": "A code-first CMS for content sites: templates, schemas and content in code, one SQLite file, signed releases.",
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/donstephan/inlaycms.git"
+  },
+  "homepage": "https://github.com/donstephan/inlaycms#readme",
+  "bugs": {
+    "url": "https://github.com/donstephan/inlaycms/issues"
+  },
+  "keywords": [
+    "cms",
+    "content",
+    "sqlite",
+    "fastify",
+    "jsx",
+    "mcp"
+  ],
   "type": "module",
   "packageManager": "pnpm@12.16.1",
   "engines": {
@@ -38,8 +55,8 @@
     "test": "vitest run",
     "typecheck": "tsc --noEmit",
     "build:admin": "node scripts/build-admin.mjs",
-    "build": "pnpm run build:admin && tsc -p tsconfig.build.json",
-    "prepare": "node scripts/build-admin.mjs && tsc -p tsconfig.build.json",
+    "build": "pnpm run build:admin && node -e \"fs.rmSync('dist',{recursive:true,force:true})\" && tsc -p tsconfig.build.json",
+    "prepare": "node scripts/build-admin.mjs && node -e \"fs.rmSync('dist',{recursive:true,force:true})\" && tsc -p tsconfig.build.json",
     "dev": "node scripts/dev.mjs",
     "example:check": "tsx src/adapters/cli/bin.ts check --config example/inlay.config.ts",
     "example:pack": "tsx src/adapters/cli/bin.ts pack --config example/inlay.config.ts --key example/keys/dev.key --out example/data/release.tgz --no-typecheck",

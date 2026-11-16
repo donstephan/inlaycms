@@ -168,7 +168,14 @@ npx inlaycms serve
 
 `serve` runs the live release in a worker process and keeps the database untouched at start: shipped content is applied only when a release is activated. With no release yet, the site shows a plain "no site yet" page (status 200, not indexed) and the admin works. When a live site can't be served (its release is missing from the data folder, needs another version of Inlay, or keeps crashing), visitors get a "temporarily unavailable" page instead, with status 503 and `Retry-After`, so search engines keep the site; the admin still works. A worker that crashes is started again. On SIGTERM or SIGINT it finishes the requests in flight, closes the database and exits.
 
-The Docker image (`Dockerfile`, also the CLI: see [Without Node: the Docker image](#without-node-the-docker-image)) runs `inlaycms serve` with `INLAY_DATA_DIR=/data` on a volume and port 3000: `docker compose up serve` with `INLAY_SECRET` and `INLAY_TRUSTED_KEYS` set in your shell. Run `inlaycms activate` in the same container to give it its first release. The release file must be inside the container, so mount it: `docker compose run --rm -v "$PWD/release.tgz:/release.tgz:ro" serve inlaycms activate /release.tgz`. The image holds the packed `inlaycms` with its production dependencies only, with `inlaycms` on the `PATH`.
+The Docker image, `ghcr.io/donstephan/inlaycms` (also the CLI: see [Without Node: the Docker image](#without-node-the-docker-image)), runs `inlaycms serve` with `INLAY_DATA_DIR=/data` on a volume and port 3000. With `INLAY_SECRET` and `INLAY_TRUSTED_KEYS` set in your shell:
+
+```sh
+docker run -d --name inlay --restart unless-stopped -p 3000:3000 -v inlay-data:/data \
+  -e INLAY_SECRET -e INLAY_TRUSTED_KEYS ghcr.io/donstephan/inlaycms
+```
+
+Run `inlaycms activate` in a container on the same volume to give it its first release. The release file must be inside the container, so mount it: `docker run --rm -v inlay-data:/data -v "$PWD/release.tgz:/release.tgz:ro" ghcr.io/donstephan/inlaycms inlaycms activate /release.tgz`. The image holds the packed `inlaycms` with its production dependencies only, with `inlaycms` on the `PATH`. Every release of Inlay is tagged with its version (`ghcr.io/donstephan/inlaycms:0.2.0`, and `0.2` for the newest patch of 0.2); `latest` is the newest release. In this repository, `docker compose up serve` builds the image from source and runs it.
 
 To give a host its first release, or to make a release live while it is stopped:
 
@@ -218,22 +225,22 @@ If your site's `tsconfig.json` has `skipLibCheck: false`, `tsc` reports one erro
 
 ## Without Node: the Docker image
 
-The Inlay image holds the whole CLI as well as the host, so a computer with Docker needs no Node or npm. Build it from this repository with `pnpm run image` (it's tagged `inlaycms`), and install the `inlaycms` script it carries:
+The Inlay image holds the whole CLI as well as the host, so a computer with Docker needs no Node or npm. It's published on GitHub's container registry as `ghcr.io/donstephan/inlaycms`. Install the `inlaycms` script it carries:
 
 ```sh
-docker run --rm inlaycms cat /opt/inlaycms/wrapper/inlaycms > ~/.local/bin/inlaycms
+docker run --rm ghcr.io/donstephan/inlaycms cat /opt/inlaycms/wrapper/inlaycms > ~/.local/bin/inlaycms
 chmod +x ~/.local/bin/inlaycms
 ```
 
-Then use `inlaycms` in a site's folder as anywhere else in this README: `inlaycms dev`, `inlaycms check`, `inlaycms pack`, `inlaycms push`. A site needs no `node_modules`: its `inlaycms` imports load the image's copy, and `inlaycms pack` type-checks with the image's TypeScript when the site has a `tsconfig.json`. A site that uses npm packages installs them as usual, with npm or through the image (`docker run --rm -u "$(id -u):$(id -g)" -v "$PWD:$PWD" -w "$PWD" -e HOME=/tmp inlay npm install <package>`).
+Then use `inlaycms` in a site's folder as anywhere else in this README: `inlaycms dev`, `inlaycms check`, `inlaycms pack`, `inlaycms push`. A site needs no `node_modules`: its `inlaycms` imports load the image's copy, and `inlaycms pack` type-checks with the image's TypeScript when the site has a `tsconfig.json`. A site that uses npm packages installs them as usual, with npm or through the image (`docker run --rm -u "$(id -u):$(id -g)" -v "$PWD:$PWD" -w "$PWD" -e HOME=/tmp ghcr.io/donstephan/inlaycms npm install <package>`).
 
 The script runs the image on the current folder, mounted at the same path, so paths mean the same inside and out; files outside the folder aren't visible to the command. What it writes belongs to you. `dev` and `serve` publish their port on this computer only (`127.0.0.1`). Without `INLAY_DATA_DIR`, `dev` and the database commands keep their data in the site folder, as without Docker; with it, that folder is mounted too. Its settings:
 
-- `INLAY_IMAGE`: the image to run (default `inlaycms`), such as a tag from a registry.
+- `INLAY_IMAGE`: the image to run (default `ghcr.io/donstephan/inlaycms`, the newest release you have pulled), such as a version (`ghcr.io/donstephan/inlaycms:0.2.0`) or an image built from this repository with `pnpm run image` (`inlaycms`).
 - `INLAY_DOCKER_ARGS`: more `docker run` options, split on spaces. Pass a secret the site declares with `-e CAPTCHA_SECRET`, and reach a server on this computer for `inlaycms push http://localhost:3000` with `--network host`.
 - Every other `INLAY_` variable is passed to the command.
 
-The image's default command is `inlaycms serve`, with its data in a volume at `/data` (see [Running a host](#running-a-host)).
+`docker pull ghcr.io/donstephan/inlaycms` updates the image to the newest release. The image's default command is `inlaycms serve`, with its data in a volume at `/data` (see [Running a host](#running-a-host)).
 
 ### Types in your editor
 
@@ -242,7 +249,7 @@ Without `node_modules`, an editor on your computer can't find Inlay's types. Ope
 ```json
 {
   "name": "Inlay site",
-  "image": "inlaycms",
+  "image": "ghcr.io/donstephan/inlaycms",
   "containerEnv": { "INLAY_DATA_DIR": "" },
   "forwardPorts": [3000]
 }

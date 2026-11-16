@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 220 48" width="220" height="48" role="img" aria-label="Example Studio">
+  <rect x="4" y="4" width="40" height="40" rx="10" fill="#1d4ed8"/>
+  <path d="M16 15h16v4H21v4h9v4h-9v4h11v4H16z" fill="#ffffff"/>
+  <text x="56" y="31" font-family="system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif" font-size="20" font-weight="600" fill="#1c1917">Example Studio</text>
+</svg>

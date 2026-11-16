@@ -1,0 +1,11 @@
+{
+  "name": "inlay-pack-test",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "inlaycms": "file:/pack/inlaycms.tgz",
+    "fastify": "^5",
+    "typescript": "^7",
+    "@types/node": "^24"
+  }
+}

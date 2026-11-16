@@ -1,0 +1,555 @@
+import { t } from '../../src/core/messages/index.js'
+import { markdownToRichText, richTextToMarkdown, type RichTextProblem } from '../../src/core/richtext/markdown.js'
+import { DEFAULT_RICH_TEXT, parseRichText, richTextText, type RichTextDoc } from '../../src/core/richtext/schema.js'
+
+const uuid = '6f1c2b1e-8a3d-4b7e-9c2a-000000000001'
+const sha = 'ab'.repeat(32)
+
+const para = (...content: unknown[]) => ({ type: 'paragraph', content })
+const text = (s: string, marks?: unknown[]) => (marks ? { type: 'text', text: s, marks } : { type: 'text', text: s })
+const item = (...content: unknown[]) => ({ type: 'listItem', content })
+const bold = { type: 'bold' }
+const italic = { type: 'italic' }
+const link = (href: string) => ({ type: 'link', attrs: { href } })
+
+function doc(...content: unknown[]): RichTextDoc {
+  const parsed = parseRichText({ type: 'doc', content }, DEFAULT_RICH_TEXT)
+  if (!parsed.ok) throw new Error('test doc is not valid')
+  return parsed.doc
+}
+
+function roundTrip(d: RichTextDoc) {
+  const markdown = richTextToMarkdown(d)
+  const back = markdownToRichText(markdown)
+  return { markdown, back }
+}
+
+function expectRoundTrip(d: RichTextDoc) {
+  const { markdown, back } = roundTrip(d)
+  expect(back, markdown).toEqual({ ok: true, doc: d })
+}
+
+/** Each visible character with the bold and italic on it. */
+function emphasis(d: RichTextDoc): string[] {
+  const out: string[] = []
+  const visit = (node: unknown): void => {
+    const n = node as { type?: string; text?: string; marks?: { type: string }[]; content?: unknown[] }
+    if (n.type === 'text') {
+      for (const c of n.text ?? '') {
+        if (/\S/.test(c)) out.push(c + (n.marks ?? []).filter((m) => m.type !== 'link').map((m) => m.type).join())
+      }
+    }
+    n.content?.forEach(visit)
+  }
+  visit(d)
+  return out
+}
+
+function problems(markdown: string, opts?: Parameters<typeof markdownToRichText>[1]): RichTextProblem[] {
+  const result = markdownToRichText(markdown, opts)
+  if (result.ok) throw new Error(`expected problems for ${JSON.stringify(markdown)}`)
+  return result.problems
+}
+
+const full = doc(
+  { type: 'heading', attrs: { level: 2 }, content: [text('Heading')] },
+  para(
+    text('Some '),
+    text('bold', [bold]),
+    text(' and '),
+    text('italic', [italic]),
+    text(' text with a '),
+    text('link', [link('https://example.com')]),
+    text(' and '),
+    text('About', [{ type: 'link', attrs: { document: uuid } }]),
+    text('.'),
+  ),
+  {
+    type: 'bulletList',
+    content: [item(para(text('One'))), item(para(text('Two')), { type: 'bulletList', content: [item(para(text('Nested')))] })],
+  },
+  { type: 'orderedList', attrs: { start: 3 }, content: [item(para(text('Three'))), item(para(text('Four')))] },
+  { type: 'blockquote', content: [para(text('Quoted'))] },
+  para(text('Line one'), { type: 'hardBreak' }, text('line two')),
+  para({ type: 'image', attrs: { media: sha, alt: 'A photo' } }),
+)
+
+describe('richTextToMarkdown', () => {
+  it('writes every feature as CommonMark', () => {
+    expect(richTextToMarkdown(full)).toBe(
+      [
+        '## Heading',
+        '',
+        `Some **bold** and *italic* text with a [link](https://example.com) and [About](inlay:document/${uuid}).`,
+        '',
+        '- One',
+        '- Two',
+        '  - Nested',
+        '',
+        '3. Three',
+        '4. Four',
+        '',
+        '> Quoted',
+        '',
+        'Line one\\',
+        'line two',
+        '',
+        `![A photo](inlay:media/${sha})`,
+      ].join('\n'),
+    )
+  })
+
+  it('round-trips the full doc', () => {
+    expectRoundTrip(full)
+  })
+
+  it.each([
+    '2 * 3 = 6',
+    'snake_case_name',
+    '[not a link]',
+    '1. not a list',
+    '# not a heading',
+    '> not a quote',
+    '- not a list',
+    '+1 for this',
+    '<b>not html</b>',
+    'AT&T and &amp; literal',
+    'C:\\path\\to',
+    '`backticks`',
+    '¿Qué? Café 🎉',
+    '1.',
+    '1) not a list',
+    '+',
+    '    indented - not code',
+    ' - leading space',
+    '<https://example.com>',
+    '&#32; and &copy;',
+    'wow!',
+    '***',
+    '___',
+    '_a_',
+  ])('round-trips the text %j', (s) => {
+    expectRoundTrip(doc(para(text(s))))
+  })
+
+  it.each(['https://example.com/a_(b)', '/about us', 'https://example.com/a\\b', 'https://example.com/?a=1&amp;b=2'])(
+    'round-trips a link to %j',
+    (href) => {
+      expectRoundTrip(doc(para(text('go', [link(href)]))))
+    },
+  )
+
+  it('round-trips awkward text in headings, lists, quotes and after hard breaks', () => {
+    expectRoundTrip(doc({ type: 'heading', attrs: { level: 3 }, content: [text('C# and x #')] }))
+    expectRoundTrip(doc({ type: 'heading', attrs: { level: 2 }, content: [text('#')] }))
+    expectRoundTrip(doc({ type: 'bulletList', content: [item(para(text('- dash'))), item(para(text('1. one')))] }))
+    expectRoundTrip(doc({ type: 'blockquote', content: [para(text('> nested?'))] }))
+    for (const after of ['- b', '1. b', '+ b', '# b', '> b', '===', '---', ' b']) {
+      expectRoundTrip(doc(para(text('a'), { type: 'hardBreak' }, text(after))))
+    }
+    expectRoundTrip(doc(para(text('a'), { type: 'hardBreak' }, { type: 'hardBreak' }, text('b'))))
+  })
+
+  it('round-trips marks on images and hard breaks', () => {
+    expectRoundTrip(doc(para({ type: 'image', attrs: { media: sha, alt: 'x' }, marks: [link('https://example.com')] })))
+    expectRoundTrip(doc(para({ type: 'image', attrs: { media: sha }, marks: [bold] })))
+    expectRoundTrip(doc(para(text('a', [bold]), { type: 'hardBreak', marks: [bold] }, text('b', [bold]))))
+    expectRoundTrip(doc(para(text('wow!'), text('link', [link('/x')]))))
+    expectRoundTrip(doc(para(text('both', [bold, italic]), text(' then '), text('it', [italic]))))
+  })
+
+  it('does not crash on hard breaks at the edges or marks around them', () => {
+    expect(() => richTextToMarkdown(doc(para(text('a', [bold]), { type: 'hardBreak', marks: [bold] })))).not.toThrow()
+    expect(() => richTextToMarkdown(doc(para({ type: 'hardBreak' }, text('b'))))).not.toThrow()
+    expect(() => richTextToMarkdown(doc(para({ type: 'image', attrs: { media: sha, alt: 'a\n\nb [x]' } })))).not.toThrow()
+  })
+
+  it('keeps adjacent lists apart', () => {
+    expectRoundTrip(
+      doc({ type: 'bulletList', content: [item(para(text('a')))] }, { type: 'bulletList', content: [item(para(text('b')))] }),
+    )
+    expectRoundTrip(
+      doc(
+        { type: 'orderedList', content: [item(para(text('a')))] },
+        { type: 'orderedList', content: [item(para(text('b')))] },
+      ),
+    )
+  })
+
+  it('separates a nested list that could not interrupt the paragraph above it', () => {
+    const three = { type: 'orderedList', attrs: { start: 3 }, content: [item(para(text('b')))] }
+    const empty = { type: 'bulletList', content: [item({ type: 'paragraph' })] }
+    const nested = (...content: unknown[]) => doc({ type: 'bulletList', content: [item(...content)] })
+    expect(richTextToMarkdown(nested(para(text('a')), three))).toBe('- a\n\n  3. b')
+    expectRoundTrip(nested(para(text('a')), three))
+    expectRoundTrip(nested(para(text('x')), empty))
+    expect(markdownToRichText(richTextToMarkdown(nested(para(text('x')), empty)), { headings: [] }).ok).toBe(true)
+    expectRoundTrip(nested(para(text('a')), { type: 'bulletList', content: [item(para(text('b')))] }, three))
+    expectRoundTrip(nested(para(text('a')), { type: 'blockquote', content: [para(text('q'))] }, three))
+    expectRoundTrip(doc({ type: 'blockquote', content: [para(text('q')), three] }))
+    expectRoundTrip(doc({ type: 'bulletList', content: [item(para(text('a')), three), item(para(text('c')))] }))
+    expectRoundTrip(doc({ type: 'bulletList', content: [item(para(text('a')), { type: 'orderedList', content: [item(para(text('b')))] })] }))
+    const deep = doc({
+      type: 'bulletList',
+      content: [item({ type: 'paragraph' }, { type: 'bulletList', content: [item({ type: 'paragraph' }, empty)] })],
+    })
+    expect(richTextToMarkdown(deep)).toBe('- * - ')
+    expectRoundTrip(deep)
+  })
+
+  it('writes bold and italic next to punctuation and each other so they read back', () => {
+    const cases = [
+      doc(para(text('He said'), text('"hi"', [italic]), text(' ok'))),
+      doc(para(text('a', [bold]), text('b', [bold, italic]), text('c', [italic]))),
+      doc(para(text('a', [italic]), text('b', [bold]))),
+      doc(para(text('x'), text('(y)', [bold]), text('z'))),
+      doc(para(text('a', [bold, italic]), text('b', [bold]), text('c', [bold, italic]))),
+      doc(para(text('!(', [bold, italic]), text('z', [bold]), text('-', [bold, italic]))),
+      doc(para(text('x_y'), text('z', [italic]), text('!'))),
+      doc(para(text('snake_case', [bold]), text('_', [italic]), text('x'))),
+      doc(para(text('mid'), text('word', [bold]), text('s'))),
+      doc(para(text('a', [bold]), { type: 'hardBreak', marks: [bold] }, { type: 'hardBreak', marks: [bold] }, text('b'))),
+      doc(para(text('x['), text('!', [bold, italic]), text(' ', [italic]))),
+    ]
+    for (const d of cases) {
+      const { markdown, back } = roundTrip(d)
+      expect(back.ok, markdown).toBe(true)
+      if (!back.ok) continue
+      expect(richTextText(back.doc), markdown).toBe(richTextText(d))
+      expect(emphasis(back.doc), markdown).toEqual(emphasis(d))
+    }
+    expect(richTextToMarkdown(cases[0]!)).toBe('He sai&#100;*"hi"* ok')
+    expect(richTextToMarkdown(cases[1]!)).toBe('**&#97;_b_**_c_')
+    expect(richTextToMarkdown(doc(para(text('Some '), text('bold', [bold]), text(' text'))))).toBe('Some **bold** text')
+  })
+
+  it('round-trips whitespace at the ends of a paragraph', () => {
+    expectRoundTrip(doc(para(text('a '))))
+    expectRoundTrip(doc(para(text('\u00a0a\u00a0'))))
+    expectRoundTrip(doc({ type: 'heading', attrs: { level: 2 }, content: [text('a ')] }))
+  })
+
+  it('keeps bold and italic when a link next to them has spaces at its ends', () => {
+    const cases = [
+      doc(para(text('Tip:', [bold]), text(' '), text('Click here ', [link('/guide'), italic]), text('to read the guide.', [italic]))),
+      doc(para(text(' x', [link('/a'), bold]))),
+      doc(para(text('a '), text(' b ', [link('/a'), bold, italic]), text(' c', [bold]))),
+    ]
+    for (const d of cases) {
+      const { markdown, back } = roundTrip(d)
+      expect(back.ok, markdown).toBe(true)
+      if (!back.ok) continue
+      expect(richTextText(back.doc), markdown).toBe(richTextText(d))
+      expect(emphasis(back.doc), markdown).toEqual(emphasis(d))
+    }
+    expect(richTextToMarkdown(cases[0]!)).toBe('**Tip:** [*Click here* ](/guide)*to read the guide.*')
+  })
+
+  it('keeps lists apart and in place around paragraphs that were only line breaks', () => {
+    const br = { type: 'hardBreak' }
+    const list = (s: string) => ({ type: 'bulletList', content: [item(para(text(s)))] })
+    expectRoundTrip(doc(list('a'), para(br), list('b')))
+    expect(markdownToRichText(richTextToMarkdown(doc(list('a'), para(br), list('b'))))).toEqual({
+      ok: true,
+      doc: doc(list('a'), list('b')),
+    })
+    const intro = doc({
+      type: 'bulletList',
+      content: [item(para(text('Intro')), { type: 'bulletList', content: [item({ type: 'paragraph' }, para(br))] })],
+    })
+    expect(markdownToRichText(richTextToMarkdown(intro), { headings: [] }).ok).toBe(true)
+    expectRoundTrip(intro)
+    const inList = richTextToMarkdown(doc({ type: 'bulletList', content: [item({ type: 'paragraph' }, para(br), para(text('x')))] }))
+    expect(markdownToRichText(inList)).toEqual({ ok: true, doc: doc({ type: 'bulletList', content: [item(para(text('x')))] }) })
+  })
+
+  it('lines up a numbered list that starts on its parent item\'s first line', () => {
+    const steps = (start: number, count: number) => ({
+      type: 'orderedList',
+      attrs: { start },
+      content: Array.from({ length: count }, (_, i) => item(para(text(`step ${i}`)))),
+    })
+    const tenSteps = doc({ type: 'bulletList', content: [item({ type: 'paragraph' }, steps(1, 10))] })
+    expectRoundTrip(tenSteps)
+    expect(richTextToMarkdown(tenSteps).split('\n').slice(-2)).toEqual(['  9.  step 8', '  10. step 9'])
+    expectRoundTrip(doc({ type: 'orderedList', attrs: { start: 99 }, content: [item({ type: 'paragraph' }, steps(99, 2)), item(para(text('z')))] }))
+    expectRoundTrip(doc(steps(8, 5)))
+  })
+
+  it('handles runs of # and digits at the start of a line', () => {
+    expectRoundTrip(doc(para(text('#'.repeat(26) + 'x'), text('y', [bold]))))
+    expectRoundTrip(doc(para(text('####### a'), text('b', [bold]))))
+    expectRoundTrip(doc(para(text('#######'), text('x', [bold]))))
+    expectRoundTrip(doc(para(text('1234567890. x'), text('y', [italic]))))
+    expect(markdownToRichText('####### x')).toEqual({ ok: true, doc: doc(para(text('####### x'))) })
+  })
+
+  it('escapes a ! before a link, even after an escaped backslash', () => {
+    expectRoundTrip(doc(para(text('Wow!'), text('link', [link('/x')]))))
+    expectRoundTrip(doc(para(text('a\\!'), text('link', [link('/x')]))))
+    expectRoundTrip(doc(para(text('!'), text('link', [link('/x')]))))
+  })
+
+  it('round-trips alt text with markdown characters and an empty list item', () => {
+    expectRoundTrip(doc(para({ type: 'image', attrs: { media: sha, alt: 'a *b* [c] &amp;' } })))
+    expectRoundTrip(doc({ type: 'bulletList', content: [item({ type: 'paragraph' }), item(para(text('b')))] }))
+    expectRoundTrip(doc({ type: 'orderedList', attrs: { start: 0 }, content: [item(para(text('zero')))] }))
+  })
+})
+
+describe('markdownToRichText', () => {
+  it('turns a soft line break into a space', () => {
+    expect(markdownToRichText('line one\nline two')).toEqual({ ok: true, doc: doc(para(text('line one line two'))) })
+  })
+
+  it('reads an empty string as an empty doc', () => {
+    expect(markdownToRichText('')).toEqual({ ok: true, doc: { type: 'doc', content: [] } })
+  })
+
+  it('reads internal links, images and a loose list', () => {
+    const result = markdownToRichText(`[About](inlay:document/${uuid}) ![](inlay:media/${sha})\n\n- a\n\n- b`)
+    expect(result).toEqual({
+      ok: true,
+      doc: doc(
+        para(text('About', [{ type: 'link', attrs: { document: uuid } }]), text(' '), { type: 'image', attrs: { media: sha } }),
+        { type: 'bulletList', content: [item(para(text('a'))), item(para(text('b')))] },
+      ),
+    })
+  })
+
+  it('rejects a fenced code block, naming its line', () => {
+    const found = problems('Intro\n\n```\ncode\n```')
+    expect(found).toHaveLength(1)
+    expect(found[0]).toMatchObject({ code: 'unsupported', line: 3 })
+    expect(found[0]?.message).toMatch(/^Line 3: /)
+    expect(found[0]?.message).toMatch(/code block/)
+  })
+
+  it('rejects inline code, rules and indented code', () => {
+    expect(problems('`x`')).toMatchObject([{ code: 'unsupported', line: 1 }])
+    expect(problems('---')).toMatchObject([{ code: 'unsupported', line: 1 }])
+    expect(problems('a\n\n    code')).toMatchObject([{ code: 'unsupported', line: 3 }])
+  })
+
+  it('rejects HTML, tables and strikethrough instead of keeping them as literal text', () => {
+    const html = problems('Hi <b>there</b>.')
+    expect(html).toMatchObject([{ code: 'unsupported', line: 1 }])
+    expect(html[0]?.message).toContain(t('richtext.feature.html'))
+    expect(problems('Intro\n\n<div>x</div>')).toMatchObject([{ code: 'unsupported', line: 3 }])
+    const table = problems('| a | b |\n|---|---|\n| 1 | 2 |')
+    expect(table).toMatchObject([{ code: 'unsupported', line: 1 }])
+    expect(table[0]?.message).toContain(t('richtext.feature.table'))
+    const strike = problems('~~gone~~')
+    expect(strike).toMatchObject([{ code: 'unsupported', line: 1 }])
+    expect(strike[0]?.message).toContain(t('richtext.feature.strike'))
+  })
+
+  it('accepts the escaped forms that reading rich text back gives', () => {
+    const d = doc(para(text('Hi <b>there</b> ~~not struck~~ | a | b |')))
+    const { markdown, back } = roundTrip(d)
+    expect(back).toEqual({ ok: true, doc: d })
+    expect(markdown).not.toBe('Hi <b>there</b> ~~not struck~~ | a | b |')
+  })
+
+  it('rejects a heading level the field does not allow, listing the allowed levels', () => {
+    const found = problems('# Title')
+    expect(found).toMatchObject([{ code: 'heading_level', line: 1 }])
+    expect(found[0]?.message).toContain('2, 3, 4')
+  })
+
+  it('rejects images that are not from the media library', () => {
+    expect(problems('![x](https://img.example/x.png)')).toMatchObject([{ code: 'image_source', line: 1 }])
+    expect(problems('![x](inlay:media/abc)')).toMatchObject([{ code: 'image_source', line: 1 }])
+  })
+
+  it('rejects unsafe link URLs', () => {
+    expect(problems('[x](javascript:alert(1))')).toMatchObject([{ code: 'link_url', line: 1 }])
+    expect(problems('[x](inlay:document/nope)')).toMatchObject([{ code: 'link_url', line: 1 }])
+  })
+
+  it('rejects features the field does not allow', () => {
+    const found = problems('- item', { features: ['bold', 'italic'] })
+    expect(found).toMatchObject([{ code: 'not_allowed', line: 1 }])
+    expect(found[0]?.message).toMatch(/list/)
+    expect(problems('a\n**b**', { features: ['italic'] })).toMatchObject([{ code: 'not_allowed', line: 2 }])
+    expect(problems('## x', { features: ['bold'] })).toMatchObject([{ code: 'not_allowed', line: 1 }])
+  })
+
+  it('reports every problem, each on its own line', () => {
+    const found = problems('# Title\n\nSome `code` here\nand ![x](https://img.example/x.png)')
+    expect(found).toMatchObject([
+      { code: 'heading_level', line: 1 },
+      { code: 'unsupported', line: 3 },
+      { code: 'image_source', line: 4 },
+    ])
+  })
+
+  it('rejects images and line breaks inside headings', () => {
+    expect(problems(`## a ![x](inlay:media/${sha})`)).toMatchObject([{ code: 'unsupported', line: 1 }])
+    expect(problems('a\\\nb\n---')).toMatchObject([{ code: 'unsupported', line: 1 }])
+  })
+
+  it('rejects link addresses with control characters', () => {
+    expect(problems('[x](<a\tb>)')).toMatchObject([{ code: 'link_url', line: 1 }])
+  })
+
+  it('reports link reference definitions no link uses, rather than dropping them', () => {
+    const found = problems('Intro\n\n[1]: https://example.com\n\nOutro')
+    expect(found).toMatchObject([{ code: 'unsupported', line: 3 }])
+    expect(found[0]?.message).toMatch(/^Line 3: "\[1\]: https:\/\/example.com"/)
+    expect(problems('> [x]: /a')).toMatchObject([{ code: 'unsupported', line: 1 }])
+    expect(problems('[1]: /a\n[1]: /b\n\n[1]')).toMatchObject([{ code: 'unsupported', line: 2 }])
+    expect(markdownToRichText('See [it][1].\n\n[1]: https://example.com')).toEqual({
+      ok: true,
+      doc: doc(para(text('See '), text('it', [link('https://example.com')]), text('.'))),
+    })
+    expect(problems('[x][1]\n\n[1]: javascript:alert(1)')).toMatchObject([{ code: 'link_url', line: 1 }])
+  })
+
+  it('reports quotes and lists nested too deeply, rather than dropping what follows', () => {
+    const quotes = problems('>'.repeat(25) + ' x\n\nafter')
+    expect(quotes).toMatchObject([{ code: 'unsupported', line: 1 }])
+    expect(quotes[0]?.message).toMatch(/nested too deeply/)
+    const list = Array.from({ length: 10 }, (_, i) => '  '.repeat(i) + '- x').join('\n') + '\n\nafter'
+    expect(problems(list)).toMatchObject([{ code: 'unsupported', line: 10 }])
+    expect(markdownToRichText('>'.repeat(19) + ' x').ok).toBe(true)
+  })
+
+  it('rejects link and image titles rather than dropping them', () => {
+    expect(problems('[x](/a "Title")')).toMatchObject([{ code: 'unsupported', line: 1 }])
+  })
+
+  it('rejects link addresses with control characters, even absolute ones', () => {
+    expect(problems('[x](<https://example.com/a\tb>)')).toMatchObject([{ code: 'link_url', line: 1 }])
+  })
+
+  it('writes plain-language messages', () => {
+    for (const p of problems('```\nx\n```\n\n# T\n\n[x](javascript:x)', { features: ['bold', 'link'] })) {
+      expect(p.message).toMatch(/^Line \d+: /)
+      expect(p.message).not.toMatch(/richtext\.|undefined|\{/)
+    }
+  })
+
+  it.each(['**', '[', '![]()', '\\', '> ', '1.', '- ', '>', '[](<>)', '![', '*a **b* c**', '\u0000', '- # x', '- - x', '[a]:', '>'.repeat(200), '- '.repeat(100) + 'x'])(
+    'never throws on %j',
+    (s) => {
+      expect(() => markdownToRichText(s)).not.toThrow()
+    },
+  )
+})
+
+describe('markdown fuzz', () => {
+  const pieces = ['a', 'b ', ' ', '\n', '\n\n', '*', '**', '_', '[', ']', '(', ')', '!', '#', '## ', '> ', '- ', '1. ', '3) ', '\\', '&amp;', '<', '>', '`', '   ', '\t', 'x_y', '=', '---', `![p](inlay:media/${sha})`, '[l](/x)', '  \n', '\n  - ', '\n  3. ', '\n   1) ', '"', '[1]: /y\n', '[1]']
+
+  it('never throws, and anything it accepts round-trips', () => {
+    let seed = 42
+    const random = () => {
+      seed = (seed * 1103515245 + 12345) % 2 ** 31
+      return seed / 2 ** 31
+    }
+    for (let n = 0; n < 3000; n++) {
+      const length = 1 + Math.floor(random() * 12)
+      let input = ''
+      for (let i = 0; i < length; i++) input += pieces[Math.floor(random() * pieces.length)]
+      const first = markdownToRichText(input)
+      if (!first.ok) continue
+      const markdown = richTextToMarkdown(first.doc)
+      expect(markdownToRichText(markdown), JSON.stringify({ input, markdown })).toEqual(first)
+    }
+  })
+
+  /** Random docs from a fixed seed; `loose` adds line breaks and spaces at the ends of text. */
+  function randomDocs(count: number, loose: boolean): RichTextDoc[] {
+    let seed = loose ? 11 : 7
+    const random = () => {
+      seed = (seed + 0x6d2b79f5) | 0
+      let x = Math.imul(seed ^ (seed >>> 15), 1 | seed)
+      x = (x + Math.imul(x ^ (x >>> 7), 61 | x)) ^ x
+      return ((x ^ (x >>> 14)) >>> 0) / 4294967296
+    }
+    const pick = <T,>(list: readonly T[]): T => list[Math.floor(random() * list.length)]!
+    const texts = ['a', 'b c', '"', '(', ')', '.', '*', '_', 'x_y', '!', '[', ']', '&amp;', '1.', '#', '\\', '<', 'é', '🎉', ',', '`', '-', '&', ';', '9']
+    if (loose) texts.push(' ', ' x ', 'a  b')
+    const markSets = [[], [], [bold], [italic], [bold, italic], [link('/a')], [link('/a'), italic], [link('/b'), bold]]
+    const inline = () =>
+      Array.from({ length: 1 + Math.floor(random() * 6) }, () => {
+        const marks = pick(markSets)
+        if (loose && random() < 0.08) return { type: 'hardBreak', marks }
+        return text(pick(texts) + (random() < 0.5 ? pick(texts) : ''), marks)
+      })
+    const block = (depth: number): unknown => {
+      const k = random()
+      if (depth < 3 && k < 0.15) return { type: 'blockquote', content: [block(depth + 1)] }
+      if (depth < 3 && k < 0.35) {
+        const items = Array.from({ length: 1 + Math.floor(random() * 2) }, () =>
+          random() < 0.15 ? item({ type: 'paragraph' }) : item(para(...inline()), ...(random() < 0.5 ? [block(depth + 1)] : [])),
+        )
+        return random() < 0.5
+          ? { type: 'bulletList', content: items }
+          : { type: 'orderedList', attrs: { start: pick([0, 1, 2, 3]) }, content: items }
+      }
+      return para(...inline())
+    }
+    const docs: RichTextDoc[] = []
+    while (docs.length < count) {
+      const parsed = parseRichText({ type: 'doc', content: [block(0), block(0)] }, DEFAULT_RICH_TEXT)
+      if (parsed.ok) docs.push(parsed.doc)
+    }
+    return docs
+  }
+
+  it('round-trips docs built as JSON, with marks next to punctuation and nested lists', () => {
+    for (const d of randomDocs(2000, false)) expectRoundTrip(d)
+  })
+
+  it('keeps the text and the bold and italic on it with line breaks and spaces in the mix', () => {
+    for (const d of randomDocs(2000, true)) {
+      const { markdown, back } = roundTrip(d)
+      expect(back.ok, markdown).toBe(true)
+      if (!back.ok) continue
+      expect(emphasis(back.doc), markdown).toEqual(emphasis(d))
+    }
+  })
+})
+
+/** Runs `f` and checks it took less than `ms`: far above the time it takes, far below the time a slowdown would. */
+function fast<T>(ms: number, f: () => T): T {
+  const start = performance.now()
+  const result = f()
+  expect(performance.now() - start).toBeLessThan(ms)
+  return result
+}
+
+describe('large and awkward input', () => {
+  it('writes long runs of # without backtracking', () => {
+    for (const n of [40, 5000]) {
+      const d = doc(para(text('#'.repeat(n) + 'x'), text('y', [bold])))
+      expect(markdownToRichText(fast(1000, () => richTextToMarkdown(d)))).toEqual({ ok: true, doc: d })
+    }
+  })
+
+  it('tracks many link reference definitions in linear time', () => {
+    const markdown = Array.from({ length: 20000 }, (_, i) => `[d${i}]: /x`).join('\n') + '\n\nSee [it][d5].'
+    const found = fast(2000, () => problems(markdown))
+    expect(found).toHaveLength(19999)
+    expect(found[0]).toMatchObject({ line: 1 })
+  })
+
+  it('writes many bold line breaks, links and long spaces in linear time', () => {
+    const breaks = doc(para(text('a', [bold]), ...Array.from({ length: 20000 }, () => ({ type: 'hardBreak', marks: [bold] })), text('b', [bold])))
+    expect(emphasis((markdownToRichText(fast(2000, () => richTextToMarkdown(breaks))) as { doc: RichTextDoc }).doc)).toEqual(['abold', 'bbold'])
+    const links = doc(para(...Array.from({ length: 20000 }, (_, i) => text(`w${i}!`, i % 2 ? [link('/x')] : undefined))))
+    expectRoundTripOf(fast(2000, () => richTextToMarkdown(links)), links)
+    const spaces = doc(para(text('a' + ' '.repeat(200000) + 'b', [bold]), text('c')))
+    expectRoundTripOf(fast(2000, () => richTextToMarkdown(spaces)), spaces)
+    const bolds = doc(para(...Array.from({ length: 20000 }, (_, i) => text(`w${i} `, i % 2 ? [bold] : undefined))))
+    const back = markdownToRichText(fast(3000, () => richTextToMarkdown(bolds)))
+    expect(back.ok && emphasis(back.doc)).toEqual(emphasis(bolds))
+    const paragraphs = doc(...Array.from({ length: 20000 }, (_, i) => para(text(`p${i} `), text('b', [bold]))))
+    expectRoundTripOf(fast(3000, () => richTextToMarkdown(paragraphs)), paragraphs)
+  })
+})
+
+function expectRoundTripOf(markdown: string, d: RichTextDoc) {
+  expect(markdownToRichText(markdown)).toEqual({ ok: true, doc: d })
+}

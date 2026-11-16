@@ -1,0 +1,38 @@
+# Containers for working on Inlay itself (docker compose: test, dev, pack-test). The Inlay image is in Dockerfile.
+FROM node:24-bookworm-slim AS base
+# Keep in step with "packageManager" in package.json
+RUN npm install -g pnpm@12.16.1
+WORKDIR /app
+RUN chown node:node /app
+USER node
+COPY --chown=node:node package.json pnpm-lock.yaml pnpm-workspace.yaml ./
+# better-sqlite3 ships prebuilt binaries and pnpm-workspace.yaml turns off build scripts, so no compiler is needed.
+# --ignore-scripts skips our own "prepare" build, which needs the sources copied below.
+RUN --mount=type=cache,id=pnpm-dev,target=/home/node/.pnpm-store,uid=1000,gid=1000 \
+    pnpm install --frozen-lockfile --ignore-scripts --store-dir /home/node/.pnpm-store
+COPY --chown=node:node . .
+
+FROM base AS test
+CMD ["pnpm", "test"]
+
+FROM base AS dev
+# Pre-create the data volume's mount point so a fresh named volume is owned by node, not root
+RUN mkdir -p example/data
+ENV INLAY_HOST=0.0.0.0
+EXPOSE 3000
+CMD ["pnpm", "run", "dev"]
+
+FROM base AS pack
+RUN pnpm run build && pnpm pack --out /tmp/inlaycms.tgz
+
+FROM node:24-bookworm-slim AS pack-test
+WORKDIR /site
+RUN mkdir /pack /site/data && chown node:node /site /site/data /pack
+USER node
+COPY --from=pack --chown=node:node /tmp/inlaycms.tgz /pack/inlaycms.tgz
+COPY --chown=node:node example/ ./
+COPY --chown=node:node scripts/pack-test/ ./
+# A site installs with npm, not pnpm, and fresh (no lockfile), as most new sites will.
+# The npm cache persists across builds.
+RUN --mount=type=cache,id=npm,target=/home/node/.npm,uid=1000,gid=1000 npm install
+CMD ["node", "smoke.mjs"]

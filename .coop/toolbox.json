@@ -1,0 +1,14 @@
+{
+  "commands": {
+    "node": {},
+    "pnpm": { "allow": ["test", "run"] },
+    "npm": {},
+    "npx": {},
+    "sqlite3": {},
+    "python3": {},
+    "pip3": {},
+    "jq": {},
+    "curl": {}
+  },
+  "network": "inlay-dev"
+}

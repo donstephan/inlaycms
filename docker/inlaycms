@@ -1,0 +1,58 @@
+#!/usr/bin/env bash
+# `inlaycms` through Docker: runs the Inlay image's CLI on the current folder, so this computer needs Docker and no
+# Node or npm. The folder is mounted at the same path inside the container, so paths in arguments and output mean
+# the same thing on both sides; files outside it aren't visible to the command.
+#
+# Install it from the image:
+#   docker run --rm <image> cat /opt/inlaycms/wrapper/inlaycms > ~/.local/bin/inlaycms && chmod +x ~/.local/bin/inlaycms
+#
+# Settings, from the environment:
+#   INLAY_IMAGE        the image to run (default: inlaycms)
+#   INLAY_DOCKER_ARGS  more `docker run` options, split on spaces: `-e CAPTCHA_SECRET` for a secret the site
+#                      declares, `--network host` to push to a server on this computer
+#   INLAY_*            every other INLAY_ setting is passed to the command; INLAY_DATA_DIR is mounted too
+set -euo pipefail
+
+image=${INLAY_IMAGE:-inlaycms}
+here=$(pwd -P)
+
+# Files the command writes belong to you, not to root or the image's user.
+run=(docker run --rm --init -u "$(id -u):$(id -g)" -e HOME=/tmp -v "$here:$here" -w "$here")
+if [ -t 0 ] && [ -t 1 ]; then run+=(-it); else run+=(-i); fi
+
+for name in $(compgen -e); do
+  case $name in
+    INLAY_IMAGE | INLAY_DOCKER_ARGS | INLAY_DATA_DIR) ;;
+    INLAY_*) run+=(-e "$name") ;;
+  esac
+done
+
+# The image's INLAY_DATA_DIR (/data) is for the server it runs by default. Here the data folder is the one given,
+# mounted at its own path, or none: dev and the database commands then use the site folder, as without Docker.
+if [ -n "${INLAY_DATA_DIR:-}" ]; then
+  mkdir -p "$INLAY_DATA_DIR"
+  data=$(cd "$INLAY_DATA_DIR" && pwd -P)
+  run+=(-v "$data:$data" -e "INLAY_DATA_DIR=$data")
+else
+  run+=(-e INLAY_DATA_DIR=)
+fi
+
+# dev and serve answer on a port: publish it on this computer only, with the server listening on every address
+# inside the container (dev listens on localhost by default, which a published port can't reach).
+command=${1:-}
+if [ "$command" = dev ] || [ "$command" = serve ]; then
+  port=${INLAY_PORT:-3000}
+  previous=
+  for arg in "$@"; do
+    case $arg in --port=*) port=${arg#--port=} ;; esac
+    if [ "$previous" = --port ]; then port=$arg; fi
+    previous=$arg
+  done
+  run+=(-p "127.0.0.1:$port:$port")
+  if [ -z "${INLAY_HOST:-}" ]; then run+=(-e INLAY_HOST=0.0.0.0); fi
+fi
+
+extra=()
+if [ -n "${INLAY_DOCKER_ARGS:-}" ]; then read -r -a extra <<<"$INLAY_DOCKER_ARGS"; fi
+
+exec "${run[@]}" ${extra[@]+"${extra[@]}"} "$image" inlaycms "$@"

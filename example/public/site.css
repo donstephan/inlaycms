@@ -1,0 +1,9 @@
+body { font-family: system-ui, sans-serif; margin: 0; color: #1c2430; line-height: 1.6; }
+main, .site-header, .site-footer { max-width: 60rem; margin: 0 auto; padding: 1rem; }
+.site-header { display: flex; justify-content: space-between; }
+.site-header a { margin-right: 1rem; }
+.hero img { width: 100%; height: auto; border-radius: 8px; }
+.button { display: inline-block; padding: 0.5rem 1rem; background: #1d4e89; color: #fff; text-decoration: none; border-radius: 4px; }
+.features { display: grid; grid-template-columns: repeat(auto-fit, minmax(14rem, 1fr)); gap: 1rem; }
+blockquote { border-left: 4px solid #f2a65a; margin: 1rem 0; padding-left: 1rem; }
+.site-footer { color: #667; border-top: 1px solid #ddd; }

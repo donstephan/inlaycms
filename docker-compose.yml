@@ -1,0 +1,57 @@
+name: inlay
+services:
+  test:
+    pull_policy: build
+    build:
+      context: .
+      dockerfile: Dockerfile.dev
+      target: test
+    tmpfs:
+      - /tmp
+  pack-test:
+    pull_policy: build
+    build:
+      context: .
+      dockerfile: Dockerfile.dev
+      target: pack-test
+    tmpfs:
+      - /tmp
+  dev:
+    pull_policy: build
+    build:
+      context: .
+      dockerfile: Dockerfile.dev
+      target: dev
+    ports:
+      - "3000:3000"
+    volumes:
+      - .:/app
+      - node_modules:/app/node_modules
+      - data:/app/example/data
+    environment:
+      INLAY_SECRET: inlay-dev-only-secret-not-for-production-0123456789
+      INLAY_BASE_URL: http://localhost:3000
+  serve:
+    pull_policy: build
+    build:
+      context: .
+    ports:
+      - "3000:3000"
+    volumes:
+      - host-data:/data
+    # Taken from the shell: INLAY_SECRET (at least 32 random characters) and INLAY_TRUSTED_KEYS (the public keys
+    # whose releases this host accepts). inlaycms serve says which is missing.
+    environment:
+      - INLAY_SECRET
+      - INLAY_BASE_URL=${INLAY_BASE_URL:-http://localhost:3000}
+      - INLAY_TRUSTED_KEYS
+volumes:
+  node_modules:
+  data:
+  host-data:
+# External so `compose down` keeps it: coop's toolbox joins it and won't start without it.
+# Create once with `docker network create inlay-dev`.
+networks:
+  default:
+    name: inlay-dev
+    external: true

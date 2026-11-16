@@ -1,0 +1,13 @@
+{
+  "compilerOptions": {
+    "target": "ES2024",
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "jsx": "react-jsx",
+    "jsxImportSource": "inlaycms",
+    "strict": true,
+    "noEmit": true,
+    "skipLibCheck": false
+  },
+  "include": ["*.ts", "*.tsx"]
+}

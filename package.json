@@ -1,0 +1,99 @@
+{
+  "name": "inlaycms",
+  "version": "0.1.0",
+  "license": "MIT",
+  "type": "module",
+  "packageManager": "pnpm@12.16.1",
+  "engines": {
+    "node": ">=24"
+  },
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./site": {
+      "types": "./dist/site.d.ts",
+      "default": "./dist/site.js"
+    },
+    "./jsx-runtime": {
+      "types": "./dist/jsx/jsx-runtime.d.ts",
+      "default": "./dist/jsx/jsx-runtime.js"
+    },
+    "./jsx-dev-runtime": {
+      "types": "./dist/jsx/jsx-dev-runtime.d.ts",
+      "default": "./dist/jsx/jsx-dev-runtime.js"
+    }
+  },
+  "bin": {
+    "inlaycms": "dist/adapters/cli/bin.js"
+  },
+  "files": [
+    "dist",
+    "assets"
+  ],
+  "scripts": {
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit",
+    "build:admin": "node scripts/build-admin.mjs",
+    "build": "pnpm run build:admin && tsc -p tsconfig.build.json",
+    "prepare": "node scripts/build-admin.mjs && tsc -p tsconfig.build.json",
+    "dev": "node scripts/dev.mjs",
+    "example:check": "tsx src/adapters/cli/bin.ts check --config example/inlay.config.ts",
+    "example:pack": "tsx src/adapters/cli/bin.ts pack --config example/inlay.config.ts --key example/keys/dev.key --out example/data/release.tgz --no-typecheck",
+    "image": "docker build -t inlaycms .",
+    "image:test": "bash scripts/image-test.sh"
+  },
+  "dependencies": {
+    "@better-auth/api-key": "^1.7.15",
+    "@better-auth/core": "^1.7.15",
+    "@better-auth/mcp": "^1.7.15",
+    "@better-auth/oauth-provider": "^1.7.15",
+    "@fastify/multipart": "10.1.6",
+    "@modelcontextprotocol/server": "2.4.0",
+    "better-auth": "^1.7.15",
+    "better-sqlite3": "^13.0.3",
+    "esbuild": "^0.28.2",
+    "fastify-plugin": "^5.1.0",
+    "jose": "6.2.14",
+    "kysely": "^0.29.7",
+    "markdown-it": "^14.3.3",
+    "prosemirror-markdown": "^1.13.9",
+    "prosemirror-model": "^1.25.12",
+    "sharp": "^0.35.5",
+    "tar": "^7.5.22",
+    "zod": "^4.6.7"
+  },
+  "peerDependencies": {
+    "fastify": "^5.0.0"
+  },
+  "devDependencies": {
+    "@modelcontextprotocol/client": "2.4.0",
+    "@tailwindcss/cli": "^4.3.3",
+    "@tiptap/core": "^3.32.2",
+    "@tiptap/extension-blockquote": "^3.32.2",
+    "@tiptap/extension-bold": "^3.32.2",
+    "@tiptap/extension-document": "^3.32.2",
+    "@tiptap/extension-hard-break": "^3.32.2",
+    "@tiptap/extension-heading": "^3.32.2",
+    "@tiptap/extension-italic": "^3.32.2",
+    "@tiptap/extension-list": "^3.32.2",
+    "@tiptap/extension-paragraph": "^3.32.2",
+    "@tiptap/extension-text": "^3.32.2",
+    "@tiptap/extensions": "^3.32.2",
+    "@tiptap/pm": "^3.32.2",
+    "@types/better-sqlite3": "^9.6.0",
+    "@types/markdown-it": "^14.2.0",
+    "@types/node": "^24.19.2",
+    "daisyui": "^5.7.50",
+    "fastify": "^5.12.7",
+    "happy-dom": "^21.0.4",
+    "htmx.org": "^2.0.11",
+    "tailwindcss": "^4.3.3",
+    "tsx": "^4.23.15",
+    "typescript": "^7.0.2",
+    "vitest": "^5.0.5"
+  }
+}

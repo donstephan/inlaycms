@@ -1,0 +1,8 @@
+node_modules
+dist
+data
+example/data
+/assets
+docs/superpowers
+.sdd
+.ledger

@@ -1,0 +1,63 @@
+@import "tailwindcss";
+@plugin "daisyui" {
+  themes: all;
+}
+@source "../../src/adapters/admin";
+@source "../../src/core/fields/widgets.tsx";
+@source ".";
+
+/* Editor workspace. `client/admin` sets `data-view` (the Edit/Preview tabs) and `.no-preview` (Hide preview). */
+@media (width < 64rem) {
+  #workspace[data-view="edit"] #preview-pane {
+    display: none;
+  }
+  #workspace[data-view="preview"] #form-pane {
+    display: none;
+  }
+}
+@media (width >= 64rem) {
+  #workspace.no-preview {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  #workspace.no-preview #preview-pane {
+    display: none;
+  }
+}
+
+/* The card whose block the preview highlights. */
+details[data-card].is-active {
+  border-color: color-mix(in oklab, var(--color-primary) 55%, transparent);
+  box-shadow: 0 0 0 3px color-mix(in oklab, var(--color-primary) 12%, transparent);
+}
+
+/* The action sheet: a side panel that rises from the bottom on small screens. */
+dialog.sheet {
+  margin: 0 0 0 auto; padding: 0; border: 0;
+  height: 100dvh; max-height: 100dvh; width: min(32rem, 100vw); max-width: 100vw;
+  background: var(--color-base-100); color: var(--color-base-content);
+  border-left: 1px solid var(--color-base-300);
+  box-shadow: -12px 0 32px rgb(28 25 23 / .12);
+  transform: translateX(100%);
+  transition: transform .22s ease, overlay .22s allow-discrete, display .22s allow-discrete;
+}
+dialog.sheet.sheet-lg { width: min(44rem, 100vw); }
+dialog.sheet[open] { transform: none; }
+@starting-style { dialog.sheet[open] { transform: translateX(100%); } }
+dialog.sheet::backdrop { background: rgb(28 25 23 / 0); transition: background .22s, overlay .22s allow-discrete, display .22s allow-discrete; }
+dialog.sheet[open]::backdrop { background: rgb(28 25 23 / .35); }
+@starting-style { dialog.sheet[open]::backdrop { background: rgb(28 25 23 / 0); } }
+.sheet-panel { display: flex; flex-direction: column; height: 100%; }
+/* Small screens: the same sheet rises from the bottom. */
+@media (max-width: 40rem) {
+  dialog.sheet, dialog.sheet.sheet-lg {
+    margin: auto 0 0 0; width: 100vw; height: auto; max-height: 92dvh;
+    border-left: 0; border-top: 1px solid var(--color-base-300); border-radius: var(--radius-box) var(--radius-box) 0 0;
+    transform: translateY(100%);
+  }
+  dialog.sheet[open] { transform: none; }
+  @starting-style { dialog.sheet[open] { transform: translateY(100%); } }
+  .sheet-panel { height: auto; max-height: 92dvh; }
+}
+@media (prefers-reduced-motion: reduce) {
+  dialog.sheet, dialog.sheet::backdrop { transition: none; }
+}

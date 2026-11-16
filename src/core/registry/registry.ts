@@ -1,0 +1,268 @@
+import type { z } from 'zod'
+import { resolveTheme } from '../theme.js'
+import { InlayError } from '../errors.js'
+import { fieldMeta } from '../fields/define.js'
+import { defOf, unwrap } from '../fields/zod-internals.js'
+import type { MessageId } from '../messages/index.js'
+import { isReserved, normalizePath, routeRegExp, singletonPath, withLocale } from '../site/paths.js'
+import { KEY_PATTERN, type ShippedDocument } from './content.js'
+import type { BlockDef, SiteDefinition, TemplateDef, TypeDef } from './define.js'
+
+export interface Registry {
+  site: SiteDefinition
+  locales: readonly string[]
+  defaultLocale: string
+  types: ReadonlyMap<string, TypeDef>
+  /** Every block used by any type, by name. */
+  blocks: ReadonlyMap<string, BlockDef>
+  /** Every template used by any type, by name. */
+  templates: ReadonlyMap<string, TemplateDef>
+  /** Shipped documents by type. */
+  content: ReadonlyMap<string, readonly ShippedDocument[]>
+  /** Throws `InlayError('not_found')` for an unknown type. */
+  getType(name: string): TypeDef
+}
+
+const LOCALE = /^[a-z]{2,3}(-[A-Za-z0-9]+)*$/
+const NAME = /^[a-z][A-Za-z0-9_]*$/
+const SECRET = /^[A-Z][A-Z0-9_]*$/
+
+function fail(messageId: MessageId, params: Record<string, string | number>): never {
+  throw new InlayError('definition', messageId, params)
+}
+
+/** Checks every field of `shape` at any depth; `where` is the developer-facing dotted path prefix. */
+function checkShape(
+  shape: Record<string, z.core.$ZodType>,
+  where: string,
+  collections: ReadonlySet<string>,
+): void {
+  for (const [key, schema] of Object.entries(shape)) {
+    const field = `${where}.${key}`
+    if (!NAME.test(key)) fail('definition.fieldName', { field })
+    const meta = fieldMeta(schema as z.ZodType)
+    if (!meta) fail('definition.fieldWithoutMeta', { field })
+    if (meta.kind === 'ref' && (meta.target === undefined || !collections.has(meta.target))) {
+      fail('definition.refUnknown', { field, target: meta.target ?? '' })
+    }
+    const def = defOf(unwrap(schema))
+    if (meta.kind === 'group' && def.shape) checkShape(def.shape, field, collections)
+    if (meta.kind === 'list' && def.element) {
+      const item = defOf(unwrap(def.element))
+      if (item.shape) checkShape(item.shape, field, collections)
+    }
+  }
+}
+
+function checkTemplate(
+  template: TemplateDef,
+  collections: ReadonlySet<string>,
+  checked: Set<TemplateDef>,
+): void {
+  if (checked.has(template)) return
+  checked.add(template)
+  checkShape(template.fields.shape, template.name, collections)
+  for (const [key, slot] of Object.entries(template.slots)) {
+    if (!NAME.test(key)) fail('definition.slotName', { name: key, template: template.name })
+    checkShape(slot.block.schema.shape, slot.block.name, collections)
+  }
+}
+
+function checkPath(name: string, path: string, locales: readonly string[]): void {
+  const first = path.split('/')[1] ?? ''
+  if (normalizePath(path) !== path || /[?#]/.test(path) || isReserved(path) || locales.includes(first)) {
+    fail('definition.path', { name, path })
+  }
+}
+
+function checkType(type: TypeDef, site: SiteDefinition): void {
+  switch (type.kind) {
+    case 'singleton':
+      if (type.path !== null && typeof type.path === 'object' && !Object.hasOwn(type.path, site.defaultLocale)) {
+        fail('definition.pathDefaultLocale', { name: type.name, locale: site.defaultLocale })
+      }
+      if (type.path !== null) {
+        for (const p of typeof type.path === 'string' ? [type.path] : Object.values(type.path)) {
+          checkPath(type.name, p, site.locales)
+        }
+      }
+      break
+    case 'collection': {
+      const route = type.route
+      if (route !== null && (!route.startsWith('/') || route.split(':slug').length !== 2 || /[?#]/.test(route))) {
+        fail('definition.route', { name: type.name, route })
+      }
+      if (route !== null) {
+        const prefix = route.split(':slug')[0]!.replace(/\/$/, '')
+        if (prefix !== '') checkPath(type.name, prefix, site.locales)
+      }
+      const shape = type.template.fields.shape
+      const title = Object.hasOwn(shape, type.titleField) ? shape[type.titleField] : undefined
+      if (!title || fieldMeta(title as z.ZodType)?.kind !== 'text') {
+        fail('definition.titleField', { name: type.name, field: type.titleField })
+      }
+      break
+    }
+  }
+}
+
+function checkSettings(site: SiteDefinition, types: ReadonlyMap<string, TypeDef>): void {
+  resolveTheme(site.admin.theme)
+  if (site.notFound !== null) {
+    const def = types.get(site.notFound)
+    if (!def || def.kind !== 'singleton' || def.path !== null || !def.template.render) {
+      fail('definition.notFound', { name: String(site.notFound) })
+    }
+  }
+  for (const path of site.publicPaths) {
+    if (typeof path !== 'string' || !path.startsWith('/')) fail('definition.publicPath', { path: String(path) })
+  }
+  const secrets = new Set<string>()
+  for (const name of site.secrets) {
+    if (typeof name !== 'string' || !SECRET.test(name) || secrets.has(name)) fail('definition.secretName', { name: String(name) })
+    secrets.add(name)
+  }
+  const migrations = new Set<string>()
+  for (const { name } of site.migrations) {
+    if (typeof name !== 'string' || name.trim() === '' || migrations.has(name)) fail('definition.migrationName', { name: String(name) })
+    migrations.add(name)
+  }
+}
+
+/** Paths a route can't take: Inlay's reserved paths and the home page. */
+const isRouteReserved = (path: string) => path === '/' || isReserved(path)
+
+/** The type whose pages `path` would hide, in any locale, with or without its locale prefix. */
+function shadowedType(registry: Registry, path: string): string | null {
+  const { site } = registry
+  for (const locale of site.locales) {
+    for (const def of site.singletons) {
+      const p = singletonPath(def, locale, site.defaultLocale)
+      if (p !== null && (p === path || withLocale(registry, locale, p) === path)) return def.name
+    }
+    for (const def of site.collections) {
+      if (def.route === null) continue
+      if (routeRegExp(def.route).test(path) || routeRegExp(withLocale(registry, locale, def.route)).test(path)) return def.name
+    }
+  }
+  return null
+}
+
+function checkRoutes(registry: Registry): void {
+  const seen = new Set<string>()
+  for (const { method, path } of registry.site.routes) {
+    if (method !== 'GET' && method !== 'POST') fail('definition.routeMethod', { method: String(method), path: String(path) })
+    if (typeof path !== 'string' || normalizePath(path) !== path || /[:*?#%]/.test(path)) {
+      fail('definition.routePath', { path: String(path) })
+    }
+    if (isRouteReserved(path)) fail('definition.routeReserved', { path })
+    const name = shadowedType(registry, path)
+    if (name !== null) fail('definition.routeShadows', { path, name })
+    const key = `${method} ${path}`
+    if (seen.has(key)) fail('definition.routeDuplicate', { method, path })
+    seen.add(key)
+  }
+}
+
+/** Checks a site definition and indexes its types. Throws `InlayError('definition')` naming the offender. */
+export function buildRegistry(site: SiteDefinition): Registry {
+  const seenLocales = new Set<string>()
+  for (const locale of site.locales) {
+    if (!LOCALE.test(locale)) fail('definition.localeInvalid', { locale })
+    if (seenLocales.has(locale)) fail('definition.localeDuplicate', { locale })
+    seenLocales.add(locale)
+  }
+  if (!seenLocales.has(site.defaultLocale)) {
+    fail('definition.defaultLocale', {
+      locale: site.defaultLocale,
+      locales: site.locales.join(', '),
+    })
+  }
+
+  const all: TypeDef[] = [...site.singletons, ...site.collections, ...site.globals]
+  const types = new Map<string, TypeDef>()
+  for (const type of all) {
+    if (!NAME.test(type.name)) fail('definition.typeName', { name: type.name })
+    if (types.has(type.name)) fail('definition.typeDuplicate', { name: type.name })
+    types.set(type.name, type)
+  }
+
+  const collections = new Set(site.collections.map((c) => c.name))
+  const checked = new Set<TemplateDef>()
+  const blocks = new Map<string, BlockDef>()
+  const templates = new Map<string, TemplateDef>()
+  for (const type of all) {
+    const known = templates.get(type.template.name)
+    if (known && known !== type.template) fail('definition.templateDuplicate', { name: type.template.name })
+    templates.set(type.template.name, type.template)
+    for (const { block } of Object.values(type.template.slots)) {
+      const seen = blocks.get(block.name)
+      if (seen && seen !== block) fail('definition.blockDuplicate', { name: block.name })
+      blocks.set(block.name, block)
+    }
+    checkTemplate(type.template, collections, checked)
+    checkType(type, site)
+  }
+
+  for (const locale of site.locales) {
+    const seen = new Set<string>()
+    for (const type of site.singletons) {
+      const path = singletonPath(type, locale, site.defaultLocale)
+      if (path === null) continue
+      if (seen.has(path)) fail('definition.pathDuplicate', { path, locale })
+      seen.add(path)
+    }
+  }
+
+  checkSettings(site, types)
+
+  const content = new Map<string, readonly ShippedDocument[]>()
+  for (const shipped of site.content) {
+    const type = types.get(shipped.type)
+    if (!type) fail('definition.contentType', { type: shipped.type })
+    if (type.kind === 'collection' && shipped.via !== 'entries') {
+      fail('definition.contentUseEntries', { type: shipped.type })
+    }
+    if (type.kind !== 'collection' && shipped.via !== 'content') {
+      fail('definition.contentUseContent', { type: shipped.type })
+    }
+    if (content.has(shipped.type)) fail('definition.contentDuplicate', { type: shipped.type })
+    const keys = new Set<string>()
+    for (const doc of shipped.documents) {
+      const ref = { type: shipped.type, key: doc.key }
+      if (shipped.via === 'entries' && (!KEY_PATTERN.test(doc.key) || doc.key.length > 100)) {
+        fail('definition.contentKey', ref)
+      }
+      if (keys.has(doc.key)) fail('definition.contentKeyDuplicate', ref)
+      keys.add(doc.key)
+      if (!Number.isInteger(doc.edition) || doc.edition < 1) {
+        fail('definition.contentEdition', { ...ref, edition: doc.edition })
+      }
+      const locales = Object.keys(doc.content)
+      if (locales.length === 0) fail('definition.contentNoLocales', ref)
+      for (const locale of locales) {
+        if (!seenLocales.has(locale)) {
+          fail('definition.contentLocale', { ...ref, locale, locales: site.locales.join(', ') })
+        }
+      }
+    }
+    content.set(shipped.type, shipped.documents)
+  }
+
+  const registry: Registry = {
+    site,
+    locales: [...site.locales],
+    defaultLocale: site.defaultLocale,
+    types,
+    blocks,
+    templates,
+    content,
+    getType(name) {
+      const type = types.get(name)
+      if (!type) throw new InlayError('not_found', 'error.typeNotFound', { name })
+      return type
+    },
+  }
+  checkRoutes(registry)
+  return registry
+}

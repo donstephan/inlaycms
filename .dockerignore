@@ -1,0 +1,6 @@
+node_modules
+dist
+data
+.sdd
+.coop
+example/data

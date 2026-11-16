@@ -1,0 +1,22 @@
+{
+  "compilerOptions": {
+    "target": "ES2024",
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "strict": true,
+    "noUncheckedIndexedAccess": true,
+    "noEmit": true,
+    "skipLibCheck": true,
+    "esModuleInterop": true,
+    "jsx": "react-jsx",
+    "jsxImportSource": "inlaycms",
+    "paths": {
+      "inlaycms": ["./src/index.ts"],
+      "inlaycms/site": ["./src/site.ts"],
+      "inlaycms/jsx-runtime": ["./src/jsx/jsx-runtime.ts"],
+      "inlaycms/jsx-dev-runtime": ["./src/jsx/jsx-dev-runtime.ts"]
+    },
+    "types": ["node", "vitest/globals"]
+  },
+  "include": ["src", "tests", "example", "client"]
+}

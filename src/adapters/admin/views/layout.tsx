@@ -45,10 +45,10 @@ function SkipLink() {
 }
 
 /** The logo with the brand name as its text, or the name itself. */
-function Brand({ ctx }: { ctx: AdminContext }) {
+function Brand({ ctx, size = 'h-10 max-w-full' }: { ctx: AdminContext; size?: string }) {
   const { name, logo } = ctx.branding
   return logo !== undefined ? (
-    <img src={logo} alt={name} class="h-10 w-auto max-w-full" />
+    <img src={logo} alt={name} class={`${size} w-auto`} />
   ) : (
     <span class="text-lg font-semibold">{name}</span>
   )
@@ -458,7 +458,7 @@ export async function adminPage(ctx: AdminContext, opts: AdminPageOptions, body:
             <aside class="flex min-h-full w-64 flex-col border-r border-base-300 bg-base-100">
               <header class="flex h-14 shrink-0 items-center border-b border-base-300 px-4">
                 <a href="/admin" class="inline-flex min-w-0 items-center">
-                  <Brand ctx={ctx} />
+                  <Brand ctx={ctx} size="h-7 max-w-40" />
                 </a>
               </header>
               <Nav ctx={ctx} actor={opts.actor} section={opts.section} counts={counts} />

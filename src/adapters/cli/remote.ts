@@ -78,7 +78,7 @@ type Raw = { status: number; text: string; location: string | undefined }
 /**
  * Sends one request with node's own client (no redirects followed, no proxy) on a connection of its own, never one
  * kept from an earlier request (whose worker may be shutting down), and reads the whole answer. `sent` turns true
- * once the request, body and all, has gone out.
+ * once the request, body and all, has gone out (for a file, once its last byte is handed over).
  */
 function send(url: URL, method: string, headers: OutgoingHttpHeaders, file: string | undefined, timeoutMs: number, sent: { done: boolean }): Promise<Raw> {
   return new Promise((resolve, reject) => {
@@ -94,7 +94,14 @@ function send(url: URL, method: string, headers: OutgoingHttpHeaders, file: stri
     request.on('error', reject)
     request.on('finish', () => (sent.done = true))
     if (file === undefined) return void request.end()
+    // Sent once every byte is handed over: the stream's own end waits on one more read to find the end of the file,
+    // and by then the server, which has all it needs, may already have answered or cut the connection.
+    let left = Number(headers['content-length'])
     const body = createReadStream(file)
+    body.on('data', (chunk) => {
+      left -= chunk.length
+      if (left <= 0) sent.done = true
+    })
     body.on('error', (e) => request.destroy(e))
     body.pipe(request)
   })

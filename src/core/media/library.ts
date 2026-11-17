@@ -84,8 +84,8 @@ export async function inspectUpload(
     try {
       const meta = await sharp(bytes).metadata()
       if (!meta.width || !meta.height) throw new Error('no size')
-      // Force a full decode so truncated files are caught.
-      await sharp(bytes).rotate().toBuffer()
+      // Force a full decode so truncated files are caught. One raw channel: no encoding, little memory.
+      await sharp(bytes).extractChannel(0).raw().toBuffer()
       const swap = (meta.orientation ?? 1) >= 5
       width = swap ? meta.height : meta.width
       height = swap ? meta.width : meta.height

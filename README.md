@@ -600,7 +600,7 @@ Each default comes from the global when it's filled in, then from the code, then
 - **Title.** A page's `f.seo()` title is used exactly as written. Otherwise the page's title goes through the title template, except on the home page (`/`, or a language's root such as `/es`), which keeps its plain title. The 404 page and pages from code routes get the template too. `og:title` and `twitter:title` are the final title.
 - **Description.** The page's `f.seo()` description, then the default.
 - **Share image.** The page's `f.seo()` image, then the global's default image, then the code's `/public` image. Images from the media library are shared as their 1280px JPEG. A `/public` image is an absolute URL versioned like `ctx.asset`'s; if the file isn't there the URL has no version, and the page still renders.
-- **`ogType`.** `defineTemplate({ ogType: 'article' })` makes the template's pages `og:type` `article`, with `article:modified_time` (the last change). `article:published_time` comes in a later release. The default is `website`.
+- **`ogType`.** `defineTemplate({ ogType: 'article' })` makes the template's pages `og:type` `article`, with `article:published_time` (`publishedAt`, left out while it is `null`) and `article:modified_time` (the last change). The default is `website`.
 - **Twitter cards.** `twitter:card` is `summary_large_image` when the page has a share image and `summary` when it doesn't. `twitter:title`, `twitter:description` and `twitter:image` repeat the Open Graph values.
 
 ### Tags from templates

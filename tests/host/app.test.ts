@@ -136,6 +136,12 @@ describe('createSiteApp with a release', () => {
     expect((await app.inject({ method: 'GET', url: '/admin/setup' })).statusCode).toBe(200)
   })
 
+  it('gives boot no time limit, so a large shipped-content set can be applied', async () => {
+    const made = await createSiteApp(config, null, { content: 'none', now })
+    app = made.app
+    expect(app.initialConfig.pluginTimeout).toBe(0)
+  })
+
   it('uses the data directory for the database', async () => {
     const loaded = await activated()
     const made = await createSiteApp(config, loaded, { content: 'none', now })

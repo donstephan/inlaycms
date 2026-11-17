@@ -1,4 +1,5 @@
 import { access } from 'node:fs/promises'
+import sharp from 'sharp'
 import { html, jpeg, pdf, png, sha256 } from '../fixtures/media.js'
 import { makeCore } from '../helpers/core.js'
 
@@ -39,6 +40,15 @@ describe('media library', () => {
     await rejects(core.addMedia({ data: html(), filename: 'x.png' }, owner), 'validation', 'error.mediaTypeNotAllowed')
     const trunc = (await png(40, 40)).subarray(0, 30)
     await rejects(core.addMedia({ data: trunc, filename: 't.png' }, owner), 'validation', 'error.mediaUnreadable')
+  })
+
+  it('rejects images cut off partway through their pixel data', async () => {
+    const { core, owner } = await makeCore({ media: true })
+    const noisy = sharp({ create: { width: 300, height: 200, channels: 3, background: '#808080', noise: { type: 'gaussian', mean: 128, sigma: 40 } } })
+    const images = { 'n.jpg': await noisy.clone().jpeg().toBuffer(), 'n.png': await noisy.clone().png().toBuffer(), 'n.webp': await noisy.clone().webp().toBuffer() }
+    for (const [filename, bytes] of Object.entries(images)) {
+      await rejects(core.addMedia({ data: bytes.subarray(0, Math.floor(bytes.length * 0.7)), filename }, owner), 'validation', 'error.mediaUnreadable')
+    }
   })
 
   it('reports dimensions after EXIF orientation', async () => {

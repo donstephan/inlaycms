@@ -69,7 +69,8 @@ export async function createSiteApp(
     fetch?: typeof fetch
   },
 ): Promise<{ app: FastifyInstance; core: Core }> {
-  const app = Fastify({ logger: opts.logger ?? false, trustProxy: config.trustProxy })
+  // No plugin timeout: the site plugin boots the site (migrations, shipped content), which takes as long as it takes.
+  const app = Fastify({ logger: opts.logger ?? false, trustProxy: config.trustProxy, pluginTimeout: 0 })
   const now = opts.now ?? (() => new Date())
   // Opened once the site has booted (which creates and migrates the database), for the push API, admin and proxy.
   let db: Kysely<Database> | null = null

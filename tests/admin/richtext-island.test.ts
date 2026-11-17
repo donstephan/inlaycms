@@ -105,7 +105,7 @@ describe('rich text island', () => {
     const markdown = [
       '## H',
       '',
-      `**bold** and *italic* with [x](https://example.com) and [y](inlay:document/${DOC})`,
+      `**bold** and *italic* and \`code\` with [x](https://example.com) and [y](inlay:document/${DOC}) and [\`z\`](/z)`,
       '',
       '- one',
       '- two',
@@ -128,6 +128,7 @@ describe('rich text island', () => {
     const { doc } = read
 
     const { editor, hidden } = await mount(f.richText({ label: 'Body' }), doc)
+    expect(editor.isEditable).toBe(true)
     expect(JSON.parse(hidden.value)).toEqual(doc)
     editor.view.dispatch(editor.state.tr.insertText('x', 1).delete(1, 2))
 
@@ -180,6 +181,25 @@ describe('rich text island', () => {
       content: [{ type: 'paragraph', content: [{ type: 'text', text: 'hello', marks: [{ type: 'bold' }] }] }],
     })
     expect(button('bold').getAttribute('aria-pressed')).toBe('true')
+  })
+
+  it('marks code from the toolbar, and never makes it bold or italic', async () => {
+    const { editor, hidden, button } = await mount(f.richText({ label: 'Body', features: ['bold', 'italic', 'code'] }), paragraph('hello'))
+    editor.commands.setTextSelection({ from: 1, to: 6 })
+    button('bold').click()
+    button('code').click()
+    expect(written(hidden)).toEqual({
+      type: 'doc',
+      content: [{ type: 'paragraph', content: [{ type: 'text', text: 'hello', marks: [{ type: 'code' }] }] }],
+    })
+    expect(button('code').getAttribute('aria-pressed')).toBe('true')
+    expect(button('code').textContent).toBe('Code')
+    editor.commands.setTextSelection({ from: 1, to: 6 })
+    button('italic').click()
+    expect(written(hidden)).toEqual({
+      type: 'doc',
+      content: [{ type: 'paragraph', content: [{ type: 'text', text: 'hello', marks: [{ type: 'code' }] }] }],
+    })
   })
 
   it('fires a bubbling change event when the text changes', async () => {
@@ -426,9 +446,9 @@ describe('rich text island', () => {
 describe('inline text island', () => {
   const HEADLINE = f.inlineText({ label: 'Headline' })
 
-  it('shows only bold, italic and link', async () => {
+  it('shows only bold, italic, code and link', async () => {
     const { buttons } = await mount(HEADLINE, paragraph('hi'))
-    expect(buttons().map((b) => b.dataset.command)).toEqual(['bold', 'italic', 'link'])
+    expect(buttons().map((b) => b.dataset.command)).toEqual(['bold', 'italic', 'code', 'link'])
   })
 
   it('allows no line break', async () => {

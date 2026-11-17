@@ -10,6 +10,7 @@ const text = (s: string, marks?: unknown[]) => (marks ? { type: 'text', text: s,
 const item = (...content: unknown[]) => ({ type: 'listItem', content })
 const bold = { type: 'bold' }
 const italic = { type: 'italic' }
+const code = { type: 'code' }
 const link = (href: string) => ({ type: 'link', attrs: { href } })
 
 function doc(...content: unknown[]): RichTextDoc {
@@ -132,7 +133,7 @@ describe('richTextToMarkdown', () => {
     expectRoundTrip(doc(para(text(s))))
   })
 
-  it.each(['https://example.com/a_(b)', '/about us', 'https://example.com/a\\b', 'https://example.com/?a=1&amp;b=2'])(
+  it.each(['https://example.com/a_(b)', '/about us', '/a\uE000\uE004b', '/a b\uE001', 'https://example.com/a\\b', 'https://example.com/?a=1&amp;b=2'])(
     'round-trips a link to %j',
     (href) => {
       expectRoundTrip(doc(para(text('go', [link(href)]))))
@@ -325,8 +326,7 @@ describe('markdownToRichText', () => {
     expect(found[0]?.message).toMatch(/code block/)
   })
 
-  it('rejects inline code, rules and indented code', () => {
-    expect(problems('`x`')).toMatchObject([{ code: 'unsupported', line: 1 }])
+  it('rejects rules and indented code', () => {
     expect(problems('---')).toMatchObject([{ code: 'unsupported', line: 1 }])
     expect(problems('a\n\n    code')).toMatchObject([{ code: 'unsupported', line: 3 }])
   })
@@ -376,7 +376,7 @@ describe('markdownToRichText', () => {
   })
 
   it('reports every problem, each on its own line', () => {
-    const found = problems('# Title\n\nSome `code` here\nand ![x](https://img.example/x.png)')
+    const found = problems('# Title\n\nSome ~~old~~ here\nand ![x](https://img.example/x.png)')
     expect(found).toMatchObject([
       { code: 'heading_level', line: 1 },
       { code: 'unsupported', line: 3 },
@@ -542,7 +542,7 @@ describe('tables', () => {
     }
     const pick = <T,>(list: readonly T[]): T => list[Math.floor(random() * list.length)]!
     const texts = ['a', '|', '\\', '\\|', ':', '-', '---', '*', '_', '[', ']', '(', '<', '&amp;', '`', '#', '>', '1.', '!', 'x y', 'b |a| c', '||']
-    const markSets = [[], [], [bold], [italic], [link('/a|b\\|c')], [link('https://x.test/(a b)|c'), bold]]
+    const markSets = [[], [], [bold], [italic], [link('/a|b\\|c')], [link('https://x.test/(a b)|c'), bold], [code], [link('/c'), code]]
     let checked = 0
     for (let n = 0; n < 1500; n++) {
       const inline = () =>
@@ -595,6 +595,64 @@ describe('tables', () => {
   })
 })
 
+describe('inline code', () => {
+  const awkward = ['a', 'npm test', '`', '``', 'a`b', '`a', 'a`', 'a``b`c', ' a ', ' a', 'a ', ' ', '  ', '*a*', '**', '_x_', '<b>', '&amp;', '&#32;', '\\', 'a\\', '\\`', '[x](y)', ']', '|', 'a|b', '\\|', '#', '1.', '- ', '> ', '!', '~~x~~', '\uE000', 'x\uE001\uE002y', '\uE003']
+  const heading = (...content: unknown[]) => ({ type: 'heading', attrs: { level: 2 }, content })
+  const cells = (...content: unknown[]) => ({
+    type: 'table',
+    content: [{ type: 'tableRow', content: [{ type: 'tableHeader', content: [para(...content)] }] }],
+  })
+
+  it('reads text between backticks as code', () => {
+    expect(markdownToRichText('Run `npm test` now')).toEqual({
+      ok: true,
+      doc: doc(para(text('Run '), text('npm test', [code]), text(' now'))),
+    })
+    expect(markdownToRichText('`` a`b ``')).toEqual({ ok: true, doc: doc(para(text('a`b', [code]))) })
+  })
+
+  it('writes code between backticks, and a link around it', () => {
+    expect(richTextToMarkdown(doc(para(text('Run '), text('npm test', [code]), text(' now'))))).toBe('Run `npm test` now')
+    expect(richTextToMarkdown(doc(para(text('a`b', [code]))))).toBe('``a`b``')
+    expect(richTextToMarkdown(doc(para(text('`a', [code]))))).toBe('`` `a ``')
+    expect(richTextToMarkdown(doc(para(text(' a ', [code]))))).toBe('`  a  `')
+    expect(richTextToMarkdown(doc(para(text('x', [link('/a'), code]))))).toBe('[`x`](/a)')
+  })
+
+  it.each(awkward)('round-trips the code %j wherever code can go', (s) => {
+    expectRoundTrip(doc(para(text(s, [code]))))
+    expectRoundTrip(doc(para(text('a'), text(s, [code]), text('b'))))
+    expectRoundTrip(doc(para(text('a', [bold]), text(s, [code]), text('b', [italic]))))
+    expectRoundTrip(doc(para(text('see '), text(s, [link('/x'), code]), text('!', [link('/x')]))))
+    expectRoundTrip(doc(para(text('wow!'), text(s, [link('/x'), code]))))
+    expectRoundTrip(doc(para(text('a'), { type: 'hardBreak' }, text(s, [code]))))
+    expectRoundTrip(doc(heading(text('C '), text(s, [code]))))
+    expectRoundTrip(doc(heading(text(s, [code]), text('#'))))
+    expectRoundTrip(doc({ type: 'bulletList', content: [item(para(text(s, [code])))] }))
+    expectRoundTrip(doc({ type: 'blockquote', content: [para(text(s, [code]))] }))
+    expectRoundTrip(doc(cells(text(s, [code]))))
+    expectRoundTrip(doc(cells(text('x|'), text(s, [code]), text('|y', [bold]))))
+  })
+
+  it('round-trips code next to code with another link', () => {
+    expectRoundTrip(doc(para(text('a', [link('/a'), code]), text('b', [link('/b'), code]))))
+    expectRoundTrip(doc(para(text('a', [code]), text('b', [link('/b'), code]))))
+  })
+
+  it('refuses code inside bold or italic text, naming the line', () => {
+    expect(problems('**a `b` c**')).toEqual([{ code: 'unsupported', line: 1, message: t('richtext.codeEmphasis', { line: 1 }) }])
+    expect(problems('x\n\n*`b`*')).toEqual([{ code: 'unsupported', line: 3, message: t('richtext.codeEmphasis', { line: 3 }) }])
+    expect(problems('| a |\n| - |\n| _`b`_ |\n')).toMatchObject([{ code: 'unsupported', line: 3 }])
+    expect(markdownToRichText('**a** `b` *c* [`d`](/d)').ok).toBe(true)
+  })
+
+  it('refuses code where the field leaves it out', () => {
+    const found = problems('`x`', { features: ['bold'] })
+    expect(found).toMatchObject([{ code: 'not_allowed', line: 1 }])
+    expect(found[0]?.message).toContain(t('richtext.feature.code'))
+  })
+})
+
 describe('markdown fuzz', () => {
   const pieces = ['a', 'b ', ' ', '\n', '\n\n', '*', '**', '_', '[', ']', '(', ')', '!', '#', '## ', '> ', '- ', '1. ', '3) ', '\\', '&amp;', '<', '>', '`', '   ', '\t', 'x_y', '=', '---', `![p](inlay:media/${sha})`, '[l](/x)', '  \n', '\n  - ', '\n  3. ', '\n   1) ', '"', '[1]: /y\n', '[1]']
 
@@ -627,7 +685,7 @@ describe('markdown fuzz', () => {
     const pick = <T,>(list: readonly T[]): T => list[Math.floor(random() * list.length)]!
     const texts = ['a', 'b c', '"', '(', ')', '.', '*', '_', 'x_y', '!', '[', ']', '&amp;', '1.', '#', '\\', '<', 'é', '🎉', ',', '`', '-', '&', ';', '9']
     if (loose) texts.push(' ', ' x ', 'a  b')
-    const markSets = [[], [], [bold], [italic], [bold, italic], [link('/a')], [link('/a'), italic], [link('/b'), bold]]
+    const markSets = [[], [], [bold], [italic], [bold, italic], [link('/a')], [link('/a'), italic], [link('/b'), bold], [code], [link('/a'), code]]
     const inline = () =>
       Array.from({ length: 1 + Math.floor(random() * 6) }, () => {
         const marks = pick(markSets)

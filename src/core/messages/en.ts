@@ -555,7 +555,9 @@ export const en = {
     "Line {line}: this field can't contain a level {level} heading (one with {level} # signs). Use one of these levels instead: {levels}.",
   'richtext.headingContent': "Line {line}: headings can't contain {feature}. Move it to a paragraph below the heading.",
   'richtext.tableNested': "Line {line}: tables can't go inside a list or a quote. Move the table out so it stands on its own.",
-  'richtext.tableCell': "Line {line}: table cells can't contain {feature}. Keep each cell to text, bold, italic and links.",
+  'richtext.tableCell': "Line {line}: table cells can't contain {feature}. Keep each cell to text, bold, italic, code and links.",
+  'richtext.codeEmphasis':
+    "Line {line}: code can't be bold or italic. Move the code (the text between backticks) out of the bold or italic text.",
   'richtext.imageSource':
     'Line {line}: images must come from the media library, not from another address ("{src}"). Upload the image to the media library and use that instead.',
   'richtext.linkUrl':
@@ -1216,6 +1218,7 @@ export const en = {
   'admin.richtext.heading': 'Heading {level}',
   'admin.richtext.bold': 'Bold',
   'admin.richtext.italic': 'Italic',
+  'admin.richtext.code': 'Code',
   'admin.richtext.link': 'Link',
   'admin.richtext.bulletList': 'Bulleted list',
   'admin.richtext.orderedList': 'Numbered list',

@@ -2,6 +2,7 @@ import './preview.js'
 import { Editor, Extension, Mark, Node, getSchema, type AnyExtension, type Attributes, type JSONContent } from '@tiptap/core'
 import { Blockquote } from '@tiptap/extension-blockquote'
 import { Bold } from '@tiptap/extension-bold'
+import { Code } from '@tiptap/extension-code'
 import { Document } from '@tiptap/extension-document'
 import { HardBreak } from '@tiptap/extension-hard-break'
 import { Heading, type Level } from '@tiptap/extension-heading'
@@ -20,7 +21,7 @@ import type { Pick } from './picker.js'
  */
 
 /** The core's `RICH_TEXT_FEATURES`, in toolbar order. */
-const FEATURES = ['heading', 'bold', 'italic', 'link', 'bulletList', 'orderedList', 'blockquote', 'image', 'hardBreak', 'table'] as const
+const FEATURES = ['heading', 'bold', 'italic', 'code', 'link', 'bulletList', 'orderedList', 'blockquote', 'image', 'hardBreak', 'table'] as const
 type Feature = (typeof FEATURES)[number]
 
 const HEX64 = /^[0-9a-f]{64}$/
@@ -101,6 +102,9 @@ const InlayLink = Mark.create({
   },
 })
 
+/** Code goes inside a link but never with bold or italic, as in the core. */
+const InlayCode = Code.extend({ excludes: 'bold italic code' })
+
 /** Headings hold text only, as in the core. */
 const InlayHeading = Heading.extend({ content: 'text*' })
 
@@ -163,6 +167,7 @@ function extensionsFor(features: ReadonlySet<Feature>, levels: Level[], inline: 
   if (features.has('heading') && levels.length > 0) out.push(InlayHeading.configure({ levels }))
   if (features.has('bold')) out.push(Bold)
   if (features.has('italic')) out.push(Italic)
+  if (features.has('code')) out.push(InlayCode)
   if (features.has('link')) out.push(InlayLink)
   if (features.has('bulletList')) out.push(BulletList)
   if (features.has('orderedList')) out.push(InlayOrderedList)
@@ -271,6 +276,9 @@ function toolsFor(editor: Editor, root: HTMLElement, features: ReadonlySet<Featu
         break
       case 'italic':
         tools.push({ command: 'italic', run: () => editor.chain().focus().toggleItalic().run(), active: () => editor.isActive('italic') })
+        break
+      case 'code':
+        tools.push({ command: 'code', run: () => editor.chain().focus().toggleCode().run(), active: () => editor.isActive('code') })
         break
       case 'link':
         tools.push({

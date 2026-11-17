@@ -125,6 +125,25 @@ describe('parseRichText', () => {
     expect(parse(doc(para(text('x', [{ type: 'bold' }]))), { features: ['italic'], headings: [] })).toEqual({ ok: false })
   })
 
+  it('keeps code, alone or linked, and refuses it with bold or italic', () => {
+    const code = { type: 'code' }
+    const linked = doc(para(text('x', [{ type: 'link', attrs: { href: '/a' } }, code])))
+    expect(parse(linked)).toEqual({ ok: true, doc: linked })
+    expect(parse(doc(para(text('x', [code, { type: 'link', attrs: { href: '/a' } }]))))).toEqual({ ok: true, doc: linked })
+    expect(parse(doc(para(text('x', [{ type: 'bold' }, code]))))).toEqual({ ok: false })
+    expect(parse(doc(para(text('x', [code, { type: 'italic' }]))))).toEqual({ ok: false })
+    expect(parse(doc(para(text('x', [code]))), { features: ['bold'], headings: [] })).toEqual({ ok: false })
+  })
+
+  it('drops code from line breaks and images, which have no text to show it', () => {
+    const code = { type: 'code' }
+    const image = (marks: unknown[]) => ({ type: 'image', attrs: { media: sha }, marks })
+    expect(parse(doc(para(text('a', [code]), { type: 'hardBreak', marks: [code] }, text('b', [code]), image([code]))))).toEqual({
+      ok: true,
+      doc: doc(para(text('a', [code]), { type: 'hardBreak' }, text('b', [code]), { type: 'image', attrs: { media: sha } })),
+    })
+  })
+
   it('rejects link addresses with control characters, but not with spaces', () => {
     const linked = (href: string) => parse(doc(para(text('x', [{ type: 'link', attrs: { href } }]))))
     for (const href of ['/a\nb', '/a\rb', '/a\tb', '/a\u0000b', '/a\u0001b', '/a\u007fb', 'https://example.com/\n']) {

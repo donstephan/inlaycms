@@ -8,6 +8,7 @@ export const RICH_TEXT_FEATURES = [
   'heading',
   'bold',
   'italic',
+  'code',
   'link',
   'bulletList',
   'orderedList',
@@ -30,6 +31,7 @@ export type RichTextMark =
   | { type: 'link'; attrs: { href: string } | { document: string } }
   | { type: 'bold' }
   | { type: 'italic' }
+  | { type: 'code' }
 
 export type RichTextText = { type: 'text'; text: string; marks?: RichTextMark[] }
 export type RichTextHardBreak = { type: 'hardBreak'; marks?: RichTextMark[] }
@@ -62,7 +64,10 @@ export type RichTextNode =
 
 export type RichTextDoc = { type: 'doc'; content: RichTextNode[] }
 
-/** Tiptap's node and mark names. The mark order is the canonical order of marks on a node. */
+/**
+ * Tiptap's node and mark names. The mark order is the canonical order of marks on a node. Code comes last, inside a
+ * link, and never with bold or italic: Markdown can't put either inside a code span.
+ */
 export const richTextSchema = new Schema({
   nodes: {
     doc: { content: 'block*' },
@@ -84,6 +89,7 @@ export const richTextSchema = new Schema({
     link: { attrs: { href: { default: null }, document: { default: null } }, inclusive: false },
     bold: {},
     italic: {},
+    code: { excludes: 'bold italic code' },
   },
 })
 
@@ -172,7 +178,9 @@ function cleanNode(raw: unknown, opts: RichTextOptions): Json | null {
   if (attrs) out.attrs = attrs
   if (!absent(raw.marks)) {
     if (!Array.isArray(raw.marks)) reject()
-    if (raw.marks.length > 0) out.marks = raw.marks.map((m) => cleanMark(m, opts))
+    // Code shows only on text: a line break or an image would lose it in Markdown.
+    const marks = raw.marks.map((m) => cleanMark(m, opts)).filter((m) => type === 'text' || m.type !== 'code')
+    if (marks.length > 0) out.marks = marks
   }
   if (type === 'text') {
     if (typeof raw.text !== 'string') reject()

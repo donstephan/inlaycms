@@ -39,7 +39,9 @@ const OPEN_BOLD = '\uE000'
 const CLOSE_BOLD = '\uE001'
 const OPEN_ITALIC = '\uE002'
 const CLOSE_ITALIC = '\uE003'
-const STAND_INS = /[\uE000-\uE003]/g
+/** Stands in for a code span while a block's bold and italic are placed, so they never touch its text. */
+const CODE = '\uE004'
+const STAND_INS = /[\uE000-\uE004]/g
 
 const STAND_IN: Readonly<Record<string, { count: number; open: boolean }>> = {
   [OPEN_BOLD]: { count: 2, open: true },
@@ -90,11 +92,26 @@ function atLineStart(out: string): boolean {
 /** Characters as numeric character references, which read back as themselves. */
 const encodeChars = (s: string) => Array.from(s, (c) => `&#${c.codePointAt(0)};`).join('')
 
-/** URL as a link destination: `<…>` when it has spaces or brackets, escaped so markdown-it gives it back unchanged. */
+/**
+ * URL as a link destination: `<…>` when it has spaces or brackets, escaped so markdown-it gives it back unchanged.
+ * Stand-in characters are written as character references, so they can't be taken for formatting.
+ */
 export function markdownDestination(url: string): string {
   const entity = /&(?=#?[0-9A-Za-z]+;)/g
-  if (/[\s()<>]/.test(url)) return '<' + url.replace(/[\\<>]/g, '\\$&').replace(entity, '\\&') + '>'
-  return url.replace(/\\/g, '\\\\').replace(entity, '\\&')
+  if (/[\s()<>]/.test(url)) return '<' + url.replace(/[\\<>]/g, '\\$&').replace(entity, '\\&').replace(STAND_INS, encodeChars) + '>'
+  return url.replace(/\\/g, '\\\\').replace(entity, '\\&').replace(STAND_INS, encodeChars)
+}
+
+/**
+ * Text as a CommonMark code span: fenced by one more backtick than its longest run of them, and padded with a space
+ * on each side where reading it back would otherwise take a backtick for the fence or trim a space.
+ */
+function codeSpan(text: string): string {
+  let longest = 0
+  for (const run of text.match(/`+/g) ?? []) longest = Math.max(longest, run.length)
+  const fence = '`'.repeat(longest + 1)
+  const pad = text.startsWith('`') || text.endsWith('`') || (text.startsWith(' ') && text.endsWith(' ') && /[^ ]/.test(text))
+  return pad ? `${fence} ${text} ${fence}` : fence + text + fence
 }
 
 /** Text with each line break, and the whitespace around it, turned into one space. */
@@ -224,6 +241,8 @@ class State extends StateBase {
   lastContent = new WeakMap<PMNode, number>()
   /** Finished lines, moved out of `out` so that rewriting a block's text stays cheap. */
   done: string[] = []
+  /** The code spans written as `CODE` in the block being written, in order. */
+  codes: string[] = []
 
   /** Moves every finished line out of `out`; what is still being written stays. */
   commitLines(): void {
@@ -345,7 +364,8 @@ type Piece = { text: string } | { delim: '*' | '_'; count: number; open: boolean
 /** How the emphasis rules see the character a piece starts or ends with next to a delimiter run. */
 function charKind(piece: Piece | undefined): 'space' | 'punct' | 'word' {
   if (piece === undefined) return 'space'
-  if ('delim' in piece) return 'punct'
+  // A code span starts and ends with a backtick.
+  if ('delim' in piece || piece.text === CODE) return 'punct'
   const { isWhiteSpace, isMdAsciiPunct, isPunctCharCode } = tokenizer.utils
   const code = piece.text.codePointAt(0) ?? 0x20
   if (isWhiteSpace(code)) return 'space'
@@ -534,7 +554,9 @@ function renderTextblock(state: State, node: PMNode, fromBlockStart: boolean): v
   state.commitLines()
   const start = state.out.length
   state.renderInline(writing.emphasis === 'none' ? withoutEmphasis(writing.node) : tidyInvisible(writing.node), fromBlockStart)
-  const written = placeDelimiters(state.out.slice(start), writing.emphasis === 'strict')
+  const codes = state.codes
+  state.codes = []
+  const written = placeDelimiters(state.out.slice(start), writing.emphasis === 'strict').replace(/\uE004/g, () => codes.shift() ?? '')
   const kept = written.trimEnd()
   state.out = state.out.slice(0, start) + kept + encodeChars(written.slice(kept.length))
 }
@@ -661,6 +683,12 @@ const nodes: Record<string, Serializer> = {
     if (index < last) state.write('\\\n')
   },
   text(state, node, parent, index) {
+    if (node.marks.some((m) => m.type.name === 'code')) {
+      state.codes.push(codeSpan(node.text ?? ''))
+      state.write()
+      state.append(CODE)
+      return
+    }
     // A `!` right before a link would make it an image. prosemirror-markdown checks for
     // this, but rewrites the whole output each time and misreads `\\!`, so it is escaped here.
     const text = node.text ?? ''
@@ -688,6 +716,8 @@ const marks: Record<string, MarkSerializerSpec> = {
   },
   bold: { open: OPEN_BOLD, close: CLOSE_BOLD, mixable: true, expelEnclosingWhitespace: true },
   italic: { open: OPEN_ITALIC, close: CLOSE_ITALIC, mixable: true, expelEnclosingWhitespace: true },
+  // Written by the text serializer, which sees the whole text the mark is on.
+  code: { open: '', close: '' },
 }
 
 /** The doc as CommonMark: tight lists, `- ` bullets, `inlay:` URIs for internal links and images. */
@@ -848,6 +878,7 @@ const parser = new MarkdownParser(richTextSchema, tokenizer, {
   td: { block: 'tableCell' },
   em: { mark: 'italic' },
   strong: { mark: 'bold' },
+  code_inline: { mark: 'code', noCloseToken: true },
   link: {
     mark: 'link',
     getAttrs: (tok) => {
@@ -885,6 +916,7 @@ const TOKEN_FEATURE: Readonly<Record<string, RichTextFeature>> = {
   blockquote_open: 'blockquote',
   strong_open: 'bold',
   em_open: 'italic',
+  code_inline: 'code',
   link_open: 'link',
   image: 'image',
   hardbreak: 'hardBreak',
@@ -892,7 +924,6 @@ const TOKEN_FEATURE: Readonly<Record<string, RichTextFeature>> = {
 }
 
 const TOKEN_UNSUPPORTED: Readonly<Record<string, FeatureName>> = {
-  code_inline: 'code',
   code_block: 'codeBlock',
   fence: 'codeBlock',
   hr: 'rule',
@@ -1013,10 +1044,19 @@ function findProblems(tokens: Token[], opts: RichTextOptions, env: ParseEnv): Ri
     }
   }
 
-  /** Walks inline tokens; line breaks move the line on, including those inside an image's alt. */
+  /**
+   * Walks inline tokens; line breaks move the line on, including those inside an image's alt. Code inside bold or
+   * italic is refused, since rich text can't hold both on the same text.
+   */
   const walkInline = (children: Token[], line: number, inHeading: boolean, inCell: boolean, inAlt: boolean): number => {
+    let emphasis = 0
     for (const child of children) {
       if (!inAlt) check(child, line, inHeading, inCell)
+      if (child.type === 'strong_open' || child.type === 'em_open') emphasis++
+      if (child.type === 'strong_close' || child.type === 'em_close') emphasis--
+      if (!inAlt && child.type === 'code_inline' && emphasis > 0 && allowed('code')) {
+        add('unsupported', line, 'richtext.codeEmphasis', {})
+      }
       if (child.type === 'softbreak' || child.type === 'hardbreak') line++
       if (child.type === 'image' && child.children) line = walkInline(child.children, line, inHeading, inCell, true)
     }

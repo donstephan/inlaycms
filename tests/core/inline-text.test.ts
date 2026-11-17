@@ -95,7 +95,7 @@ describe('f.inlineText', () => {
       }),
     )
     const stored = (storedTypeSchema(registry, 'stories') as any).properties.fields.properties.headline
-    expect(stored).toMatchObject({ title: 'Headline', inlineText: { features: ['bold', 'italic', 'link'] } })
+    expect(stored).toMatchObject({ title: 'Headline', inlineText: { features: ['bold', 'italic', 'code', 'link'] } })
   })
 
   it('reads and writes one line of Markdown', () => {
@@ -120,8 +120,18 @@ describe('f.inlineText', () => {
     expect(extractRefs(field, linked)).toEqual([{ kind: 'document', id }])
   })
 
+  it('takes code, written between backticks', () => {
+    const agent = meta.agent!
+    const line = 'Run `simulate_project` first'
+    const written = agent.write(line)
+    expect(written).toEqual({ ok: true, value: doc(para(text('Run '), text('simulate_project', [{ type: 'code' }]), text(' first'))) })
+    if (!written.ok) return
+    expect(agent.read(written.value, refs)).toBe(line)
+  })
+
   it('renders the first paragraph inline', () => {
     expect(inlineTextToHtml(inline('**Big** news'), resolve)).toBe('<strong>Big</strong> news')
+    expect(inlineTextToHtml(inline('Run `a<b`'), resolve)).toBe('Run <code>a&lt;b</code>')
     const stored = doc(para(text('First')), para(text('Second'))) as RichTextDoc
     expect(inlineTextToHtml(stored, resolve)).toBe('First')
     expect(inlineTextToHtml(doc() as RichTextDoc, resolve)).toBe('')

@@ -27,6 +27,7 @@ function marksOf(marks: RichTextMark[] | undefined, resolve: RichTextResolver): 
   for (const mark of marks ?? []) {
     if (mark.type === 'bold') out.push({ key: 'b', open: '<strong>', close: '</strong>' })
     else if (mark.type === 'italic') out.push({ key: 'i', open: '<em>', close: '</em>' })
+    else if (mark.type === 'code') out.push({ key: 'c', open: '<code>', close: '</code>' })
     else {
       const href = 'href' in mark.attrs ? mark.attrs.href : resolve.link(mark.attrs.document)
       if (href === null || ('href' in mark.attrs && !isRichTextHref(href))) continue

@@ -3,8 +3,8 @@ import { richTextInlineHtml, type RichTextResolver } from './html.js'
 import { blockLines, markdownToRichText, type RichTextProblem } from './markdown.js'
 import { parseRichText, type RichTextDoc, type RichTextOptions } from './schema.js'
 
-/** What an inline-text field allows: one paragraph of bold, italic and linked text. */
-export const INLINE_TEXT: RichTextOptions = { features: ['bold', 'italic', 'link'], headings: [] }
+/** What an inline-text field allows: one paragraph of bold, italic, code and linked text. */
+export const INLINE_TEXT: RichTextOptions = { features: ['bold', 'italic', 'code', 'link'], headings: [] }
 
 /** `value` as a normalized inline-text doc: at most one block, and that a paragraph. */
 export function parseInlineText(value: unknown): { ok: true; doc: RichTextDoc } | { ok: false } {

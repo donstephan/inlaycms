@@ -64,6 +64,12 @@ describe('richTextToHtml', () => {
     )
   })
 
+  it('renders code, inside a link, with its text escaped', () => {
+    const code = { type: 'code' }
+    const d = doc(para(text('Run '), text('<npm> & test', [code]), text(' or '), text('x', [link('/x'), code]), text('y', [link('/x')])))
+    expect(richTextToHtml(d, resolve)).toBe('<p>Run <code>&lt;npm&gt; &amp; test</code> or <a href="/x"><code>x</code>y</a></p>')
+  })
+
   it('keeps marks open across adjacent text', () => {
     const d = doc(para(text('a', [link('/x')]), text('b', [link('/x'), bold]), text('c', [bold])))
     expect(richTextToHtml(d, resolve)).toBe('<p><a href="/x">a<strong>b</strong></a><strong>c</strong></p>')

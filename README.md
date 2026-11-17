@@ -272,6 +272,10 @@ The JSON-LD check applies to sites that add JSON-LD through `ctx.head`; Inlay do
 
 What a site's fields can hold, beyond plain text and the basics of `f.richText`.
 
+### Inline code
+
+Rich text and inline text hold inline code, on by default: a command, a file name or a placeholder, shown in a monospace font. In Markdown it is text between backticks (`` Run `npm test` first ``); a span holding a backtick is fenced with more of them (``` ``a`b`` ```). It renders as `<code>`. Code can go inside a link (``[`npm test`](/docs/testing)``) and in table cells, but it can't be bold or italic: Markdown that puts code inside bold or italic text is refused with the line it is on. Code blocks aren't supported. To leave code out of a field, list its `features` without `'code'`.
+
 ### Tables
 
 Rich text holds tables, on by default. In Markdown (what assistants send and get back, and what shipped content is written in) a table is a GitHub-style table:
@@ -283,13 +287,13 @@ Rich text holds tables, on by default. In Markdown (what assistants send and get
 | *Lite* | free |
 ```
 
-The first row is always the header row. A cell holds one line of text with bold, italic and links; images and line breaks can't go in a cell, and a table can't go inside a list or a quote. Write a `|` inside a cell as `\|`. Alignment markers (`:---:`) are accepted and dropped, short rows are padded with empty cells, and cells past the header's width are dropped. To leave tables out of a field, list its `features` without `'table'`: `f.richText({ label: 'Body', features: ['bold', 'italic', 'link'] })`.
+The first row is always the header row. A cell holds one line of text with bold, italic, code and links; images and line breaks can't go in a cell, and a table can't go inside a list or a quote. Write a `|` inside a cell as `\|`. Alignment markers (`:---:`) are accepted and dropped, short rows are padded with empty cells, and cells past the header's width are dropped. To leave tables out of a field, list its `features` without `'table'`: `f.richText({ label: 'Body', features: ['bold', 'italic', 'link'] })`.
 
 A table renders as plain HTML with no attributes, for your site's CSS to style: `<table>`, a `<thead>` holding the header row's `<th>` cells, and a `<tbody>` of `<td>` cells when there are rows below the header.
 
 ### Inline text
 
-`f.inlineText({ label, maxLength })` is one line of formatted text, for a headline or a tagline that may need a word in bold or a link: bold, italic and links, and nothing else. It is stored as rich text holding a single paragraph, and the admin edits it on one line. `maxLength` counts the characters of the text, not of its formatting.
+`f.inlineText({ label, maxLength })` is one line of formatted text, for a headline or a tagline that may need a word in bold or a link: bold, italic, code and links, and nothing else. It is stored as rich text holding a single paragraph, and the admin edits it on one line. `maxLength` counts the characters of the text, not of its formatting.
 
 Assistants and shipped content write it as one line of Markdown, such as `'**Big** news, see [the plans](inlay:key/pages/pricing)'`. A blank line (a second paragraph), a heading, a list, a line break or an image is refused.
 

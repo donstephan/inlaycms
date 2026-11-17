@@ -4,10 +4,15 @@ All notable changes to Inlay are recorded here. The format follows [Keep a Chang
 
 ## [Unreleased]
 
+### Added
+
+- Inline code in rich text and inline text: backticks in Markdown, `<code>` in HTML, a Code button in the admin editor. It can go inside a link and in table cells, but not in bold or italic text. On by default; a field that lists its `features` gets it only by listing `'code'`.
+
 ### Fixed
 
 - A site that ships a large set of content no longer fails to start with "Plugin did not start in time". Boot has no time limit, in `inlaycms dev`, `createTestSite`, `serve` and a release's preview.
 - Applying shipped content and activating a release are about three times faster for sites with many images: images are still checked for truncation, but no longer re-encoded to do it.
+- A link address holding certain private-use characters (U+E000 to U+E004) is written to Markdown as character references, so reading it back no longer turns them into bold, italic or code.
 
 ## [0.3.0] - 2026-11-17
 

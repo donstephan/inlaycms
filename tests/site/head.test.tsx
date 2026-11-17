@@ -231,9 +231,8 @@ describe('og:type', () => {
     const html = await renderPage(core, doc, { state: 'published', page: 1, baseUrl })
     expect(html).toContain('<meta property="og:type" content="article">')
     expect(html).toContain(`<meta property="article:modified_time" content="${doc.updatedAt}">`)
-    expect(html).not.toContain('article:published_time')
     expect(html).toContain(
-      `<meta property="og:url" content="https://example.com/blog/hello"><meta property="article:modified_time" content="${doc.updatedAt}"><meta name="twitter:card"`,
+      `<meta property="og:url" content="https://example.com/blog/hello"><meta property="article:published_time" content="${doc.publishedAt}"><meta property="article:modified_time" content="${doc.updatedAt}"><meta name="twitter:card"`,
     )
   })
 

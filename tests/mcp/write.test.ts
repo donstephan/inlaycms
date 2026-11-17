@@ -84,6 +84,21 @@ describe('update_document', () => {
     }
   })
 
+  it('writes and reads a table as Markdown', async () => {
+    const md = '| Plan | Price |\n| --- | --- |\n| **Pro** | [Buy](https://example.com/buy) |\n| *Lite* | free |\n'
+    const about = (await core.findSingleton('about'))!
+    const { isError, text } = await mcp.call('update_document', {
+      id: about.id,
+      baseRevisionId: about.headRev,
+      changes: [{ path: 'fields.body', value: md }],
+    })
+    expect(isError, text).toBe(false)
+    const stored = (await core.getDocument(about.id))!.data.fields.body as { content: { type: string }[] }
+    expect(stored.content[0]).toMatchObject({ type: 'table' })
+    const read = await mcp.call('get_document', { type: 'about' })
+    expect(read.json.content.fields.body).toBe(md)
+  })
+
   it('rejects Markdown the field does not allow, with line numbers, and saves nothing', async () => {
     const about = (await core.findSingleton('about'))!
     const { isError, text, json } = await mcp.call('update_document', {

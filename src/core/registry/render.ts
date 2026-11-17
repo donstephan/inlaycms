@@ -46,12 +46,14 @@ export interface Entry<F = Record<string, unknown>> {
   title: string
   slug: string | null
   updatedAt: string
+  /** When Inlay first published it; `null` if it never has been (a draft in preview). */
+  publishedAt: string | null
   fields: F
 }
 
 export interface QueryOptions<F = Record<string, unknown>> {
   filter?: (e: Entry<F>) => boolean
-  sort?: 'newest' | 'oldest' | { field: string; direction?: 'asc' | 'desc' }
+  sort?: 'newest' | 'oldest' | 'published' | { field: string; direction?: 'asc' | 'desc' }
   limit?: number
   /** 1-based; ignored without `limit`. */
   page?: number
@@ -74,6 +76,8 @@ export interface PageInfo {
   fallback: boolean
   /** The decoded site path; `''` for a page without one. */
   path: string
+  /** When Inlay first published the page's document; `null` for a route or a never-published draft. */
+  publishedAt: string | null
   page: number
 }
 
@@ -118,6 +122,8 @@ export interface RenderContext {
   /** `null` when the target document isn't live. Text is the value's, then the target's title, then the URL. */
   link(v: LinkValue | null | undefined): ResolvedLink | null
   richText(doc: RichTextDoc | null | undefined): SafeHtml
+  /** An inline-text value's first paragraph without its `<p>`, for a heading or a tagline. A string is escaped. */
+  inline(value: RichTextDoc | string | null | undefined): SafeHtml
   /** Live entries in the given order; ones that aren't live are skipped. */
   entries<F = Record<string, unknown>>(ids: string | readonly string[] | null | undefined): Promise<Entry<F>[]>
   /** Every live entry of the collection, filtered, sorted (`newest` by default) and paginated. */

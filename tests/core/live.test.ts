@@ -230,3 +230,32 @@ describe('hidden content', () => {
     expect((await hidden.resolvePath('/old-site/page.html', { state: 'preview' })).kind).toBe('not_found')
   })
 })
+
+describe('publishedAt', () => {
+  const firstPublished = async (w: Awaited<ReturnType<typeof world>>, id: string) =>
+    (await w.db.selectFrom('documents').select('first_published_at').where('id', '=', id).executeTakeFirstOrThrow())
+      .first_published_at
+
+  it('gives each live document its first publish time', async () => {
+    const w = await world()
+    const expected = await firstPublished(w, w.post.id)
+    expect(expected).not.toBeNull()
+    expect(page(await w.core.resolvePath('/blog/hello-world')).publishedAt).toBe(expected)
+    const [live] = await w.core.liveEntries('posts', 'en')
+    expect(live?.publishedAt).toBe(expected)
+  })
+
+  it('gives a fallback page the time of the document it shows', async () => {
+    const w = await world()
+    const about = await w.core.findSingleton('about')
+    const expected = await firstPublished(w, about!.id)
+    expect(expected).not.toBeNull()
+    expect(page(await w.core.resolvePath('/es/acerca'))).toMatchObject({ fallback: true, publishedAt: expected })
+  })
+
+  it('gives a never-published document null in preview', async () => {
+    const { core, owner } = await world()
+    await core.createEntry('posts', { slug: 'draft-only', fields: { ...fields, title: 'Draft only' } }, owner)
+    expect(page(await core.resolvePath('/blog/draft-only', { state: 'preview' })).publishedAt).toBeNull()
+  })
+})

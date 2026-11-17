@@ -62,6 +62,7 @@ function toLive(deps: CoreDeps, state: LiveState, locale: string, row: LiveRow, 
     slug,
     revisionId: row.rev_id!,
     updatedAt: row.rev_created_at!,
+    publishedAt: row.first_published_at,
     data,
   }
 }

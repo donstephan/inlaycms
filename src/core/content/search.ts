@@ -4,7 +4,7 @@ import type { CoreDeps, DocumentSummary } from '../types.js'
 import { documentSchema } from './schema.js'
 import { parseData, summaryQuery, toSummary } from './read.js'
 
-const KINDS: ReadonlySet<string> = new Set(['text', 'textarea', 'richText'])
+const KINDS: ReadonlySet<string> = new Set(['text', 'textarea', 'richText', 'inlineText'])
 const SNIPPET = 160
 
 /** Lower-cased text without accents, with each normalized character's index in the original. */
@@ -82,7 +82,7 @@ export async function searchEntries(
     const data = parseData(deps, row.type, row.head_data)
     const parts: string[] = []
     for (const found of fieldValues(schema, data, KINDS)) {
-      if (found.meta.kind === 'richText') {
+      if (found.meta.kind === 'richText' || found.meta.kind === 'inlineText') {
         if (typeof found.value === 'object' && found.value !== null) parts.push(richTextText(found.value as RichTextDoc))
       } else if (typeof found.value === 'string') {
         parts.push(found.value)

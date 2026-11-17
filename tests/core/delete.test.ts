@@ -2,7 +2,9 @@ import type { Kysely } from 'kysely'
 import type { Core } from '../../src/core/core.js'
 import type { Database } from '../../src/core/db/schema.js'
 import { InlayError } from '../../src/core/errors.js'
+import { markdownToRichText } from '../../src/core/richtext/markdown.js'
 import type { Ctx, DocumentView } from '../../src/core/types.js'
+import { articleSite } from '../fixtures/articles.js'
 import { makeCore } from '../helpers/core.js'
 
 async function rejection(promise: Promise<unknown>): Promise<InlayError> {
@@ -64,6 +66,21 @@ describe('deleting and restoring entries', () => {
     )
     await core.deleteEntry(maria.groupId, owner)
     expect(await core.listEntries('testimonials')).toEqual([])
+  })
+
+  it('an internal link in a table cell blocks deleting its target', async () => {
+    const s = await makeCore({ site: articleSite })
+    const target = await s.core.createEntry('articles', { fields: { title: 'Target' } }, s.editor)
+    const body = markdownToRichText(`| Read |\n| --- |\n| [Target](inlay:document/${target.groupId}) |\n`)
+    if (!body.ok) throw new Error('test markdown is not valid')
+    expect(body.doc.content[0]).toMatchObject({ type: 'table' })
+    const user = await s.core.createEntry('articles', { fields: { title: 'User', body: body.doc } }, s.editor)
+    expect(await s.core.findUsages({ kind: 'document', id: target.groupId })).toMatchObject([
+      { documentId: user.id, title: 'User', in: 'draft' },
+    ])
+    const err = await rejection(s.core.deleteEntry(target.groupId, s.owner))
+    expect(err.code).toBe('in_use')
+    expect(err.details.usages).toHaveLength(1)
   })
 
   it('ignores references from other locales of the same entry', async () => {

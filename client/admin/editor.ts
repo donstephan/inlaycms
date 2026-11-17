@@ -1,5 +1,5 @@
 import './preview.js'
-import { Editor, Mark, Node, getSchema, type AnyExtension, type Attributes, type JSONContent } from '@tiptap/core'
+import { Editor, Extension, Mark, Node, getSchema, type AnyExtension, type Attributes, type JSONContent } from '@tiptap/core'
 import { Blockquote } from '@tiptap/extension-blockquote'
 import { Bold } from '@tiptap/extension-bold'
 import { Document } from '@tiptap/extension-document'
@@ -8,8 +8,10 @@ import { Heading, type Level } from '@tiptap/extension-heading'
 import { Italic } from '@tiptap/extension-italic'
 import { BulletList, ListItem, OrderedList } from '@tiptap/extension-list'
 import { Paragraph } from '@tiptap/extension-paragraph'
+import { Table, TableCell, TableHeader, TableRow } from '@tiptap/extension-table'
 import { Text } from '@tiptap/extension-text'
 import { UndoRedo } from '@tiptap/extensions'
+import { Fragment, Slice, type Node as ProseMirrorNode, type Schema } from '@tiptap/pm/model'
 import type { Pick } from './picker.js'
 
 /**
@@ -18,7 +20,7 @@ import type { Pick } from './picker.js'
  */
 
 /** The core's `RICH_TEXT_FEATURES`, in toolbar order. */
-const FEATURES = ['heading', 'bold', 'italic', 'link', 'bulletList', 'orderedList', 'blockquote', 'image', 'hardBreak'] as const
+const FEATURES = ['heading', 'bold', 'italic', 'link', 'bulletList', 'orderedList', 'blockquote', 'image', 'hardBreak', 'table'] as const
 type Feature = (typeof FEATURES)[number]
 
 const HEX64 = /^[0-9a-f]{64}$/
@@ -110,8 +112,54 @@ const InlayOrderedList = OrderedList.extend({
   },
 })
 
-function extensionsFor(features: ReadonlySet<Feature>, levels: Level[]): AnyExtension[] {
-  const out: AnyExtension[] = [Document, Paragraph, Text, UndoRedo]
+/** A cell holds one paragraph, as in the core. Tiptap's cell attrs stay: its table commands need them. */
+const InlayTableHeader = TableHeader.extend({ content: 'paragraph' })
+const InlayTableCell = TableCell.extend({ content: 'paragraph' })
+
+/** Enter would split the cell's one paragraph, and a line break isn't allowed in a cell. */
+const TableKeys = Extension.create({
+  name: 'inlayTableKeys',
+  priority: 1000,
+  addKeyboardShortcuts() {
+    const inTable = () => this.editor.isActive('table')
+    return { Enter: inTable, 'Shift-Enter': inTable, 'Mod-Enter': inTable }
+  },
+})
+
+/** Inline text holds one paragraph, as `parseInlineText` in the core. */
+const InlineDocument = Document.extend({ content: 'paragraph' })
+
+/** Inline text has no second line: Enter and its variants are claimed and do nothing. */
+const InlineKeys = Extension.create({
+  name: 'inlayInlineKeys',
+  priority: 1000,
+  addKeyboardShortcuts() {
+    const refuse = () => true
+    return { Enter: refuse, 'Shift-Enter': refuse, 'Mod-Enter': refuse }
+  },
+})
+
+/** A pasted slice of several paragraphs (or other text blocks) as one paragraph, their text joined with spaces. */
+function oneParagraph(slice: Slice, schema: Schema): Slice {
+  const blocks: ProseMirrorNode[] = []
+  slice.content.descendants((node) => {
+    if (!node.isTextblock) return true
+    blocks.push(node)
+    return false
+  })
+  const paragraph = schema.nodes.paragraph
+  if (blocks.length < 2 || !paragraph) return slice
+  const inline: ProseMirrorNode[] = []
+  for (const block of blocks) {
+    if (block.childCount === 0) continue
+    if (inline.length > 0) inline.push(schema.text(' '))
+    block.content.forEach((node) => inline.push(node))
+  }
+  return new Slice(Fragment.from(paragraph.create(null, inline)), 1, 1)
+}
+
+function extensionsFor(features: ReadonlySet<Feature>, levels: Level[], inline: boolean): AnyExtension[] {
+  const out: AnyExtension[] = inline ? [InlineDocument, InlineKeys, Paragraph, Text, UndoRedo] : [Document, Paragraph, Text, UndoRedo]
   if (features.has('heading') && levels.length > 0) out.push(InlayHeading.configure({ levels }))
   if (features.has('bold')) out.push(Bold)
   if (features.has('italic')) out.push(Italic)
@@ -122,6 +170,9 @@ function extensionsFor(features: ReadonlySet<Feature>, levels: Level[]): AnyExte
   if (features.has('blockquote')) out.push(Blockquote)
   if (features.has('hardBreak')) out.push(HardBreak)
   if (features.has('image')) out.push(InlayImage)
+  if (features.has('table')) {
+    out.push(Table.configure({ resizable: false, allowTableNodeSelection: false }), TableRow, InlayTableHeader, InlayTableCell, TableKeys)
+  }
   return out
 }
 
@@ -163,6 +214,10 @@ interface Tool {
   run(): void
   /** Toggles show whether they are on; buttons that insert something have no state. */
   active?: () => boolean
+  /** Shown only where it applies (the table's row and column buttons). */
+  shown?: () => boolean
+  /** Disabled where its node isn't allowed. */
+  enabled?: () => boolean
 }
 
 function openPicker(url: string | undefined, onPick: (pick: Pick) => void): void {
@@ -186,6 +241,15 @@ function applyLink(editor: Editor, pick: Pick): void {
   } else {
     chain.setMark('link', attrs).run()
   }
+}
+
+/** The index of the selection's row in its table, or -1 outside a table. */
+function rowIndex(editor: Editor): number {
+  const { $from } = editor.state.selection
+  for (let depth = $from.depth; depth > 0; depth--) {
+    if ($from.node(depth).type.name === 'tableRow') return $from.index(depth - 1)
+  }
+  return -1
 }
 
 function toolsFor(editor: Editor, root: HTMLElement, features: ReadonlySet<Feature>, levels: Level[]): Tool[] {
@@ -237,17 +301,46 @@ function toolsFor(editor: Editor, root: HTMLElement, features: ReadonlySet<Featu
             openPicker(root.dataset.pickImage, (pick) => {
               if (HEX64.test(pick.value)) editor.chain().focus().insertContent({ type: 'image', attrs: { media: pick.value, alt: null } }).run()
             }),
+          enabled: () => !editor.isActive('table'),
         })
         break
       case 'hardBreak':
-        tools.push({ command: 'hardBreak', run: () => editor.chain().focus().setHardBreak().run() })
+        tools.push({ command: 'hardBreak', run: () => editor.chain().focus().setHardBreak().run(), enabled: () => !editor.isActive('table') })
         break
+      case 'table': {
+        const inTable = () => editor.isActive('table')
+        tools.push(
+          {
+            command: 'table',
+            run: () => editor.chain().focus().insertTable({ rows: 3, cols: 3, withHeaderRow: true }).run(),
+            // Only between top-level blocks: not in a list, a quote or another table.
+            enabled: () => editor.state.selection.$from.depth === 1,
+          },
+          { command: 'addRowAfter', run: () => editor.chain().focus().addRowAfter().run(), shown: inTable },
+          { command: 'addColumnAfter', run: () => editor.chain().focus().addColumnAfter().run(), shown: inTable },
+          // The first row is the header row.
+          { command: 'deleteRow', run: () => editor.chain().focus().deleteRow().run(), shown: () => rowIndex(editor) > 0 },
+          {
+            command: 'deleteColumn',
+            // Tiptap won't delete every column of a table (its last one, say): the table goes instead.
+            run() {
+              if (!editor.chain().focus().deleteColumn().run()) editor.chain().focus().deleteTable().run()
+            },
+            shown: inTable,
+          },
+          { command: 'deleteTable', run: () => editor.chain().focus().deleteTable().run(), shown: inTable },
+        )
+        break
+      }
     }
   }
   return tools
 }
 
-/** One button per tool; the arrow keys, Home and End move between them, and only one is in the tab order. */
+/**
+ * One button per tool; the arrow keys, Home and End move between the shown, enabled ones, and only one is in the
+ * tab order.
+ */
 function buildToolbar(toolbar: HTMLElement, tools: Tool[], labels: Record<string, string>): () => void {
   const buttons = tools.map((tool, i) => {
     const button = document.createElement('button')
@@ -262,17 +355,20 @@ function buildToolbar(toolbar: HTMLElement, tools: Tool[], labels: Record<string
   })
   toolbar.replaceChildren(...buttons)
 
+  const usable = () => buttons.filter((b) => !b.hidden && !b.disabled)
   const focusAt = (index: number) => {
-    const n = buttons.length
-    const target = buttons[((index % n) + n) % n]
+    const open = usable()
+    const n = open.length
+    const target = open[((index % n) + n) % n]
     if (!target) return
     for (const b of buttons) b.tabIndex = b === target ? 0 : -1
     target.focus()
   }
   toolbar.addEventListener('keydown', (event) => {
-    const at = buttons.indexOf(event.target as HTMLButtonElement)
+    const open = usable()
+    const at = open.indexOf(event.target as HTMLButtonElement)
     if (at < 0) return
-    const next = { ArrowRight: at + 1, ArrowDown: at + 1, ArrowLeft: at - 1, ArrowUp: at - 1, Home: 0, End: buttons.length - 1 }[event.key]
+    const next = { ArrowRight: at + 1, ArrowDown: at + 1, ArrowLeft: at - 1, ArrowUp: at - 1, Home: 0, End: open.length - 1 }[event.key]
     if (next === undefined) return
     event.preventDefault()
     focusAt(next)
@@ -280,14 +376,23 @@ function buildToolbar(toolbar: HTMLElement, tools: Tool[], labels: Record<string
 
   return () => {
     tools.forEach((tool, i) => {
-      if (tool.active) buttons[i]?.setAttribute('aria-pressed', String(tool.active()))
+      const button = buttons[i]
+      if (!button) return
+      if (tool.active) button.setAttribute('aria-pressed', String(tool.active()))
+      if (tool.shown) button.hidden = !tool.shown()
+      if (tool.enabled) button.disabled = !tool.enabled()
     })
+    const open = usable()
+    if (!open.some((b) => b.tabIndex === 0)) for (const b of buttons) b.tabIndex = b === open[0] ? 0 : -1
   }
 }
 
 const mounted = new WeakMap<HTMLElement, Editor>()
 
-/** Mounts the editor in a `[data-richtext]` element rendered by the rich text widget (once; later calls return it). */
+/**
+ * Mounts the editor in a `[data-richtext]` element rendered by the rich text widget (once; later calls return it).
+ * With `data-inline` (the inline-text widget) it is a one-line editor: one paragraph, and pasted lines joined.
+ */
 export function mountRichText(root: HTMLElement): Editor {
   const existing = mounted.get(root)
   if (existing) return existing
@@ -301,8 +406,9 @@ export function mountRichText(root: HTMLElement): Editor {
   const mount = root.querySelector<HTMLElement>('[data-richtext-mount]') ?? root
   const input = root.querySelector<HTMLInputElement>(':scope > input[type="hidden"]')
   const toolbar = root.querySelector<HTMLElement>('[role="toolbar"]')
+  const inline = root.hasAttribute('data-inline')
 
-  const extensions = extensionsFor(features, levels)
+  const extensions = extensionsFor(features, levels, inline)
   const content = initialContent(input?.value ?? '', extensions)
   const readable = content !== undefined
   const editable = readable && !root.hasAttribute('data-readonly')
@@ -311,7 +417,7 @@ export function mountRichText(root: HTMLElement): Editor {
     if (problem) problem.hidden = false
   }
 
-  const attributes: Record<string, string> = { role: 'textbox', 'aria-multiline': 'true' }
+  const attributes: Record<string, string> = { role: 'textbox', 'aria-multiline': String(!inline) }
   for (const name of ['aria-label', 'aria-describedby', 'aria-invalid']) {
     const value = mount.getAttribute(name)
     if (value !== null) attributes[name] = value
@@ -323,7 +429,13 @@ export function mountRichText(root: HTMLElement): Editor {
     extensions,
     content,
     editable,
-    editorProps: { attributes },
+    editorProps: inline
+      ? {
+          attributes,
+          transformPastedText: (text) => text.replace(/\s*[\r\n]+\s*/g, ' '),
+          transformPasted: (slice, view) => oneParagraph(slice, view.state.schema),
+        }
+      : { attributes },
     onUpdate: ({ editor: e }) => {
       if (!input || !readable) return
       input.value = JSON.stringify(e.getJSON())

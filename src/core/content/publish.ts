@@ -25,12 +25,13 @@ export async function recordEvent(
   ctx: Ctx,
   message: string | null,
   items: PublishResult['items'],
+  at: string = deps.now().toISOString(),
 ): Promise<number | null> {
   if (items.length === 0) return null
   const row = await deps.db
     .insertInto('publish_events')
     .values({
-      at: deps.now().toISOString(),
+      at,
       user_id: ctx.actor.id,
       user_name: ctx.actor.name,
       source: ctx.source,
@@ -150,6 +151,7 @@ export async function publish(
       throw new InlayError('validation', 'error.publishFailed', { count: failures.length }, { documents: failures })
     }
     if (opts.dryRun) return { eventId: null, items }
+    const at = deps.now().toISOString()
     for (const item of items) {
       await autoRedirect(tx, ctx, docs.get(item.documentId)!)
       await trx
@@ -158,12 +160,13 @@ export async function publish(
           published_rev: eb.ref('head_rev'),
           published_slug: eb.ref('head_slug'),
           published_path: eb.ref('head_path'),
+          first_published_at: eb.fn.coalesce('first_published_at', eb.val(at)),
         }))
         .where('id', '=', item.documentId)
         .execute()
       await syncRefs(tx, item.documentId)
     }
-    return { eventId: await recordEvent(tx, ctx, opts.message ?? null, items), items }
+    return { eventId: await recordEvent(tx, ctx, opts.message ?? null, items, at), items }
   }, opts)
 }
 

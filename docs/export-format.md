@@ -73,6 +73,7 @@ Each line has a `record` field naming its kind.
 | `createdAt` | string | ISO 8601. |
 | `key` | string or null | The stable key of shipped content (a singleton's or global's type name); null for entries the client created. A translation the client added to a shipped document carries its group's key. Exports that predate it read as null. |
 | `edition` | integer or null | The edition of the shipped content this document was last set from; null if never set from shipped content. Exports that predate it read as null. |
+| `firstPublishedAt` | string or null, optional | ISO 8601 time the document was first published; null if it never was. It never moves once set. Optional: when absent, an import fills it from the publish events (the earliest publish of the document, else the time its published revision was saved). |
 
 ### `revision`
 
@@ -124,7 +125,7 @@ Users, sessions, API keys, OAuth clients and account passwords are not exported.
 
 ## Format versions
 
-`formatVersion` is currently `2`. Version 2 added `{ "url" }` targets to `redirects.json`. A reader must refuse an archive whose `formatVersion` is higher than it understands. New optional fields can be added without changing the version, so readers should ignore fields they do not know.
+`formatVersion` is currently `2`. Version 2 added `{ "url" }` targets to `redirects.json`, and also carries `firstPublishedAt` on document records. A reader must refuse an archive whose `formatVersion` is higher than it understands. New optional fields can be added without changing the version, so readers should ignore fields they do not know.
 
 Content from any export can be restored into the current site: it is read against the current site's code (values that fit are used, the rest take defaults), and the dry run reports the documents left with empty required fields (gaps).
 

@@ -197,6 +197,8 @@ export interface SiteDefinition {
   /** Redirects shipped with the site's code. */
   redirects: RedirectDef[]
   migrations: ReleaseMigration[]
+  /** The site's folder as a `file:` URL ending in `/`. Set by `loadConfig` and `loadRelease`, never by a site. */
+  siteDir?: string
 }
 
 export interface SiteInput {

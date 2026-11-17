@@ -91,7 +91,7 @@ describe('bootInlay', () => {
     expect(existsSync(join(dir, 'site.db'))).toBe(true)
     expect(backup).toBeNull()
     expect(report.ok).toBe(true)
-    expect(report.systemMigrations).toEqual(['0001_content', '0002_media', '0003_redirects', '0004_token_cutoffs', '0005_site_lock', '0006_releases'])
+    expect(report.systemMigrations).toEqual(['0001_content', '0002_media', '0003_redirects', '0004_token_cutoffs', '0005_site_lock', '0006_releases', '0007_published_at'])
     expect(report.shipped.created.length).toBeGreaterThan(0)
     const home = (await core.findSingleton('home'))!
     expect(home.publishedRev).not.toBeNull()

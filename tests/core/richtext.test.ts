@@ -249,3 +249,107 @@ describe('rich text references', () => {
     expect(invalid.details.issues).toMatchObject([{ code: 'invalid', labels: ['Body'] }])
   })
 })
+
+describe('tables', () => {
+  const cell = (type: string, s: string) => ({
+    type,
+    content: [s === '' ? { type: 'paragraph' } : para(text(s))],
+  })
+  const row = (...cells: unknown[]) => ({ type: 'tableRow', content: cells })
+  const table = (...rows: unknown[]) => ({ type: 'table', content: rows })
+
+  it('promotes the first row to headers, makes body cells plain, pads and trims rows to the header width, and drops cell attrs', () => {
+    const input = doc(
+      table(
+        row(
+          { ...cell('tableCell', 'A'), attrs: { colspan: 1, rowspan: 1, colwidth: null } },
+          cell('tableCell', 'B'),
+        ),
+        row(cell('tableHeader', '1')),
+        row(cell('tableCell', 'x'), cell('tableCell', 'y'), cell('tableCell', 'z')),
+      ),
+    )
+    expect(parse(input)).toEqual({
+      ok: true,
+      doc: doc(
+        table(
+          row(cell('tableHeader', 'A'), cell('tableHeader', 'B')),
+          row(cell('tableCell', '1'), cell('tableCell', '')),
+          row(cell('tableCell', 'x'), cell('tableCell', 'y')),
+        ),
+      ),
+    })
+  })
+
+  it('removes a table with no rows or no columns', () => {
+    expect(parse(doc({ type: 'table', content: [] }))).toEqual({ ok: true, doc: { type: 'doc', content: [] } })
+    expect(parse(doc(table({ type: 'tableRow', content: [] })))).toEqual({
+      ok: true,
+      doc: { type: 'doc', content: [] },
+    })
+  })
+
+  it('keeps an empty cell as one empty paragraph', () => {
+    const parsed = parse(doc(table(row(cell('tableHeader', 'A')), row(cell('tableCell', '')))))
+    expect(parsed).toEqual({
+      ok: true,
+      doc: doc(table(row(cell('tableHeader', 'A')), row(cell('tableCell', '')))),
+    })
+  })
+
+  it("joins a cell's paragraphs into one, with a space between", () => {
+    const joined = {
+      type: 'tableHeader',
+      content: [para(text('One', [{ type: 'bold' }])), para(text('two'))],
+    }
+    const parsed = parse(doc(table(row(joined))))
+    expect(parsed).toEqual({
+      ok: true,
+      doc: doc(
+        table(
+          row({
+            type: 'tableHeader',
+            content: [para(text('One', [{ type: 'bold' }]), text(' two'))],
+          }),
+        ),
+      ),
+    })
+    const empty = { type: 'tableHeader', content: [{ type: 'paragraph' }, para()] }
+    expect(parse(doc(table(row(empty))))).toEqual({ ok: true, doc: doc(table(row(cell('tableHeader', '')))) })
+  })
+
+  it('refuses a table inside a list or a quote, and an image or line break in a cell', () => {
+    const t = table(row(cell('tableHeader', 'A')))
+    expect(parse(doc({ type: 'blockquote', content: [t] })).ok).toBe(false)
+    expect(parse(doc({ type: 'bulletList', content: [{ type: 'listItem', content: [para(), t] }] })).ok).toBe(false)
+    const image = { type: 'tableHeader', content: [para({ type: 'image', attrs: { media: sha } })] }
+    expect(parse(doc(table(row(image)))).ok).toBe(false)
+    const br = { type: 'tableHeader', content: [para(text('a'), { type: 'hardBreak' }, text('b'))] }
+    expect(parse(doc(table(row(br)))).ok).toBe(false)
+  })
+
+  it('refuses a table when the field leaves tables out', () => {
+    const t = doc(table(row(cell('tableHeader', 'A'))))
+    expect(parse(t, { features: ['bold'], headings: [] }).ok).toBe(false)
+  })
+
+  it('reads table text with tabs between cells and newlines between rows, finds links in cells, and counts a table of empty cells as blank', () => {
+    const link = { type: 'link', attrs: { document: uuid } }
+    const parsed = parse(
+      doc(
+        para(text('Intro')),
+        table(row(cell('tableHeader', 'A'), cell('tableHeader', 'B')), row(cell('tableCell', '1'), cell('tableCell', ''))),
+      ),
+    )
+    if (!parsed.ok) throw new Error('invalid')
+    expect(richTextText(parsed.doc)).toBe('Intro\nA\tB\n1\t')
+
+    const linked = parse(doc(table(row({ type: 'tableHeader', content: [para(text('L', [link]))] }))))
+    if (!linked.ok) throw new Error('invalid')
+    expect(richTextRefs(linked.doc)).toContainEqual({ kind: 'document', id: uuid })
+
+    const blank = parse(doc(table(row(cell('tableHeader', ''), cell('tableHeader', '')))))
+    if (!blank.ok) throw new Error('invalid')
+    expect(richTextIsBlank(blank.doc)).toBe(true)
+  })
+})

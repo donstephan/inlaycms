@@ -1,4 +1,5 @@
 import { defineContent, defineEntries } from 'inlaycms/site'
+import tablesAndImages from './posts/tables-and-images.md'
 
 const HERO = new URL('./assets/hero.jpg', import.meta.url)
 
@@ -111,6 +112,16 @@ export const content = [
             date: '2026-10-15',
             body: 'Editors change text and *publish* when it is ready.\n\n- Write a draft\n- Preview it\n- Publish',
           },
+        },
+      },
+    },
+    {
+      key: 'tables-and-images',
+      edition: 1,
+      content: {
+        en: {
+          slug: 'tables-and-images',
+          fields: { title: 'Tables and images', date: '2026-11-01', body: tablesAndImages },
         },
       },
     },

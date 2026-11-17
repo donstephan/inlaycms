@@ -209,6 +209,23 @@ describe('buildRegistry', () => {
         '"quote"',
       )
     })
+
+    it('refuses an inline-text field as a collection titleField', () => {
+      const Story = defineTemplate({
+        name: 'story',
+        fields: z.object({ headline: f.inlineText({ label: 'Headline' }) }),
+      })
+      const build = () =>
+        buildRegistry(
+          defineSite({
+            locales: ['en'],
+            defaultLocale: 'en',
+            collections: [defineCollection({ name: 'stories', label: 'Stories', template: Story, titleField: 'headline' })],
+          }),
+        )
+      expect(build).toThrow(InlayError)
+      expect(build).toThrow(expect.objectContaining({ messageId: 'definition.titleField' }))
+    })
   })
 })
 
@@ -293,6 +310,11 @@ describe('site settings', () => {
   it('fills defaults', () => {
     const r = buildRegistry(defineSite({ locales: ['en'], defaultLocale: 'en', singletons: [], collections: [], globals: [] }))
     expect(r.site).toMatchObject({ admin: {}, notFound: null, publicPaths: [], secrets: [], headers: {}, routes: [], migrations: [] })
+  })
+  it('has no site folder unless one is given', () => {
+    const def = defineSite({ locales: ['en'], defaultLocale: 'en' })
+    expect(buildRegistry(def).siteDir).toBeNull()
+    expect(buildRegistry({ ...def, siteDir: 'file:///x/' }).siteDir).toBe('file:///x/')
   })
   it('accepts a path-less singleton with a render function as notFound', () =>
     expect(() => buildRegistry(defineSite({ ...site, notFound: 'notFound' }))).not.toThrow())

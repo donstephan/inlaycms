@@ -16,7 +16,8 @@ import type {
   ResolvedLink,
 } from '../../core/registry/render.js'
 import type { QueryApi } from '../../core/registry/route.js'
-import { richTextToHtml } from '../../core/richtext/html.js'
+import { richTextToHtml, type RichTextResolver } from '../../core/richtext/html.js'
+import { inlineTextToHtml } from '../../core/richtext/inline.js'
 import type { RichTextDoc } from '../../core/richtext/schema.js'
 import { encodePath } from '../../core/site/paths.js'
 import type {
@@ -31,7 +32,7 @@ import type {
 } from '../../core/types.js'
 import { publicAssets, type PublicAssets } from './assets.js'
 import { createHeadCollector, type CollectedHead } from './head.js'
-import { raw, type SafeHtml } from '../../jsx/html.js'
+import { escapeHtml, raw, type SafeHtml } from '../../jsx/html.js'
 
 export interface RenderContextOptions {
   locale: string
@@ -100,6 +101,7 @@ function toEntry<F>(doc: LiveDocument): Entry<F> {
     title: doc.title,
     slug: doc.slug,
     updatedAt: doc.updatedAt,
+    publishedAt: doc.publishedAt,
     fields: doc.data.fields as F,
   }
 }
@@ -115,6 +117,14 @@ function compareValues(a: unknown, b: unknown): number {
 function sortEntries<F>(entries: Entry<F>[], sort: QueryOptions<F>['sort']): Entry<F>[] {
   if (sort === undefined || sort === 'newest') return entries
   if (sort === 'oldest') return [...entries].reverse()
+  if (sort === 'published') {
+    return [...entries].sort((a, b) => {
+      if (a.publishedAt === b.publishedAt) return 0
+      if (a.publishedAt === null) return 1
+      if (b.publishedAt === null) return -1
+      return a.publishedAt < b.publishedAt ? 1 : -1
+    })
+  }
   const sign = sort.direction === 'desc' ? -1 : 1
   const value = (e: Entry<F>) => (e.fields as Record<string, unknown>)[sort.field]
   return [...entries].sort((a, b) => {
@@ -221,20 +231,24 @@ export function createRenderContext(core: Core, opts: RenderContextOptions): Pre
     return { href: target.href, text, external: false }
   }
 
+  const resolver: RichTextResolver = {
+    link: (groupId) => documentHref(groupId)?.href ?? null,
+    image: (id, alt) => {
+      const info = media.get(id)
+      if (!info) return null
+      const img = resolveImage(info, alt)
+      const width = Math.min(img.width ?? RICH_TEXT_SRC_WIDTH, RICH_TEXT_SRC_WIDTH)
+      return { src: img.src(width), srcset: img.srcset(), alt: img.alt, width: img.width, height: img.height }
+    },
+  }
+
   function richText(doc: RichTextDoc | null | undefined): SafeHtml {
-    if (!doc) return raw('')
-    return raw(
-      richTextToHtml(doc, {
-        link: (groupId) => documentHref(groupId)?.href ?? null,
-        image: (id, alt) => {
-          const info = media.get(id)
-          if (!info) return null
-          const img = resolveImage(info, alt)
-          const width = Math.min(img.width ?? RICH_TEXT_SRC_WIDTH, RICH_TEXT_SRC_WIDTH)
-          return { src: img.src(width), srcset: img.srcset(), alt: img.alt, width: img.width, height: img.height }
-        },
-      }),
-    )
+    return raw(doc ? richTextToHtml(doc, resolver) : '')
+  }
+
+  function inline(value: RichTextDoc | string | null | undefined): SafeHtml {
+    if (value === null || value === undefined) return raw('')
+    return raw(typeof value === 'string' ? escapeHtml(value) : inlineTextToHtml(value, resolver))
   }
 
   async function entries<F = Record<string, unknown>>(
@@ -320,6 +334,7 @@ export function createRenderContext(core: Core, opts: RenderContextOptions): Pre
     file,
     link,
     richText,
+    inline,
     entries,
     query,
     global,

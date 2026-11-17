@@ -100,7 +100,7 @@ export function toAgent(registry: Registry, type: string, data: DocumentData, re
   }
 }
 
-const RICH_TEXT: ReadonlySet<string> = new Set(['richText'])
+const RICH_TEXT: ReadonlySet<string> = new Set(['richText', 'inlineText'])
 
 /** Every `inlay:` link and image target in the document's rich text, with what it points to. */
 export function agentLinks(registry: Registry, type: string, data: DocumentData, refs: AgentRefs): AgentLink[] {

@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto'
 import { existsSync } from 'node:fs'
-import { cp, mkdir, mkdtemp, readdir, readFile, rm, stat, writeFile } from 'node:fs/promises'
+import { cp, mkdir, mkdtemp, readdir, readFile, realpath, rm, stat, symlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { createRequire } from 'node:module'
@@ -10,6 +10,7 @@ import { createCore } from '../../src/core/core.js'
 import { openDatabase } from '../../src/core/db/connection.js'
 import { migrateSystem } from '../../src/core/db/migrate.js'
 import { InlayError } from '../../src/core/errors.js'
+import { bundleSite } from '../../src/core/release/bundle.js'
 import { fingerprint, generateKeyPair, sign } from '../../src/core/release/keys.js'
 import { manifestOfRegistry, manifestSchema, satisfies, type ReleaseManifest } from '../../src/core/release/manifest.js'
 import { packRelease } from '../../src/core/release/pack.js'
@@ -17,6 +18,7 @@ import { INLAY_ENTRIES, loadRelease, openRelease, readRelease } from '../../src/
 import { defineSite } from '../../src/core/registry/define.js'
 import { defineRoute } from '../../src/core/registry/route.js'
 import { buildRegistry } from '../../src/core/registry/registry.js'
+import { t } from '../../src/core/messages/index.js'
 import { inlayVersion } from '../../src/core/version.js'
 import { loadConfig } from '../../src/config.js'
 import { redirectSite } from '../fixtures/code-redirects.js'
@@ -60,7 +62,8 @@ let pic: Buffer
 let out: string
 
 beforeEach(async () => {
-  dir = await mkdtemp(join(tmpdir(), 'inlay-release-'))
+  // The real path: a site's folder is named with every link followed, and the temp dir may sit under one.
+  dir = await realpath(await mkdtemp(join(tmpdir(), 'inlay-release-')))
   siteDir = join(dir, 'site')
   releaseDir = join(dir, 'release')
   await cp(join(fixtures, 'release'), siteDir, { recursive: true })
@@ -123,6 +126,15 @@ describe('packRelease', () => {
       { from: '/old-landing', to: '/', status: 302 },
       { from: '/2019/:slug', to: '/blog/:slug', status: 301 },
     ])
+  })
+
+  it('a release names the site folder it was packed from, and loading from source names it too', async () => {
+    await pack()
+    const loaded = await readRelease(out, { dir: releaseDir, trustedKeys: [keys.publicKey] })
+    const expected = pathToFileURL(siteDir).href + '/'
+    expect(loaded.site.siteDir).toBe(expected)
+    expect(buildRegistry(loaded.site).siteDir).toBe(expected)
+    expect((await loadConfig(join(siteDir, 'inlay.config.ts'))).config.site.siteDir).toBe(expected)
   })
 
   it('writes the same manifest a site running from source has, less its files', async () => {
@@ -239,6 +251,246 @@ describe('packRelease', () => {
     await rm(join(siteDir, 'assets/pic.png'))
     const e = await rejection(pack())
     expect(e.messageId).toBe('error.packFile')
+  })
+
+  describe('images named in shipped markdown', () => {
+    /** Writes the site's `content.ts` with `body` (a TypeScript expression) as the home page's body. */
+    const writeBody = (at: string, body: string) =>
+      writeFile(
+        join(at, 'content.ts'),
+        [
+          "import { defineContent } from 'inlaycms/site'",
+          '',
+          'export const content = [',
+          "  defineContent('home', {",
+          '    edition: 1,',
+          '    content: {',
+          '      en: {',
+          '        fields: {',
+          "          title: 'Hello',",
+          "          picture: { file: new URL('./assets/pic.png', import.meta.url), alt: 'A picture' },",
+          `          body: ${body},`,
+          '        },',
+          '      },',
+          '    },',
+          '  }),',
+          ']',
+          '',
+        ].join('\n'),
+      )
+
+    it('packs an image named by a relative path in shipped markdown, and applies it with the site folder gone', async () => {
+      await writeBody(siteDir, "'![Pic](assets/pic.png)'")
+      const { manifest } = await pack()
+      const image = `content/${sha256(pic)}.png`
+      expect(manifest.content).toEqual([{ source: pathToFileURL(join(siteDir, 'assets/pic.png')).href, path: image }])
+
+      const loaded = await readRelease(out, { dir: releaseDir, trustedKeys: [keys.publicKey] })
+      await rm(siteDir, { recursive: true, force: true })
+      const media = await mkdtemp(join(tmpdir(), 'inlay-release-media-'))
+      const db = openDatabase(':memory:')
+      try {
+        await migrateSystem(db)
+        const core = createCore({ site: loaded.site, db, media, shippedFiles: loaded.shippedFiles })
+        await core.applyShippedContent()
+        const home = await core.findSingleton('home', 'en')
+        const doc = await core.getDocument(home!.id, { state: 'published' })
+        const body = (doc!.data.fields as { body: { content: Array<{ content?: Array<{ type: string; attrs?: unknown }> }> } }).body
+        const images = body.content.flatMap((b) => (b.content ?? []).filter((n) => n.type === 'image').map((n) => n.attrs))
+        expect(images).toEqual([{ media: sha256(pic), alt: 'Pic' }])
+      } finally {
+        await db.destroy()
+        await rm(media, { recursive: true, force: true })
+      }
+    })
+
+    it('names an image only markdown names, written three ways, in one manifest.content entry', async () => {
+      const shot = await png(8, 4)
+      await writeFile(join(siteDir, 'assets/shot.png'), shot)
+      await writeBody(
+        siteDir,
+        "`![a](assets/shot.png) ![b](./assets/shot.png) ![c](${new URL('./assets/shot.png', import.meta.url)})`",
+      )
+      const { manifest } = await pack()
+      const image = `content/${sha256(pic)}.png`
+      const shotImage = `content/${sha256(shot)}.png`
+      expect(manifest.content).toEqual([
+        { source: pathToFileURL(join(siteDir, 'assets/pic.png')).href, path: image },
+        { source: pathToFileURL(join(siteDir, 'assets/shot.png')).href, path: shotImage },
+      ])
+      expect(Object.keys(manifest.files).sort()).toEqual(['public/site.css', 'site.js', image, shotImage].sort())
+    })
+
+    it('leaves an image outside the site folder out of the release', async () => {
+      const outside = await png(5, 5)
+      await writeFile(join(dir, 'outside.png'), outside)
+      await writeBody(siteDir, "'![x](../outside.png)'")
+      const { manifest } = await pack()
+      expect(manifest.content.map((c) => c.source)).toEqual([pathToFileURL(join(siteDir, 'assets/pic.png')).href])
+      expect(JSON.stringify(manifest.content)).not.toContain('outside')
+      expect(Object.keys(manifest.files)).not.toContain(`content/${sha256(outside)}.png`)
+      expect(Object.values(manifest.files)).not.toContain(sha256(outside))
+    })
+
+    it('hashes shipped markdown the same wherever the site sits', async () => {
+      const body = "`![Pic](${new URL('./assets/pic.png', import.meta.url)})`"
+      await writeBody(siteDir, body)
+      const other = join(dir, 'elsewhere', 'site')
+      await cp(siteDir, other, { recursive: true })
+      const first = await pack()
+      const second = await packRelease({
+        configFile: join(other, 'inlay.config.ts'),
+        privateKey: keys.privateKey,
+        out: join(dir, 'other.tgz'),
+        name: 'test-1',
+      })
+      expect(first.manifest.content[0]!.source).not.toBe(second.manifest.content[0]!.source)
+      expect(second.manifest.shipped).toEqual(first.manifest.shipped)
+    })
+
+    it("hashes an image named by a relative path by its bytes, so replacing them changes the document's hash", async () => {
+      await writeBody(siteDir, "'Intro ![Chart](assets/chart.png) and `![a](assets/chart.png)` in code'")
+      await writeFile(join(siteDir, 'assets/chart.png'), await png(8, 4))
+      const first = await pack()
+      await writeFile(join(siteDir, 'assets/chart.png'), await png(9, 4))
+      const second = await packRelease({
+        configFile: join(siteDir, 'inlay.config.ts'),
+        privateKey: keys.privateKey,
+        out: join(dir, 'other.tgz'),
+        name: 'test-1',
+      })
+      expect(second.manifest.shipped).not.toEqual(first.manifest.shipped)
+    })
+  })
+
+  describe('.md imports', () => {
+    /** Writes `posts/hello.md` with `markdown`, and a `content.ts` that imports it as the home page's body. */
+    const writePost = async (markdown: string) => {
+      await mkdir(join(siteDir, 'posts'), { recursive: true })
+      await writeFile(join(siteDir, 'posts/hello.md'), markdown)
+      await writeFile(
+        join(siteDir, 'content.ts'),
+        [
+          "import { defineContent } from 'inlaycms/site'",
+          "import hello from './posts/hello.md'",
+          '',
+          'export const content = [',
+          "  defineContent('home', {",
+          '    edition: 1,',
+          '    content: {',
+          '      en: {',
+          '        fields: {',
+          "          title: 'Hello',",
+          "          picture: { file: new URL('./assets/pic.png', import.meta.url), alt: 'A picture' },",
+          '          body: hello,',
+          '        },',
+          '      },',
+          '    },',
+          '  }),',
+          ']',
+          '',
+        ].join('\n'),
+      )
+    }
+
+    /** Applies shipped content to a fresh database for `site`, and gives back the home page's body. */
+    const appliedBody = async (site: Parameters<typeof createCore>[0]['site'], shippedFiles?: ReadonlyMap<string, string>) => {
+      const media = await mkdtemp(join(tmpdir(), 'inlay-release-media-'))
+      const db = openDatabase(':memory:')
+      try {
+        await migrateSystem(db)
+        const core = createCore({ site, db, media, ...(shippedFiles ? { shippedFiles } : {}) })
+        await core.applyShippedContent()
+        const home = await core.findSingleton('home', 'en')
+        const doc = await core.getDocument(home!.id, { state: 'published' })
+        return (doc!.data.fields as { body: { content: Array<{ type: string; content?: Array<{ type: string; text?: string; attrs?: unknown }> }> } }).body
+      } finally {
+        await db.destroy()
+        await rm(media, { recursive: true, force: true })
+      }
+    }
+
+    it('packs a .md import as a string, with an image beside it', async () => {
+      const beside = await png(6, 3)
+      await writePost('Hello **there**.\n\n![Pic](./pic.png)\n')
+      await writeFile(join(siteDir, 'posts/pic.png'), beside)
+      const { manifest } = await pack()
+      expect(manifest.content.map((c) => c.source)).toContain(pathToFileURL(join(siteDir, 'posts/pic.png')).href)
+
+      const loaded = await readRelease(out, { dir: releaseDir, trustedKeys: [keys.publicKey] })
+      await rm(siteDir, { recursive: true, force: true })
+      const body = await appliedBody(loaded.site, loaded.shippedFiles)
+      expect(body.content[0]!.content!.map((n) => n.text)).toEqual(['Hello ', 'there', '.'])
+      const images = body.content.flatMap((b) => (b.content ?? []).filter((n) => n.type === 'image').map((n) => n.attrs))
+      expect(images).toEqual([{ media: sha256(beside), alt: 'Pic' }])
+    })
+
+    it('refuses a .md image that leaves the site folder', async () => {
+      await writeFile(join(dir, 'outside.png'), await png(5, 5))
+      await writePost('![x](../../outside.png)\n')
+      const { config } = await loadConfig(join(siteDir, 'inlay.config.ts'))
+      const e = await rejection(appliedBody(config.site))
+      const issues = e.details.issues as Array<{ message: string }>
+      expect(issues.map((i) => i.message)).toEqual([
+        t('issue.shippedImageOutside', { field: 'Body', line: 1, src: pathToFileURL(join(dir, 'outside.png')).href }),
+      ])
+    })
+
+    it('applies and packs images in a site loaded through a symlink to its folder', async () => {
+      const beside = await png(6, 3)
+      const shot = await png(8, 4)
+      await writePost('Hello.\n\n![Pic](./pic.png)\n')
+      await writeFile(join(siteDir, 'posts/pic.png'), beside)
+      await writeFile(join(siteDir, 'assets/shot.png'), shot)
+      const content = await readFile(join(siteDir, 'content.ts'), 'utf8')
+      await writeFile(
+        join(siteDir, 'content.ts'),
+        content.replace(
+          'body: hello,',
+          "body: `${hello}\n\n![Shot](${new URL('./assets/shot.png', import.meta.url)})`,",
+        ),
+      )
+      const link = join(dir, 'link')
+      await symlink(siteDir, link)
+      const config = join(link, 'inlay.config.ts')
+
+      const loaded = await loadConfig(config)
+      expect(loaded.config.site.siteDir).toBe(pathToFileURL(siteDir).href + '/')
+      const body = await appliedBody(loaded.config.site)
+      const images = body.content.flatMap((b) => (b.content ?? []).filter((n) => n.type === 'image').map((n) => n.attrs))
+      expect(images).toEqual([
+        { media: sha256(beside), alt: 'Pic' },
+        { media: sha256(shot), alt: 'Shot' },
+      ])
+
+      const { manifest } = await packRelease({ configFile: config, privateKey: keys.privateKey, out, name: 'test-1' })
+      expect(manifest.content.map((c) => c.source)).toEqual(
+        expect.arrayContaining([
+          pathToFileURL(join(siteDir, 'posts/pic.png')).href,
+          pathToFileURL(join(siteDir, 'assets/shot.png')).href,
+        ]),
+      )
+      const released = await readRelease(out, { dir: releaseDir, trustedKeys: [keys.publicKey] })
+      expect(released.site.siteDir).toBe(pathToFileURL(siteDir).href + '/')
+    })
+
+    it("refuses a .md image whose place in the file can't be found, naming the file and line", async () => {
+      await writePost('Hi\n\nA\0 ![Pic](./pic.png)\n')
+      const loading = await rejection(loadConfig(join(siteDir, 'inlay.config.ts')))
+      expect(loading.message).toContain(t('error.markdownImageUnplaced', { file: 'posts/hello.md', line: 3 }))
+    })
+
+    it('refuses a reference-style image in a .md file, naming the file and line', async () => {
+      await writePost('Hi\n\n![Pic][pic]\n\n[pic]: ./pic.png\n')
+      const text = t('error.markdownImageReference', { file: 'posts/hello.md', line: 3 })
+      const loading = await rejection(loadConfig(join(siteDir, 'inlay.config.ts')))
+      expect(loading.message).toContain(text)
+      // pack loads the config first, so it stops where loading does; bundling the release on its own says the same.
+      expect((await rejection(pack())).message).toContain(text)
+      const bundling = await rejection(bundleSite(join(siteDir, 'inlay.config.ts'), join(dir, 'site.js')))
+      expect(bundling.messageId).toBe('error.packBundle')
+      expect(bundling.message).toContain(text)
+    })
   })
 })
 

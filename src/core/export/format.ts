@@ -36,6 +36,8 @@ export interface DocumentRecord {
   createdAt: string
   key: string | null
   edition: number | null
+  /** Absent: not recorded, filled from the publish events on import. Null: never published. */
+  firstPublishedAt?: string | null
 }
 
 export interface RevisionRecord {
@@ -152,6 +154,7 @@ const documentRecord = z.object({
   createdAt: z.string(),
   key: nullableString.default(null),
   edition: nullableInt.default(null),
+  firstPublishedAt: nullableString.optional(),
 })
 
 const revisionRecord = z.object({

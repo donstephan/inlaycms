@@ -198,6 +198,8 @@ export interface LiveDocument {
   revisionId: number
   /** The shown revision's `created_at`. */
   updatedAt: string
+  /** When Inlay first published the document; `null` if it never has been. */
+  publishedAt: string | null
   data: DocumentData
 }
 

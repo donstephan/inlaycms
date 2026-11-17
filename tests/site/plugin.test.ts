@@ -2,6 +2,7 @@ import { request as httpRequest } from 'node:http'
 import type { AddressInfo } from 'node:net'
 import Fastify, { type FastifyInstance } from 'fastify'
 import { z } from 'zod'
+import { createRenderContext } from '../../src/adapters/site/context.js'
 import { inlay, type InlayOptions } from '../../src/adapters/site/plugin.js'
 import type { Core } from '../../src/core/core.js'
 import { f } from '../../src/core/fields/builtins.js'
@@ -423,5 +424,34 @@ describe('inlay plugin: read-only', () => {
       payload: 'email=a@example.com&password=wrong',
     })
     expect(login.statusCode).not.toBe(403)
+  })
+})
+
+describe('inlay plugin: publish order', () => {
+  const draft = (core: Core, owner: Ctx, slug: string) =>
+    core.createEntry('posts', { slug, fields: { title: slug, date: '2026-02-01', body: rt(slug) } }, owner)
+
+  it('sorts by publish time, newest first, ties by creation then id', async () => {
+    const { app: a, core, owner } = await app()
+    const first = await draft(core, owner, 'first')
+    await core.publish([first.id], owner)
+    const second = await draft(core, owner, 'second')
+    const third = await draft(core, owner, 'third')
+    await core.publish([second.id, third.id], owner)
+    const sorted = await a.inlay.query('posts', { sort: 'published' })
+    expect(sorted.items.map((e) => e.title)).toEqual(['third', 'second', 'first'])
+    expect(sorted.items[0]?.publishedAt).toBe(sorted.items[1]?.publishedAt)
+    expect(sorted.items[1]?.publishedAt).not.toBe(sorted.items[2]?.publishedAt)
+  })
+
+  it('puts a draft that was never published last in preview', async () => {
+    const { app: a, core, owner } = await app()
+    await draft(core, owner, 'draft')
+    await post(core, owner, 'live', 'live')
+    const ctx = createRenderContext(core, { locale: 'en', state: 'preview', page: 1, baseUrl: 'https://example.com', alternates: [] })
+    const found = await ctx.query('posts', { sort: 'published' })
+    expect(found.items.map((e) => e.title)).toEqual(['live', 'draft'])
+    expect(found.items[1]?.publishedAt).toBeNull()
+    await a.ready()
   })
 })

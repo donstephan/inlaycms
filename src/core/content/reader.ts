@@ -75,14 +75,15 @@ function readNode(
     }
     return listChecks(s, def).safeParse(out).success ? out : unfit([], required, opts, path, gaps)
   }
-  const result = (s as z.ZodType).safeParse(value)
+  const meta = fieldMeta(s as z.ZodType)
+  const result = (s as z.ZodType).safeParse(meta?.readStored ? meta.readStored(value) : value)
   if (result.success) return result.data
   if (OPTIONAL.has(def.type)) return undefined
   if (DEFAULTED.has(def.type)) {
     const fallback = (s as z.ZodType).safeParse(undefined)
     if (fallback.success) return fallback.data
   }
-  return unfit(fieldMeta(s as z.ZodType)?.empty, required, opts, path, gaps)
+  return unfit(meta?.empty, required, opts, path, gaps)
 }
 
 const listCache = new WeakMap<Schema, z.ZodType>()

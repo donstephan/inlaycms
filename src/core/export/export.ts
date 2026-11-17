@@ -149,6 +149,7 @@ async function readContent(db: Kysely<Database>): Promise<ContentRecord[]> {
       createdAt: d.created_at,
       key: d.key,
       edition: d.edition,
+      firstPublishedAt: d.first_published_at,
     })),
     ...revs.map((r): ContentRecord => ({
       record: 'revision',

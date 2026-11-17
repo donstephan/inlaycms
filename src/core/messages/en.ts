@@ -299,8 +299,16 @@ export const en = {
   'issue.shippedFileUnknown':
     '{field} uses the file "{path}", which isn\'t part of this release.',
   'issue.shippedFileInvalid': '{field}: {problem}',
-  'issue.shippedRichTextImage':
-    "{field}: Line {line}: shipped content can't include images in rich text, because there is no way to name their files there. Remove the image, or put it in an image field instead.",
+  'issue.shippedImageRemote':
+    '{field}: Line {line}: the image "{src}" is on another website, and a release never downloads anything. Download it into the site\'s folder and name it by its path, such as images/chart.png.',
+  'issue.shippedImageRooted':
+    '{field}: Line {line}: the image "{src}" starts with "/", which is an address on the site, not a file. Name the file by its path inside the site\'s folder, such as images/chart.png.',
+  'issue.shippedImageOutside':
+    '{field}: Line {line}: the image "{src}" is outside the site\'s folder. Move it into the site\'s folder and name it from there.',
+  'issue.shippedImageMissing': '{field}: Line {line}: the image "{src}" doesn\'t exist or can\'t be read.',
+  'issue.shippedImageUnknown': '{field}: Line {line}: the image "{src}" isn\'t part of this release.',
+  'issue.shippedImageNotImage': '{field}: Line {line}: "{src}" isn\'t an image.',
+  'issue.shippedImageInvalid': '{field}: Line {line}: {problem}',
   'issue.shippedKeyUnknown':
     '{field} points to "{key}" in {type}, which isn\'t part of the shipped content. Add it to the shipped content, or remove the reference.',
   'error.shippedContent':
@@ -340,6 +348,10 @@ export const en = {
     "{file} uses {what}, which a release can't include. Site code can't reach the server's process, load code by a computed name or run code from text. This check catches mistakes; what makes a release trusted is its signature.",
   'error.packBundle': "The site code couldn't be bundled into a release: {problem}",
   'error.packFile': 'The shipped content names the file {path}, but there is no file there.',
+  'error.markdownImageReference':
+    "{file}, line {line}: this image is written as a reference ([alt][name]), which Inlay can't follow in a Markdown file. Write the image inline instead, such as ![A chart](images/chart.png).",
+  'error.markdownImageUnplaced':
+    "{file}, line {line}: Inlay couldn't work out where this image's file is. Put the image on a line of its own, written simply, such as ![A chart](images/chart.png).",
   'error.releaseSignature': "This release isn't signed by a trusted key, so it wasn't opened.",
   'error.releaseInvalid': "This release file is damaged or wasn't made by inlaycms pack.",
   'error.releaseVersion':
@@ -539,6 +551,8 @@ export const en = {
   'richtext.headingLevel':
     "Line {line}: this field can't contain a level {level} heading (one with {level} # signs). Use one of these levels instead: {levels}.",
   'richtext.headingContent': "Line {line}: headings can't contain {feature}. Move it to a paragraph below the heading.",
+  'richtext.tableNested': "Line {line}: tables can't go inside a list or a quote. Move the table out so it stands on its own.",
+  'richtext.tableCell': "Line {line}: table cells can't contain {feature}. Keep each cell to text, bold, italic and links.",
   'richtext.imageSource':
     'Line {line}: images must come from the media library, not from another address ("{src}"). Upload the image to the media library and use that instead.',
   'richtext.linkUrl':
@@ -549,6 +563,8 @@ export const en = {
     'Line {line}: "{text}" sets a link address that no link uses, so it would be lost. Remove the line, or use the address in a link.',
   'richtext.tooDeep': 'Line {line}: quotes and lists are nested too deeply here. Use fewer levels.',
   'richtext.unreadable': "Line {line}: this text couldn't be turned into rich text. Check its formatting and try again.",
+  'richtext.inlineParagraphs':
+    'Line {line}: this field holds a single line of text. Join the lines into one, without a blank line between them.',
   'richtext.feature.heading': 'headings',
   'richtext.feature.bold': 'bold text',
   'richtext.feature.italic': 'italic text',
@@ -613,6 +629,7 @@ export const en = {
   'agent.documentId':
     "The groupId of a page or entry of this site, not its document id. search_entries, get_document and describe_site give each one's groupId.",
   'agent.richText': 'Markdown. Allowed: {features}.',
+  'agent.inlineText': 'One line of Markdown, without paragraphs, headings or lists. Allowed: {features}.',
   'agent.richTextNone': 'Markdown with plain paragraphs only: no formatting is allowed.',
   'agent.richTextHeadings': 'headings of level {levels} (one # per level)',
   'agent.linkUrl': 'An address starting with https://, http://, mailto:, tel: or /.',
@@ -1201,6 +1218,12 @@ export const en = {
   'admin.richtext.blockquote': 'Quote',
   'admin.richtext.image': 'Image',
   'admin.richtext.hardBreak': 'Line break',
+  'admin.richtext.table': 'Insert table',
+  'admin.richtext.addRowAfter': 'Add row below',
+  'admin.richtext.addColumnAfter': 'Add column right',
+  'admin.richtext.deleteRow': 'Delete row',
+  'admin.richtext.deleteColumn': 'Delete column',
+  'admin.richtext.deleteTable': 'Delete table',
   'admin.richtext.unreadable':
     "This text contains something the editor can't show, so it can't be changed here. Your assistant can still change it.",
   'admin.picker.title': 'Choose',

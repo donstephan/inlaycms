@@ -2,6 +2,7 @@ import { z } from 'zod'
 import { InlayError } from '../errors.js'
 import { missingMediaLabel } from '../media/labels.js'
 import { t } from '../messages/index.js'
+import { INLINE_TEXT, markdownToInlineText, parseInlineText } from '../richtext/inline.js'
 import { markdownToRichText, richTextToMarkdown } from '../richtext/markdown.js'
 import {
   DEFAULT_RICH_TEXT,
@@ -9,6 +10,7 @@ import {
   RICH_TEXT_FEATURES,
   richTextIsBlank,
   richTextRefs,
+  richTextText,
   type RichTextDoc,
   type RichTextFeature,
   type RichTextOptions,
@@ -21,7 +23,9 @@ import {
   dateWidget,
   fileWidget,
   imageWidget,
+  inlineTextWidget,
   linkWidget,
+  multiSelectWidget,
   numberWidget,
   refsWidget,
   refWidget,
@@ -67,6 +71,9 @@ export const NON_BLANK = 'nonBlank'
 /** The `check` param of the refinements that make a date or datetime field reject a malformed value. */
 export const DATE_CHECK = 'date'
 export const DATETIME_CHECK = 'datetime'
+
+/** The `check` param of the refinement that holds an inline-text field to its `maxLength` (in `params.max`). */
+export const INLINE_TEXT_MAX = 'inlineTextMax'
 
 /** The `check` param of the refinement that makes a title template need exactly one `%s`. */
 export const TITLE_TEMPLATE_CHECK = 'titleTemplate'
@@ -219,18 +226,41 @@ function linkCodec(): AgentCodec {
   }
 }
 
-/** What a rich-text field accepts, in plain words: "Markdown. Allowed: bold text, links, headings of level 2, 3 (…)." */
-function richTextDescription(opts: RichTextOptions): string {
-  const allowed = RICH_TEXT_FEATURES.filter((feature) => opts.features.includes(feature)).flatMap((feature) => {
+/** Several options as an array of them, as stored. */
+function multiSelectCodec(options: readonly string[], min?: number, max?: number): AgentCodec {
+  return {
+    schema: {
+      type: 'array',
+      items: { enum: [...options] },
+      uniqueItems: true,
+      ...(min !== undefined && { minItems: min }),
+      ...(max !== undefined && { maxItems: max }),
+    },
+    read: (value) => value,
+    write: unchanged,
+  }
+}
+
+/** The formatting `opts` allows, in plain words: "bold text, links, headings of level 2, 3 (…)". */
+function allowedFeatures(opts: RichTextOptions): string[] {
+  return RICH_TEXT_FEATURES.filter((feature) => opts.features.includes(feature)).flatMap((feature) => {
     if (feature !== 'heading') return [t(`richtext.feature.${feature}`)]
     return opts.headings.length > 0 ? [t('agent.richTextHeadings', { levels: opts.headings.join(', ') })] : []
   })
+}
+
+/** What a rich-text field accepts, in plain words: "Markdown. Allowed: bold text, links, headings of level 2, 3 (…)." */
+function richTextDescription(opts: RichTextOptions): string {
+  const allowed = allowedFeatures(opts)
   return allowed.length > 0 ? t('agent.richText', { features: allowed.join(', ') }) : t('agent.richTextNone')
 }
 
-function richTextCodec(opts: RichTextOptions): AgentCodec {
+function richTextCodec(opts: RichTextOptions, inline = false): AgentCodec {
+  const description = inline
+    ? t('agent.inlineText', { features: allowedFeatures(opts).join(', ') })
+    : richTextDescription(opts)
   return {
-    schema: { type: 'string', contentMediaType: 'text/markdown', description: richTextDescription(opts) },
+    schema: { type: 'string', contentMediaType: 'text/markdown', description },
     read(value) {
       if (!isRecord(value)) return value
       try {
@@ -241,7 +271,7 @@ function richTextCodec(opts: RichTextOptions): AgentCodec {
     },
     write(value) {
       if (typeof value !== 'string') return unchanged(value)
-      const result = markdownToRichText(value, opts)
+      const result = inline ? markdownToInlineText(value) : markdownToRichText(value, opts)
       return result.ok ? unchanged(result.doc) : { ok: false, problems: result.problems.map((p) => p.message) }
     },
   }
@@ -264,6 +294,38 @@ export const f = {
 
   select<const T extends readonly [string, ...string[]]>(options: T, o: BaseOptions) {
     return defineField(z.enum(options), { kind: 'select', ...base(o), options, admin: selectWidget, empty: options[0] })
+  },
+
+  /**
+   * Any of `options`, saved in the options' order without duplicates. `min` and `max` are checked at publish. A
+   * stored option the code no longer offers is dropped when the value is read.
+   */
+  multiSelect<const T extends readonly [string, ...string[]]>(
+    options: T,
+    o: BaseOptions & { min?: number; max?: number },
+  ): z.ZodType<T[number][], T[number][]> {
+    type Option = T[number]
+    const offered: readonly string[] = options
+    const item = z.enum(options) as unknown as z.ZodType<Option, Option>
+    const canonical = (v: Option[]): Option[] => {
+      const chosen: readonly unknown[] = v
+      return offered.filter((x) => chosen.includes(x)) as Option[]
+    }
+    const draft = z.array(item).transform(canonical)
+    let checked = z.array(item)
+    if (o.min !== undefined) checked = checked.min(o.min)
+    if (o.max !== undefined) checked = checked.max(o.max)
+    return defineField(draft.pipe(checked), {
+      kind: 'multiSelect',
+      ...base(o),
+      options,
+      many: true,
+      draft,
+      agent: multiSelectCodec(options, o.min, o.max),
+      admin: multiSelectWidget,
+      empty: [],
+      readStored: (v) => (Array.isArray(v) ? v.filter((x) => typeof x === 'string' && offered.includes(x)) : v),
+    })
   },
 
   date: (o: BaseOptions) =>
@@ -371,6 +433,29 @@ export const f = {
       richText: opts,
       agent: richTextCodec(opts),
       admin: richTextWidget,
+      empty: { type: 'doc', content: [] },
+      refs: (v) => (isRecord(v) ? richTextRefs(v as RichTextDoc) : []),
+    })
+  },
+
+  inlineText(o: BaseOptions & { maxLength?: number }) {
+    const parsed = z
+      .custom<unknown>((v) => parseInlineText(v).ok)
+      .meta({ inlineText: { features: [...INLINE_TEXT.features] } })
+      .transform((v) => (parseInlineText(v) as { ok: true; doc: RichTextDoc }).doc)
+    const max = o.maxLength
+    const draft =
+      max === undefined
+        ? parsed
+        : parsed.refine((doc) => richTextText(doc).length <= max, { params: { check: INLINE_TEXT_MAX, max } })
+    const strict = draft.refine((doc) => !richTextIsBlank(doc), { params: { check: NON_BLANK } })
+    return defineField(strict, {
+      kind: 'inlineText',
+      ...base(o),
+      draft,
+      richText: INLINE_TEXT,
+      agent: richTextCodec(INLINE_TEXT, true),
+      admin: inlineTextWidget,
       empty: { type: 'doc', content: [] },
       refs: (v) => (isRecord(v) ? richTextRefs(v as RichTextDoc) : []),
     })

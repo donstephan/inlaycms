@@ -91,7 +91,7 @@ function atLineStart(out: string): boolean {
 const encodeChars = (s: string) => Array.from(s, (c) => `&#${c.codePointAt(0)};`).join('')
 
 /** URL as a link destination: `<…>` when it has spaces or brackets, escaped so markdown-it gives it back unchanged. */
-function destination(url: string): string {
+export function markdownDestination(url: string): string {
   const entity = /&(?=#?[0-9A-Za-z]+;)/g
   if (/[\s()<>]/.test(url)) return '<' + url.replace(/[\\<>]/g, '\\$&').replace(entity, '\\&') + '>'
   return url.replace(/\\/g, '\\\\').replace(entity, '\\&')
@@ -252,6 +252,8 @@ class State extends StateBase {
         .replace(/^(\d{1,9})([.)])(?=[ \t]|$)/, '$1\\$2')
         .replace(/^\+(?=[ \t]|$)/, '\\+')
         .replace(/^=/, '\\=')
+        // After a line break, a line starting with these could be read as a table's delimiter row.
+        .replace(/^[:|]/, '\\$&')
     }
     // A bare `_` is safe only between two letters or digits; next to anything else it could open or close.
     out = out.replace(/\\[\s\S]|_/g, (m, at: number, all: string) =>
@@ -561,7 +563,27 @@ function separateList(state: State, node: PMNode): void {
   if ((empty || start !== 1) && state.closed && state.closed.type !== node.type) state.flushClose(2)
 }
 
+/** A table cell's content on one line, written as any paragraph is, with each `|` escaped. */
+function cellMarkdown(cell: PMNode): string {
+  const state = new State(nodes, marks, SERIALIZER_OPTIONS)
+  state.renderContent(richTextSchema.nodes.doc!.create(null, cell.content))
+  return oneLine(state.result()).trim().replace(/\|/g, '\\|')
+}
+
 const nodes: Record<string, Serializer> = {
+  table(state, node) {
+    node.forEach((row, _, r) => {
+      const cells: string[] = []
+      row.forEach((cell) => cells.push(cellMarkdown(cell)))
+      state.write(`| ${cells.join(' | ')} |`)
+      state.ensureNewLine()
+      if (r === 0) {
+        state.write(`| ${cells.map(() => '---').join(' | ')} |`)
+        state.ensureNewLine()
+      }
+    })
+    state.closeBlock(node)
+  },
   blockquote(state, node) {
     state.wrapBlock('> ', null, node, () => state.renderContent(node))
   },
@@ -660,7 +682,7 @@ const marks: Record<string, MarkSerializerSpec> = {
     close: (_state, mark) => {
       const href =
         typeof mark.attrs.document === 'string' ? DOCUMENT_PREFIX + mark.attrs.document : String(mark.attrs.href)
-      return `](${destination(href)})`
+      return `](${markdownDestination(href)})`
     },
     mixable: true,
   },
@@ -683,10 +705,12 @@ const tokenizer = new MarkdownIt('commonmark', { html: false, linkify: false, ty
 tokenizer.validateLink = () => true
 tokenizer.normalizeLink = (url) => url
 tokenizer.normalizeLinkText = (url) => url
+tokenizer.enable('table')
 
 /**
  * Reads the syntax that CommonMark keeps as plain text but writers mean as formatting rich text can't hold:
- * HTML, tables and strikethrough. Used only to refuse it, so it isn't silently stored as literal characters.
+ * HTML and strikethrough. Used only to refuse it, so it isn't silently stored as literal characters.
+ * Tables are read here too, so syntax inside a cell is found as it is anywhere else.
  */
 const detector = new MarkdownIt('commonmark', { html: true, linkify: false, typographer: false }).enable([
   'table',
@@ -708,6 +732,8 @@ interface ParseEnv {
   added?: string | null
   /** True once the blocks are read and links are being looked up. */
   inline?: boolean
+  /** Image targets as written, and the library image (a media id) each one stands for. */
+  images?: ReadonlyMap<string, string>
 }
 
 /** An env whose `references` note each label added and, later, each one looked up. */
@@ -752,6 +778,41 @@ tokenizer.core.ruler.after('block', 'inlay_used_references', (state) => {
   if (env.definitions) env.inline = true
 })
 
+// Table cells hold a paragraph, as the schema requires: each cell's inline content gets one.
+tokenizer.core.ruler.after('inline', 'inlay_table_cells', (state) => {
+  const out: Token[] = []
+  let cell = false
+  for (const tok of state.tokens) {
+    if (cell && tok.type === 'inline') {
+      const open = new state.Token('paragraph_open', 'p', 1)
+      const close = new state.Token('paragraph_close', 'p', -1)
+      open.level = close.level = tok.level
+      tok.level++
+      out.push(open, tok, close)
+    } else {
+      out.push(tok)
+    }
+    cell = tok.type === 'th_open' || tok.type === 'td_open'
+  }
+  state.tokens = out
+})
+
+/** Image tokens, at any depth, whose target is named in `env.images` point at that library image instead. */
+tokenizer.core.ruler.push('inlay_images', (state) => {
+  const images = (state.env as ParseEnv).images
+  if (!images || images.size === 0) return
+  const rewrite = (tokens: Token[]) => {
+    for (const tok of tokens) {
+      if (tok.type === 'image') {
+        const id = images.get(tok.attrGet('src') ?? '')
+        if (id !== undefined) tok.attrSet('src', MEDIA_PREFIX + id)
+      }
+      if (tok.children) rewrite(tok.children)
+    }
+  }
+  rewrite(state.tokens)
+})
+
 /** An image's alt as plain text, the way a browser shows it. */
 function altText(children: Token[] | null): string {
   return (children ?? [])
@@ -779,6 +840,12 @@ const parser = new MarkdownParser(richTextSchema, tokenizer, {
     }),
   },
   hardbreak: { node: 'hardBreak' },
+  table: { block: 'table' },
+  thead: { ignore: true },
+  tbody: { ignore: true },
+  tr: { block: 'tableRow' },
+  th: { block: 'tableHeader' },
+  td: { block: 'tableCell' },
   em: { mark: 'italic' },
   strong: { mark: 'bold' },
   link: {
@@ -790,7 +857,7 @@ const parser = new MarkdownParser(richTextSchema, tokenizer, {
   },
 })
 
-type FeatureName = RichTextFeature | 'code' | 'codeBlock' | 'rule' | 'html' | 'table' | 'strike' | 'other'
+type FeatureName = RichTextFeature | 'code' | 'codeBlock' | 'rule' | 'html' | 'strike' | 'other'
 
 const FEATURE_MESSAGE: Readonly<Record<FeatureName, MessageId>> = {
   heading: 'richtext.feature.heading',
@@ -821,6 +888,7 @@ const TOKEN_FEATURE: Readonly<Record<string, RichTextFeature>> = {
   link_open: 'link',
   image: 'image',
   hardbreak: 'hardBreak',
+  table_open: 'table',
 }
 
 const TOKEN_UNSUPPORTED: Readonly<Record<string, FeatureName>> = {
@@ -847,17 +915,27 @@ const PLAIN_TOKENS = new Set([
   'text',
   'text_special',
   'softbreak',
+  'table_close',
+  'thead_open',
+  'thead_close',
+  'tbody_open',
+  'tbody_close',
+  'tr_open',
+  'tr_close',
+  'th_open',
+  'th_close',
+  'td_open',
+  'td_close',
 ])
 
 /** Token types of `detector` for syntax that would otherwise be kept as literal text. */
 const TOKEN_LITERAL: Readonly<Record<string, FeatureName>> = {
   html_block: 'html',
   html_inline: 'html',
-  table_open: 'table',
   s_open: 'strike',
 }
 
-/** One problem per line and kind for HTML, tables and strikethrough in `markdown`. */
+/** One problem per line and kind for HTML and strikethrough in `markdown`. */
 function literalSyntaxProblems(markdown: string): RichTextProblem[] {
   const problems: RichTextProblem[] = []
   const seen = new Set<string>()
@@ -897,7 +975,7 @@ function findProblems(tokens: Token[], opts: RichTextOptions, env: ParseEnv): Ri
   }
   const allowed = (f: RichTextFeature) => opts.features.includes(f)
 
-  const check = (tok: Token, line: number, inHeading: boolean) => {
+  const check = (tok: Token, line: number, inHeading: boolean, inCell: boolean) => {
     const unsupported = TOKEN_UNSUPPORTED[tok.type]
     if (unsupported) return add('unsupported', line, 'richtext.unsupported', { feature: feature(unsupported) })
     if (tok.type === 'heading_open') {
@@ -918,6 +996,9 @@ function findProblems(tokens: Token[], opts: RichTextOptions, env: ParseEnv): Ri
     if (inHeading && (name === 'image' || name === 'hardBreak')) {
       return add('unsupported', line, 'richtext.headingContent', { feature: feature(name) })
     }
+    if (inCell && (name === 'image' || name === 'hardBreak')) {
+      return add('unsupported', line, 'richtext.tableCell', { feature: feature(name) })
+    }
     if (!allowed(name)) return add('not_allowed', line, 'richtext.notAllowed', { feature: feature(name) })
     if (name === 'link' || name === 'image') {
       if (tok.attrGet('title')) add('unsupported', line, 'richtext.title', { feature: feature(name) })
@@ -933,29 +1014,33 @@ function findProblems(tokens: Token[], opts: RichTextOptions, env: ParseEnv): Ri
   }
 
   /** Walks inline tokens; line breaks move the line on, including those inside an image's alt. */
-  const walkInline = (children: Token[], line: number, inHeading: boolean, inAlt: boolean): number => {
+  const walkInline = (children: Token[], line: number, inHeading: boolean, inCell: boolean, inAlt: boolean): number => {
     for (const child of children) {
-      if (!inAlt) check(child, line, inHeading)
+      if (!inAlt) check(child, line, inHeading, inCell)
       if (child.type === 'softbreak' || child.type === 'hardbreak') line++
-      if (child.type === 'image' && child.children) line = walkInline(child.children, line, inHeading, true)
+      if (child.type === 'image' && child.children) line = walkInline(child.children, line, inHeading, inCell, true)
     }
     return line
   }
 
   let line = 1
   let inHeading = false
+  let inCell = false
   for (const tok of tokens) {
     if (tok.map) line = tok.map[0] + 1
     if (tok.type === 'inline') {
-      walkInline(tok.children ?? [], line, inHeading, false)
+      walkInline(tok.children ?? [], line, inHeading, inCell, false)
       continue
     }
     if (tok.type === 'heading_open') inHeading = true
     if (tok.type === 'heading_close') inHeading = false
+    if (tok.type === 'th_open' || tok.type === 'td_open') inCell = true
+    if (tok.type === 'th_close' || tok.type === 'td_close') inCell = false
     if ((tok.type === 'blockquote_open' || tok.type === 'list_item_open') && tok.level + 1 >= MAX_NESTING) {
       add('unsupported', line, 'richtext.tooDeep', {})
     }
-    check(tok, line, false)
+    if (tok.type === 'table_open' && tok.level > 0) add('unsupported', line, 'richtext.tableNested', {})
+    check(tok, line, false, false)
   }
   // A definition no link uses would vanish; one that is used ends up in its links.
   for (const def of env.definitions ?? []) {
@@ -966,13 +1051,44 @@ function findProblems(tokens: Token[], opts: RichTextOptions, env: ParseEnv): Ri
   return problems.sort((a, b) => a.line - b.line)
 }
 
+/** The line (from 1) each top-level block of `markdown` starts on. */
+export function blockLines(markdown: string): number[] {
+  return tokenizer
+    .parse(markdown, {})
+    .flatMap((tok) => (tok.level === 0 && tok.nesting !== -1 && tok.map ? [tok.map[0] + 1] : []))
+}
+
+/**
+ * Every image target in `markdown`, in order, as markdown-it reads it (escapes and `<…>` undone), with its line,
+ * counted the way problems are. Images inside another image's alt, which become alt text, aren't listed.
+ */
+export function markdownImages(markdown: string): Array<{ src: string; line: number }> {
+  const found: Array<{ src: string; line: number }> = []
+  const walk = (children: Token[], line: number, inAlt: boolean): number => {
+    for (const child of children) {
+      if (child.type === 'image' && !inAlt) found.push({ src: child.attrGet('src') ?? '', line })
+      if (child.type === 'softbreak' || child.type === 'hardbreak') line++
+      if (child.type === 'image' && child.children) line = walk(child.children, line, true)
+    }
+    return line
+  }
+  let line = 1
+  for (const tok of tokenizer.parse(markdown, {})) {
+    if (tok.map) line = tok.map[0] + 1
+    if (tok.type === 'inline') walk(tok.children ?? [], line, false)
+  }
+  return found
+}
+
 /**
  * Reads CommonMark into a normalized rich text doc allowed by `opts`. Anything the
  * format or the field can't hold is reported as a line-numbered problem. Never throws.
+ * An image whose target is a key of `extra.images` reads as the library image it maps to.
  */
 export function markdownToRichText(
   markdown: string,
   opts?: Partial<RichTextOptions>,
+  extra: { images?: ReadonlyMap<string, string> } = {},
 ): { ok: true; doc: RichTextDoc } | { ok: false; problems: RichTextProblem[] } {
   const options: RichTextOptions = { ...DEFAULT_RICH_TEXT, ...opts }
   const unreadable = (): { ok: false; problems: RichTextProblem[] } => ({
@@ -981,10 +1097,12 @@ export function markdownToRichText(
   })
   try {
     const env = trackingEnv()
+    if (extra.images) env.images = extra.images
     const tokens = tokenizer.parse(markdown, env)
     const problems = [...findProblems(tokens, options, env), ...literalSyntaxProblems(markdown)]
     if (problems.length > 0) return { ok: false, problems: problems.sort((a, b) => a.line - b.line) }
-    const node = parser.parse(markdown)
+    const parseEnv: ParseEnv = extra.images ? { images: extra.images } : {}
+    const node = parser.parse(markdown, parseEnv)
     const parsed = parseRichText(node.toJSON(), options)
     return parsed.ok ? parsed : unreadable()
   } catch {

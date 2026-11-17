@@ -1,12 +1,15 @@
 import { randomBytes } from 'node:crypto'
-import { existsSync } from 'node:fs'
+import { existsSync, realpathSync } from 'node:fs'
 import { readFile } from 'node:fs/promises'
 import { builtinModules } from 'node:module'
 import { dirname, extname, isAbsolute, join, relative, resolve } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 import { build, transform, type BuildOptions, type Loader, type OnLoadResult, type Plugin } from 'esbuild'
 import { InlayError } from '../errors.js'
+import { t } from '../messages/index.js'
+import { rewriteImageTargets } from './markdown-file.js'
 import { INLAY_ENTRIES } from './read.js'
+import { SITE_DIR_EXPORT, siteDirUrl } from './site-dir.js'
 
 /** What a release's `site.js` may import; everything else is bundled into it or refused. */
 export const RELEASE_IMPORTS: readonly string[] = ['inlaycms/site', 'inlaycms/jsx-runtime', 'inlaycms/jsx-dev-runtime']
@@ -120,6 +123,28 @@ async function withOwnUrl(text: string, file: string, loader: Loader, tsconfigRa
   return { contents: out.code, loader: loader === 'tsx' || loader === 'jsx' ? 'jsx' : 'js' }
 }
 
+/** `file` relative to the site's folder `base`, or as it is when it isn't inside it. */
+function shownPath(base: string, file: string): string {
+  const rel = relative(base, file)
+  return rel === '' || rel.startsWith('..') || isAbsolute(rel) ? file : rel
+}
+
+/**
+ * A `.md` file at `file` as a module whose default export is its text, with its images' targets rewritten from
+ * the file's own folder; a reference-style image is refused with `error.markdownImageReference`, and one whose
+ * place in the file can't be found with `error.markdownImageUnplaced`.
+ */
+async function loadMarkdown(file: string, base: string): Promise<OnLoadResult> {
+  const result = rewriteImageTargets(await readFile(file, 'utf8'), file)
+  const line = result.references[0]
+  if (line !== undefined) return { errors: [{ text: t('error.markdownImageReference', { file: shownPath(base, file), line }) }] }
+  const unplaced = result.unplaced[0]
+  if (unplaced !== undefined) {
+    return { errors: [{ text: t('error.markdownImageUnplaced', { file: shownPath(base, file), line: unplaced }) }] }
+  }
+  return { contents: result.text, loader: 'text' }
+}
+
 /** The esbuild options `bundleSite` and `bundleConfig` share. */
 function buildOptions(configFile: string, outFile: string, plugin: Plugin): BuildOptions {
   return {
@@ -133,6 +158,7 @@ function buildOptions(configFile: string, outFile: string, plugin: Plugin): Buil
     jsxImportSource: 'inlaycms',
     define: { ...DEFINES, 'import.meta.url': JSON.stringify(pathToFileURL(resolve(configFile)).href) },
     logLevel: 'silent',
+    footer: { js: `export const ${SITE_DIR_EXPORT} = ${JSON.stringify(siteDirUrl(realpathSync(dirname(resolve(configFile)))))};` },
     plugins: [plugin],
   }
 }
@@ -147,6 +173,7 @@ export async function bundleConfig(configFile: string, outFile: string): Promise
   const tsconfigFor = tsconfigs()
   // The running copy's own folder (`src/` or `dist/`): a file in it is imported, never bundled as a second copy.
   const inlayDir = dirname(INLAY_ENTRIES.inlaycms ?? '')
+  const base = dirname(resolve(configFile))
   const resolving = Symbol('resolving')
   const plugin: Plugin = {
     name: 'inlay-config',
@@ -172,6 +199,7 @@ export async function bundleConfig(configFile: string, outFile: string): Promise
         if (loader === undefined || args.namespace !== 'file') return undefined
         return withOwnUrl(await readFile(args.path, 'utf8'), args.path, loader, await tsconfigFor(dirname(args.path)))
       })
+      b.onLoad({ filter: /\.md$/ }, (args) => (args.namespace === 'file' ? loadMarkdown(args.path, base) : undefined))
     },
   }
   try {
@@ -193,10 +221,7 @@ export async function bundleConfig(configFile: string, outFile: string): Promise
  */
 export async function bundleSite(configFile: string, outFile: string): Promise<{ imports: string[] }> {
   const base = dirname(resolve(configFile))
-  const shown = (file: string) => {
-    const rel = relative(base, file)
-    return rel === '' || rel.startsWith('..') || isAbsolute(rel) ? file : rel
-  }
+  const shown = (file: string) => shownPath(base, file)
   const refused: Array<{ file: string; specifier: string }> = []
   const forbidden: Array<{ file: string; what: string }> = []
   const tsconfigFor = tsconfigs()
@@ -224,6 +249,7 @@ export async function bundleSite(configFile: string, outFile: string): Promise<{
         }
         return withOwnUrl(text, args.path, loader, await tsconfigFor(dirname(args.path)))
       })
+      b.onLoad({ filter: /\.md$/ }, (args) => (args.namespace === 'file' ? loadMarkdown(args.path, base) : undefined))
     },
   }
   let result

@@ -1,7 +1,7 @@
 import { existsSync } from 'node:fs'
 import { rm } from 'node:fs/promises'
 import { join } from 'node:path'
-import type { Kysely } from 'kysely'
+import { sql, type Kysely } from 'kysely'
 import { upgradeDatabase } from '../boot.js'
 import { syncRefs } from '../content/refs.js'
 import { createCore, type Core } from '../core.js'
@@ -42,6 +42,25 @@ const derived = (data: DocumentData | undefined) => ({
   slug: typeof data?.slug === 'string' ? data.slug : null,
   path: typeof data?.path === 'string' ? data.path : null,
 })
+
+/** Fills `first_published_at` for documents whose record doesn't carry it (or says null of a published one), as migration 0007 does. */
+async function backfillPublishedAt(trx: Kysely<Database>, ids: string[]): Promise<void> {
+  for (let i = 0; i < ids.length; i += 500) await backfillChunk(trx, ids.slice(i, i + 500))
+}
+
+async function backfillChunk(trx: Kysely<Database>, ids: string[]): Promise<void> {
+  await sql`
+    UPDATE documents SET first_published_at = (
+      SELECT min(e.at) FROM publish_events e, json_each(e.items) i
+      WHERE json_extract(i.value, '$.documentId') = documents.id
+        AND json_extract(i.value, '$.action') = 'publish'
+    ) WHERE first_published_at IS NULL AND id IN (${sql.join(ids)})
+  `.execute(trx)
+  await sql`
+    UPDATE documents SET first_published_at = (SELECT created_at FROM revisions WHERE id = documents.published_rev)
+    WHERE first_published_at IS NULL AND published_rev IS NOT NULL AND id IN (${sql.join(ids)})
+  `.execute(trx)
+}
 
 /**
  * Loads `bundle` (minus `exclude`) into a new scratch database in `bundle.dir`
@@ -89,6 +108,7 @@ export async function stageBundle(
             created_at: d.createdAt,
             key: d.key,
             edition: d.edition,
+            first_published_at: d.firstPublishedAt ?? null,
           })
           .execute()
       }
@@ -130,6 +150,12 @@ export async function stageBundle(
           })
           .execute()
       }
+      await backfillPublishedAt(
+        trx,
+        documents
+          .filter((d) => d.firstPublishedAt === undefined || (d.firstPublishedAt === null && d.publishedRevision !== null))
+          .map((d) => d.id),
+      )
       for (const r of redirects) {
         await trx
           .insertInto('redirects')

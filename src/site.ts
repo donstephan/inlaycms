@@ -1,8 +1,10 @@
+/// <reference path="./markdown-modules.ts" preserve="true" />
 /**
  * What a site's code imports (`inlaycms/site`): the definitions and the types
  * templates, routes and migrations use, and nothing that reaches the server.
  * A release may import only this and the JSX runtime.
  */
+import { richTextText, type RichTextDoc } from './core/richtext/schema.js'
 export { z } from 'zod'
 export { f } from './core/fields/builtins.js'
 export { defineConfig, type InlayConfig } from './config.js'
@@ -78,4 +80,10 @@ export type {
   ShippedFile,
   ThemeColor,
 } from './core/types.js'
-export type { RichTextDoc, RichTextFeature, RichTextOptions } from './core/richtext/schema.js'
+
+/** The text of a rich-text or inline-text value without its formatting; `''` for `null` or `undefined`. */
+export function plainText(doc: RichTextDoc | null | undefined): string {
+  return doc ? richTextText(doc) : ''
+}
+export type { RichTextDoc }
+export type { RichTextFeature, RichTextOptions } from './core/richtext/schema.js'

@@ -11,6 +11,7 @@ import type { ContentIssue, DocumentData } from '../../src/core/types.js'
 import { renderToString } from '../../src/jsx/html.js'
 import { jsx } from '../../src/jsx/jsx-runtime.js'
 import { adminSite } from '../fixtures/admin.js'
+import { megaMenuSite } from '../fixtures/mega-menu.js'
 import { parseHtml, submittedForm } from '../helpers/admin.js'
 import { makeApp } from '../helpers/app.js'
 
@@ -35,6 +36,7 @@ const stored = (): DocumentData => ({
     count: 3.5,
     featured: true,
     tone: 'bold',
+    topics: ['news', 'events'],
     day: '2026-03-01',
     at: '2026-03-01T11:30:00.000+02:00',
     contact: { email: 'a@example.com', phone: '555' },
@@ -135,6 +137,38 @@ describe('admin form engine', () => {
 
     delete data.fields.quotes
     expect(Object.hasOwn((await roundTrip(data)).fields, 'quotes')).toBe(false)
+  })
+
+  it('edits a multi-select as checkboxes and keeps the options\' order', async () => {
+    const doc = parseHtml(await render(stored()))
+    const boxes = [...doc.querySelectorAll('input[type="checkbox"][name="fields.topics"]')]
+    expect(boxes.map((b) => b.getAttribute('value'))).toEqual(['news', 'tips', 'events'])
+    expect(boxes.map((b) => b.hasAttribute('checked'))).toEqual([true, false, true])
+    expect(boxes.map((b) => b.closest('label')?.textContent)).toEqual(['news', 'tips', 'events'])
+    expect(boxes[0]!.getAttribute('id')).toBe(formId('fields.topics'))
+    expect(new Set(boxes.map((b) => b.getAttribute('id'))).size).toBe(3)
+    expect(boxes[0]!.closest('fieldset')!.querySelector('legend')!.textContent).toContain('Topics')
+
+    const parsed = await roundTrip(stored(), (p) => {
+      p.delete('fields.topics')
+      p.append('fields.topics', 'tips')
+      p.append('fields.topics', 'news')
+    })
+    expect(parsed.fields.topics).toEqual(['tips', 'news'])
+    const saved = validateContent(registry, 'kitchen', parsed, 'draft')
+    expect(saved.ok).toBe(true)
+    if (saved.ok) expect(saved.data.fields.topics).toEqual(['news', 'tips'])
+  })
+
+  it('stores an empty multi-select as []', async () => {
+    const parsed = await roundTrip(stored(), (p) => p.delete('fields.topics'))
+    expect(parsed.fields.topics).toEqual([])
+
+    const data = stored()
+    delete data.fields.topics
+    const doc = parseHtml(await render(data))
+    expect(doc.querySelector('input[name="fields.topics.many"]')).toBeNull()
+    expect(Object.hasOwn((await roundTrip(data)).fields, 'topics')).toBe(false)
   })
 
   it('reads empty pickers as absent, and links by the chosen mode', async () => {
@@ -797,5 +831,104 @@ describe('admin form engine: untouched round trips', () => {
     const html = `<form>${await renderToString(jsx(DocumentFields, { ctx: { registry: edgesRegistry, type: 'edges', locale: 'en', refs }, data }))}</form>`
     expect(submittedForm(html).get('fields.at')).toBe('2026-03-01T09:30')
     expect(isDeepStrictEqual(await edgesRoundTrip(data), data)).toBe(true)
+  })
+})
+
+describe('three-deep lists', () => {
+  const megaRegistry = buildRegistry(megaMenuSite)
+  const link = (n: string) => ({ label: `L${n}`, href: `/${n}`, description: `D${n}` })
+  const column = (n: string) => ({ heading: `H${n}`, links: [link(`${n}0`), link(`${n}1`)] })
+  const stored = (): DocumentData => ({
+    fields: {
+      menu: [
+        { title: 'One', columns: [column('a'), column('b')] },
+        { title: 'Two', columns: [column('c'), column('d')] },
+      ],
+      promo: { text: 'Sale', link: { url: '/sale', text: 'Shop' } },
+    },
+    slots: {},
+  })
+  const ctx: FormContext = { registry: megaRegistry, type: 'menu', locale: 'en', refs }
+  const parse = (params: URLSearchParams) => parseDocumentForm(megaRegistry, 'menu', valuesOf(params))
+  const menu = (data: DocumentData) => data.fields.menu as Array<{ title: string; columns: Array<{ heading: string; links: Array<{ label: string }> }> }>
+
+  it('renders every level with its controls', async () => {
+    const html = `<form>${await renderToString(jsx(DocumentFields, { ctx, data: stored() }))}</form>`
+    const doc = parseHtml(html)
+    expect(doc.querySelector('input[name="fields.menu.1.columns.0.links.1.label"]')).not.toBeNull()
+    expect(doc.querySelector('input[name="fields.menu.1.columns.0.links.1.href"]')).not.toBeNull()
+    expect(doc.querySelector('textarea[name="fields.menu.1.columns.0.links.1.description"]')).not.toBeNull()
+    for (const list of ['fields.menu', 'fields.menu.1.columns', 'fields.menu.1.columns.0.links']) {
+      expect(doc.querySelector(`button[value="add:${list}"]`), list).not.toBeNull()
+    }
+    expect(doc.querySelector('button[value="remove:fields.menu.1.columns.0.links.1"]')).not.toBeNull()
+    expect(doc.querySelector('button[value="down:fields.menu.1.columns.0.links.0"]')).not.toBeNull()
+  })
+
+  it('round-trips the form untouched', async () => {
+    const data = stored()
+    const html = `<form>${await renderToString(jsx(DocumentFields, { ctx, data }))}</form>`
+    expect(parse(submittedForm(html))).toEqual(data)
+  })
+
+  it('adds, removes and moves items at each depth', () => {
+    const data = stored()
+    const op = (o: string) => applyFormOp(megaRegistry, 'menu', data, o)
+    const lists = (d: DocumentData) => ({
+      top: menu(d).map((m) => m.title),
+      cols: menu(d)[1]?.columns.map((c) => c.heading),
+      links: menu(d)[1]?.columns[0]?.links.map((l) => l.label),
+      other: menu(d)[0],
+    })
+    const base = lists(data)
+
+    expect(lists(op('add:fields.menu')).top).toEqual(['One', 'Two', undefined])
+    expect(menu(op('remove:fields.menu.0')).map((m) => m.title)).toEqual(['Two'])
+    expect(lists(op('up:fields.menu.1')).top).toEqual(['Two', 'One'])
+    expect(lists(op('down:fields.menu.0')).top).toEqual(['Two', 'One'])
+
+    expect(lists(op('add:fields.menu.1.columns'))).toMatchObject({ cols: ['Hc', 'Hd', undefined], top: base.top, other: base.other })
+    expect(lists(op('remove:fields.menu.1.columns.0'))).toMatchObject({ cols: ['Hd'], top: base.top, other: base.other })
+    expect(lists(op('up:fields.menu.1.columns.1'))).toMatchObject({ cols: ['Hd', 'Hc'], other: base.other })
+    expect(lists(op('down:fields.menu.1.columns.0'))).toMatchObject({ cols: ['Hd', 'Hc'], other: base.other })
+
+    const links = 'fields.menu.1.columns.0.links'
+    expect(menu(op(`add:${links}`))[1]!.columns[0]!.links).toHaveLength(3)
+    expect(lists(op(`remove:${links}.0`))).toMatchObject({ links: ['Lc1'], cols: base.cols, other: base.other })
+    expect(lists(op(`up:${links}.1`))).toMatchObject({ links: ['Lc1', 'Lc0'], cols: base.cols, other: base.other })
+    expect(lists(op(`down:${links}.0`))).toMatchObject({ links: ['Lc1', 'Lc0'], cols: base.cols, other: base.other })
+    expect(menu(op(`add:${links}`))[0]).toEqual(base.other)
+  })
+
+  it('remaps open items after a move at depth two', () => {
+    expect(
+      remapOpen(megaRegistry, 'menu', stored(), 'down:fields.menu.0.columns.0', [
+        'fields.menu.0.columns.0',
+        'fields.menu.0.columns.0.links.1',
+        'fields.menu.1.columns.0',
+      ]),
+    ).toEqual(['fields.menu.0.columns.1', 'fields.menu.0.columns.1.links.1', 'fields.menu.1.columns.0'])
+  })
+
+  it('places validation issues on the right nested field', async () => {
+    const data = stored()
+    delete (menu(data)[1]!.columns[0]!.links[1] as Record<string, unknown>).href
+    const result = validateContent(megaRegistry, 'menu', data, 'strict')
+    expect(result.ok).toBe(false)
+    if (result.ok) return
+    const { byName, unplaced } = placeIssues(megaRegistry, 'menu', data, result.issues)
+    const name = 'fields.menu.1.columns.0.links.1.href'
+    expect(byName.has(name)).toBe(true)
+    expect(unplaced).toEqual([])
+
+    const doc = parseHtml(await renderToString(jsx(DocumentFields, { ctx: { ...ctx, problems: byName, hints: new Map() }, data })))
+    expect(doc.getElementById(`${formId(name)}-problem`)).not.toBeNull()
+    expect(doc.getElementById(formId(name))!.getAttribute('aria-invalid')).toBe('true')
+    const isOpen = (item: string) => doc.querySelector(`details[data-item="${item}"]`)!.hasAttribute('open')
+    expect(isOpen('fields.menu.1')).toBe(true)
+    expect(isOpen('fields.menu.1.columns.0')).toBe(true)
+    expect(isOpen('fields.menu.1.columns.0.links.1')).toBe(true)
+    expect(isOpen('fields.menu.0')).toBe(false)
+    expect(isOpen('fields.menu.1.columns.1')).toBe(false)
   })
 })

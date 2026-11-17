@@ -2,10 +2,13 @@ import { createHash } from 'node:crypto'
 import { readFileSync } from 'node:fs'
 import { extname } from 'node:path'
 import { z } from 'zod'
-import { shippedFiles } from '../content/shipped-input.js'
+import { imageTarget } from '../content/shipped-images.js'
+import { mapRichText, shippedFiles } from '../content/shipped-input.js'
 import { typeSchemas } from '../export/schema.js'
 import type { Registry } from '../registry/registry.js'
+import { markdownImages } from '../richtext/markdown.js'
 import { inlayVersion } from '../version.js'
+import { replaceImageTargets } from './markdown-file.js'
 
 export const MANIFEST_FORMAT = 1
 
@@ -120,15 +123,33 @@ export function canonicalJson(value: unknown): string {
 
 /** `value` with each `{ file }` whose source `paths` knows naming the release's copy instead. */
 function withReleaseFiles(value: unknown, paths: ReadonlyMap<string, string>): unknown {
-  if (Array.isArray(value)) return value.map((v) => withReleaseFiles(v, paths))
-  if (value === null || typeof value !== 'object' || value instanceof URL || value instanceof Date) return value
-  const out: Record<string, unknown> = {}
-  for (const [key, v] of Object.entries(value)) {
-    const source = key === 'file' ? (v instanceof URL ? v.href : typeof v === 'string' ? v : null) : null
-    const path = source === null ? undefined : paths.get(source)
-    out[key] = path ?? withReleaseFiles(v, paths)
+  const walk = (value: unknown): unknown => {
+    if (Array.isArray(value)) return value.map(walk)
+    if (value === null || typeof value !== 'object' || value instanceof URL || value instanceof Date) return value
+    const out: Record<string, unknown> = {}
+    for (const [key, v] of Object.entries(value)) {
+      const source = key === 'file' ? (v instanceof URL ? v.href : typeof v === 'string' ? v : null) : null
+      const path = source === null ? undefined : paths.get(source)
+      out[key] = path ?? walk(v)
+    }
+    return out
   }
-  return out
+  return walk(value)
+}
+
+/**
+ * Rich-text Markdown with each image naming a file `paths` knows (by a relative path or a `file:` URL) naming the
+ * release's copy instead, so its hash follows the file's bytes and not where the site sits. An image whose place in
+ * the text can't be found is listed after the text by where the release keeps it.
+ */
+function withReleaseImages(markdown: string, siteDir: string | null, paths: ReadonlyMap<string, string>): unknown {
+  const releaseCopy = (src: string): string | null => {
+    const target = imageTarget(src, siteDir)
+    return target.kind === 'file' ? (paths.get(target.url) ?? null) : null
+  }
+  const { text, complete } = replaceImageTargets(markdown, releaseCopy)
+  if (complete) return text
+  return { markdown: text, images: markdownImages(markdown).map(({ src }) => releaseCopy(src) ?? src) }
 }
 
 /**
@@ -145,9 +166,9 @@ export function manifestOfRegistry(
   if (opts.content) {
     for (const { source, path } of opts.content) paths.set(source, path)
   } else {
-    for (const { source, path } of shippedFiles(registry)) {
+    for (const { source, path, read } of shippedFiles(registry)) {
       try {
-        paths.set(source, contentPath(path, readFileSync(path)))
+        paths.set(source, contentPath(path, readFileSync(read)))
       } catch {
         // Left as its source; applying the content reports it.
       }
@@ -171,7 +192,16 @@ export function manifestOfRegistry(
         locales: Object.fromEntries(
           Object.entries(doc.content).map(([locale, input]) => [
             locale,
-            sha256Hex(Buffer.from(canonicalJson(withReleaseFiles(input, paths)))),
+            sha256Hex(
+              Buffer.from(
+                canonicalJson(
+                  withReleaseFiles(
+                    mapRichText(registry, type, input, (markdown) => withReleaseImages(markdown, registry.siteDir, paths)),
+                    paths,
+                  ),
+                ),
+              ),
+            ),
           ]),
         ),
       })),

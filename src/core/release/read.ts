@@ -12,6 +12,7 @@ import { buildRegistry } from '../registry/registry.js'
 import { inlayVersion as currentVersion } from '../version.js'
 import { fingerprint, verify } from './keys.js'
 import { manifestSchema, satisfies, sha256Hex, type ReleaseManifest } from './manifest.js'
+import { SITE_DIR_EXPORT } from './site-dir.js'
 
 export interface LoadedRelease {
   manifest: ReleaseManifest
@@ -246,9 +247,9 @@ export async function loadRelease(
   await writeInlayShim(dir)
 
   const load = opts.load ?? ((f: string) => import(pathToFileURL(f).href))
-  let mod: { default?: Partial<InlayConfig> } | null
+  let mod: ({ default?: Partial<InlayConfig> } & Record<string, unknown>) | null
   try {
-    mod = (await load(join(dir, 'site.js'))) as { default?: Partial<InlayConfig> } | null
+    mod = (await load(join(dir, 'site.js'))) as ({ default?: Partial<InlayConfig> } & Record<string, unknown>) | null
   } catch (e) {
     throw new InlayError('release', 'error.releaseLoad', { problem: e instanceof Error ? e.message : String(e) })
   }
@@ -256,7 +257,8 @@ export async function loadRelease(
   if (!config || typeof config !== 'object' || !config.site || typeof config.site !== 'object') {
     throw new InlayError('release', 'error.releaseNoSite')
   }
-  const site = config.site
+  const dirUrl = mod?.[SITE_DIR_EXPORT]
+  const site = typeof dirUrl === 'string' ? { ...config.site, siteDir: dirUrl } : config.site
   buildRegistry(site)
   if (!isDeepStrictEqual([...site.secrets].sort(), [...manifest.secrets].sort())) {
     throw new InlayError('release', 'error.releaseSecretsMismatch', {

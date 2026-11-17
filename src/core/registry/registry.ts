@@ -38,6 +38,8 @@ export interface Registry {
   seoDefaults: { global: string; field: string } | null
   /** The paths of the GET code routes. */
   getRoutePaths: ReadonlySet<string>
+  /** The site's folder as a `file:` URL ending in `/`, when it is known. */
+  siteDir: string | null
   /** Throws `InlayError('not_found')` for an unknown type. */
   getType(name: string): TypeDef
 }
@@ -364,6 +366,7 @@ export function buildRegistry(site: SiteDefinition): Registry {
     seoDefaults,
     redirectIndex: ruleIndex(redirects.map((r): MatchRule => ({ from: r.from, to_path: r.to, to_group_id: null, status: r.status }))),
     getRoutePaths,
+    siteDir: site.siteDir ?? null,
     getType(name) {
       const type = types.get(name)
       if (!type) throw new InlayError('not_found', 'error.typeNotFound', { name })

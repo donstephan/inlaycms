@@ -2,9 +2,12 @@ import { z } from 'zod'
 import { f } from '../../src/core/fields/builtins.js'
 import { defineField } from '../../src/core/fields/define.js'
 import { readData, readValue } from '../../src/core/content/reader.js'
+import { createCore } from '../../src/core/core.js'
+import { defineCollection, defineSite, defineTemplate } from '../../src/core/registry/define.js'
 import { buildRegistry } from '../../src/core/registry/registry.js'
 import { BasicPage, site } from '../fixtures/site.js'
 import { homeTitledSite, ratedSite, withType } from '../fixtures/evolve.js'
+import { makeCore } from '../helpers/core.js'
 
 const registry = buildRegistry(site)
 const titled = buildRegistry(homeTitledSite)
@@ -236,5 +239,71 @@ describe('readData with a developer default that does not fit', () => {
     const raw = { fields: { title: 'T', body: 'B' }, slots: {} }
     expect(() => readData(prefaulted, 'about', raw)).not.toThrow()
     expect(readData(prefaulted, 'about', raw).gaps).toEqual([['fields', 'g', 'a']])
+  })
+})
+
+describe('readData with a multi-select', () => {
+  /** A site whose FAQs have required `tags` and optional `topics`, both offering `options`. */
+  function faqSite(options: readonly [string, ...string[]]) {
+    const Faq = defineTemplate({
+      name: 'faq',
+      label: 'FAQ',
+      fields: z.object({
+        title: f.text({ label: 'Title' }),
+        tags: f.multiSelect(options, { label: 'Tags' }),
+        topics: f.multiSelect(options, { label: 'Topics' }).optional(),
+      }),
+    })
+    return defineSite({
+      locales: ['en'],
+      defaultLocale: 'en',
+      collections: [defineCollection({ name: 'faqs', label: 'FAQs', template: Faq })],
+    })
+  }
+  const before = faqSite(['hipaa', 'cmmc', 'retired'])
+  const now = faqSite(['hipaa', 'cmmc'])
+  const faqs = buildRegistry(now)
+
+  it('drops a retired option on read and keeps the rest', () => {
+    const { data, gaps } = readData(faqs, 'faqs', { fields: { title: 'A', tags: ['hipaa', 'retired'] }, slots: {} })
+    expect(data.fields.tags).toEqual(['hipaa'])
+    expect(gaps).toEqual([])
+    // A value that isn't a string is dropped the same way, and the rest is put in order.
+    expect(readData(faqs, 'faqs', { fields: { title: 'A', tags: ['cmmc', 7, 'hipaa', 'cmmc'] }, slots: {} }).data.fields.tags).toEqual([
+      'hipaa',
+      'cmmc',
+    ])
+  })
+
+  it('the next save drops a retired option', async () => {
+    const { core, db, owner } = await makeCore({ site: before })
+    const created = await core.createEntry('faqs', { fields: { title: 'A', tags: ['retired', 'hipaa'] } }, owner)
+    const raw = async (revisionId: number) =>
+      JSON.parse((await db.selectFrom('revisions').select('data').where('id', '=', revisionId).executeTakeFirstOrThrow()).data)
+    expect((await raw(created.headRev)).fields.tags).toEqual(['hipaa', 'retired'])
+
+    const next = createCore({ site: now, db })
+    const doc = (await next.getDocument(created.id))!
+    expect(doc.data.fields.tags).toEqual(['hipaa'])
+    const data = structuredClone(doc.data)
+    data.fields.title = 'B'
+    const saved = await next.saveDraft(created.id, { baseRevisionId: doc.headRev, data }, owner)
+    expect(saved.changed).toBe(true)
+    expect((await raw(saved.document.headRev)).fields.tags).toEqual(['hipaa'])
+  })
+
+  it('reads a value that is not a list as a gap when required and as absent when optional', () => {
+    const raw = { fields: { title: 'A', tags: 'hipaa', topics: 'hipaa' }, slots: {} }
+    expect(() => readData(faqs, 'faqs', raw)).not.toThrow()
+    const { data, gaps } = readData(faqs, 'faqs', raw)
+    expect(data.fields.tags).toBeUndefined()
+    expect(Object.hasOwn(data.fields, 'topics')).toBe(false)
+    expect(gaps).toEqual([['fields', 'tags']])
+    expect(readData(faqs, 'faqs', raw, { fill: true }).data.fields.tags).toEqual([])
+    for (const stored of [null, 42, { hipaa: true }]) {
+      const read = readData(faqs, 'faqs', { fields: { title: 'A', tags: stored, topics: stored }, slots: {} })
+      expect(read.gaps).toEqual([['fields', 'tags']])
+      expect(Object.hasOwn(read.data.fields, 'topics')).toBe(false)
+    }
   })
 })

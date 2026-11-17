@@ -1,5 +1,8 @@
 import type { Core } from '../../src/core/core.js'
 import type { Ctx } from '../../src/core/types.js'
+import { z } from 'zod'
+import { f } from '../../src/core/fields/builtins.js'
+import { defineCollection, defineSite, defineTemplate } from '../../src/core/registry/define.js'
 import { makeCore } from '../helpers/core.js'
 import { webSite } from '../fixtures/web.js'
 import { site } from '../fixtures/site.js'
@@ -31,6 +34,24 @@ describe('searchEntries', () => {
     const hits = await core.searchEntries('posts', 'zeppelins')
     expect(hits.map((h) => h.title)).toEqual(['Hello'])
     expect(hits[0]!.snippet).toContain('zeppelins')
+  })
+
+  it('finds words in an inline-text field', async () => {
+    const Story = defineTemplate({
+      name: 'story',
+      fields: z.object({ title: f.text({ label: 'Title' }), headline: f.inlineText({ label: 'Headline' }) }),
+    })
+    const stories = defineSite({
+      locales: ['en'],
+      defaultLocale: 'en',
+      collections: [defineCollection({ name: 'stories', label: 'Stories', template: Story, titleField: 'title' })],
+    })
+    const made = await makeCore({ site: stories })
+    const headline = { type: 'doc', content: [{ type: 'paragraph', content: [{ type: 'text', text: 'Quokkas rejoice' }] }] }
+    await made.core.createEntry('stories', { fields: { title: 'Hello', headline } }, made.editor)
+    const hits = await made.core.searchEntries('stories', 'quokkas')
+    expect(hits.map((h) => h.title)).toEqual(['Hello'])
+    expect(hits[0]!.snippet).toContain('Quokkas')
   })
 
   it('ranks title matches first, then newest', async () => {

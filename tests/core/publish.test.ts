@@ -50,6 +50,34 @@ describe('publishing', () => {
     expect(row.published_slug).toBe('first')
   })
 
+  it('sets first_published_at on the first publish and keeps it through unpublish and republish', async () => {
+    const doc = await valid('First')
+    const column = async () =>
+      (await db.selectFrom('documents').select('first_published_at').where('id', '=', doc.id).executeTakeFirstOrThrow()).first_published_at
+    expect(await column()).toBeNull()
+    await core.publish([doc.id], editor)
+    const first = (await events())[0]!.at
+    expect(await column()).toBe(first)
+    await core.unpublish([doc.id], owner)
+    expect(await column()).toBe(first)
+    await core.publish([doc.id], editor)
+    expect((await events())).toHaveLength(3)
+    expect(await column()).toBe(first)
+  })
+
+  it('keeps a time per locale', async () => {
+    const en = await valid('First')
+    const es = await core.createTranslation(en.groupId, 'es', editor)
+    await core.publish([en.id], editor)
+    await core.publish([es.id], editor)
+    const [first, second] = await events()
+    const at = async (id: string) =>
+      (await db.selectFrom('documents').select('first_published_at').where('id', '=', id).executeTakeFirstOrThrow()).first_published_at
+    expect(first!.at).not.toBe(second!.at)
+    expect(await at(en.id)).toBe(first!.at)
+    expect(await at(es.id)).toBe(second!.at)
+  })
+
   it('skips documents already published at head', async () => {
     const doc = await valid('First')
     await core.publish([doc.id], editor)

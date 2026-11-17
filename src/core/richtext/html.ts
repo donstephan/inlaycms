@@ -1,5 +1,5 @@
 import { escapeHtml } from '../../jsx/html.js'
-import { isRichTextHref, type RichTextDoc, type RichTextInline, type RichTextMark, type RichTextNode } from './schema.js'
+import { isRichTextHref, type RichTextDoc, type RichTextInline, type RichTextMark, type RichTextNode, type RichTextTableRow } from './schema.js'
 
 export interface RichTextImageHtml {
   src: string
@@ -48,7 +48,7 @@ function leaf(node: RichTextInline, resolve: RichTextResolver): string {
 }
 
 /** Inline content, keeping a mark open across neighbors that share it. */
-function inline(nodes: RichTextInline[], resolve: RichTextResolver): string {
+export function richTextInlineHtml(nodes: RichTextInline[], resolve: RichTextResolver): string {
   let out = ''
   let open: OpenMark[] = []
   for (const node of nodes) {
@@ -68,11 +68,11 @@ function block(node: RichTextNode, resolve: RichTextResolver): string {
   const children = (nodes: RichTextNode[] | undefined) => (nodes ?? []).map((n) => block(n, resolve)).join('')
   switch (node.type) {
     case 'paragraph':
-      return `<p>${inline(node.content ?? [], resolve)}</p>`
+      return `<p>${richTextInlineHtml(node.content ?? [], resolve)}</p>`
     case 'heading': {
       const level = node.attrs.level
       const tag = Number.isInteger(level) && level >= 1 && level <= 6 ? `h${level}` : 'p'
-      return `<${tag}>${inline(node.content ?? [], resolve)}</${tag}>`
+      return `<${tag}>${richTextInlineHtml(node.content ?? [], resolve)}</${tag}>`
     }
     case 'bulletList':
       return `<ul>${children(node.content)}</ul>`
@@ -84,8 +84,23 @@ function block(node: RichTextNode, resolve: RichTextResolver): string {
       return `<li>${children(node.content)}</li>`
     case 'blockquote':
       return `<blockquote>${children(node.content)}</blockquote>`
+    case 'table': {
+      const cells = (row: RichTextTableRow, tag: string) =>
+        `<tr>${row.content.map((c) => `<${tag}>${richTextInlineHtml(c.content[0].content ?? [], resolve)}</${tag}>`).join('')}</tr>`
+      const [head, ...body] = node.content
+      return (
+        '<table>' +
+        (head ? `<thead>${cells(head, 'th')}</thead>` : '') +
+        (body.length > 0 ? `<tbody>${body.map((r) => cells(r, 'td')).join('')}</tbody>` : '') +
+        '</table>'
+      )
+    }
+    case 'tableRow':
+    case 'tableHeader':
+    case 'tableCell':
+      return ''
     default:
-      return inline([node], resolve)
+      return richTextInlineHtml([node], resolve)
   }
 }
 

@@ -3,12 +3,12 @@ import { buildHead, injectHead } from '../../src/adapters/site/head.js'
 import { renderSitemap } from '../../src/adapters/site/sitemap.js'
 import type { Core } from '../../src/core/core.js'
 import { defineContent } from '../../src/core/registry/content.js'
-import { defineSingleton, defineSite, defineTemplate } from '../../src/core/registry/define.js'
+import { defineCollection, defineSingleton, defineSite, defineTemplate } from '../../src/core/registry/define.js'
 import { f } from '../../src/core/fields/builtins.js'
 import type { Ctx, DocumentData, LiveState } from '../../src/core/types.js'
 import { z } from 'zod'
 import { png } from '../fixtures/media.js'
-import { webSite } from '../fixtures/web.js'
+import { Post, webSite } from '../fixtures/web.js'
 import { makeCore } from '../helpers/core.js'
 
 const baseUrl = 'https://example.com'
@@ -189,5 +189,41 @@ describe('sitemap', () => {
     expect(xml).toContain('<lastmod>2026-01-01</lastmod>')
     expect(xml).toContain('<xhtml:link rel="alternate" hreflang="es" href="https://example.com/es/%3Cx%3E"/>')
     expect(xml).not.toContain('<x>')
+  })
+})
+
+describe('article:published_time', () => {
+  const ArticlePost = defineTemplate({ ...Post, ogType: 'article' })
+  const articleSite = defineSite({
+    ...webSite,
+    collections: webSite.collections.map((c) =>
+      c.name === 'posts' ? defineCollection({ name: 'posts', label: 'Posts', template: ArticlePost, route: '/blog/:slug', customPaths: true }) : c,
+    ),
+  })
+  const meta = (t: string) => `<meta property="article:published_time" content="${t}">`
+
+  it('adds it for an article page', async () => {
+    const { core, owner, db } = await world(articleSite)
+    const view = await core.createEntry('posts', { slug: 'hello', fields: { title: 'Hello', date: '2026-02-01', body: rt('x') } }, owner)
+    await core.publish([view.id], owner)
+    const row = await db.selectFrom('documents').select('first_published_at').where('id', '=', view.id).executeTakeFirstOrThrow()
+    const doc = (await core.liveDocuments([view.groupId], 'en')).get(view.groupId)!
+    expect(doc.publishedAt).toBe(row.first_published_at)
+    const html = await renderPage(core, doc, { state: 'published', page: 1, baseUrl })
+    expect(html).toContain(meta(row.first_published_at!))
+  })
+
+  it('leaves it out of a website page', async () => {
+    const { core } = await world(articleSite)
+    expect(await render(core, 'about')).not.toContain('article:published_time')
+  })
+
+  it('leaves it out of a never-published preview page', async () => {
+    const { core, owner } = await world(articleSite)
+    const view = await core.createEntry('posts', { slug: 'draft', fields: { title: 'Draft', date: '2026-02-01', body: rt('x') } }, owner)
+    const doc = (await core.liveDocuments([view.groupId], 'en', { state: 'preview' })).get(view.groupId)!
+    const html = await renderPage(core, doc, { state: 'preview', page: 1, baseUrl })
+    expect(html).toContain('article:modified_time')
+    expect(html).not.toContain('article:published_time')
   })
 })

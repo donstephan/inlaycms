@@ -157,6 +157,7 @@ async function renderTemplate(
     contentLocale: doc.contentLocale,
     fallback: doc.fallback,
     path: doc.path ?? '',
+    publishedAt: doc.publishedAt,
     page: opts.page,
   }
   const html = await renderBody(template, doc.data, page, ctx, internal)
@@ -172,7 +173,7 @@ async function renderTemplate(
     image: mediaShareImage(ctx.image(seo?.image), opts.baseUrl) ?? defaults.image,
     ogType,
     // publishedAt comes with part 3 (content model): read doc.publishedAt here once LiveDocument has it.
-    article: ogType === 'article' ? { publishedTime: null, modifiedTime: doc.updatedAt } : null,
+    article: ogType === 'article' ? { publishedTime: doc.publishedAt, modifiedTime: doc.updatedAt } : null,
     canonical: own === null || base === null ? null : opts.page > 1 ? `${base}?page=${opts.page}` : base,
     alternates: doc.fallback ? [] : alternates.filter((a) => !a.fallback),
     defaultLocale: core.registry.defaultLocale,
@@ -220,6 +221,7 @@ export async function renderTemplateData(
     contentLocale: opts.locale,
     fallback: false,
     path: opts.path,
+    publishedAt: null,
     page: 1,
   }
   const html = await renderBody(template, data, page, ctx, {})

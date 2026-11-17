@@ -1,5 +1,5 @@
 import type { z } from 'zod'
-import { DATE_CHECK, DATETIME_CHECK, NON_BLANK, TITLE_TEMPLATE_CHECK } from '../fields/builtins.js'
+import { DATE_CHECK, DATETIME_CHECK, INLINE_TEXT_MAX, NON_BLANK, TITLE_TEMPLATE_CHECK } from '../fields/builtins.js'
 import { isRecord } from '../fields/zod-internals.js'
 import { t, type MessageId } from '../messages/index.js'
 import type { Registry } from '../registry/registry.js'
@@ -74,6 +74,9 @@ function mapIssue(issue: ZodIssue, value: unknown): Mapped {
     if (issue.origin === 'number' || issue.origin === 'bigint') {
       return { code: 'out_of_range', messageId: 'issue.tooHigh', params: { max } }
     }
+  }
+  if (issue.code === 'custom' && issue.params?.check === INLINE_TEXT_MAX) {
+    return { code: 'too_long', messageId: 'issue.tooLong', params: { max: bound(issue.params.max) } }
   }
   if (isRequired(issue, value)) return { code: 'required', messageId: 'issue.required', params: {} }
   if (issue.code === 'too_small') {

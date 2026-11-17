@@ -1,4 +1,4 @@
-import { readFile } from 'node:fs/promises'
+import { readFile, stat } from 'node:fs/promises'
 import { basename, isAbsolute } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import type { z } from 'zod'
@@ -9,11 +9,13 @@ import { fieldValues } from '../fields/walk.js'
 import { isRecord } from '../fields/zod-internals.js'
 import type { MessageId } from '../messages/index.js'
 import { inspectUpload } from '../media/library.js'
-import { markdownToRichText } from '../richtext/markdown.js'
-import type { RichTextOptions } from '../richtext/schema.js'
+import { markdownToInlineText } from '../richtext/inline.js'
+import { markdownImages, markdownToRichText } from '../richtext/markdown.js'
+import { DEFAULT_RICH_TEXT } from '../richtext/schema.js'
 import type { Registry } from '../registry/registry.js'
 import type { ContentInput, ContentIssue, CoreDeps, IssueCode, PathSegment } from '../types.js'
 import { docLabels } from './schema.js'
+import { imageTarget, realInside, realInsideSync } from './shipped-images.js'
 import { contentIssue } from './validate.js'
 
 /** A file named in shipped content, read and checked, waiting to be imported. */
@@ -30,7 +32,7 @@ export interface PendingFile {
 /** The group id of a shipped document, or null when the key isn't shipped. */
 export type KeyResolver = (ref: ShippedDocumentRef) => string | null
 
-const KINDS: ReadonlySet<string> = new Set(['image', 'file', 'richText', 'ref', 'link'])
+const KINDS: ReadonlySet<string> = new Set(['image', 'file', 'richText', 'inlineText', 'ref', 'link'])
 
 /** The start of a Markdown link target `](inlay:key/<type>` or `](inlay:key/<type>/<key>`; text elsewhere is left alone. */
 const KEY_HREF = /\]\(inlay:key\/([\w-]+)(?:\/([\w-]+))?(?=[\s)])/g
@@ -72,14 +74,15 @@ function localPath(file: unknown, shipped?: ReadonlyMap<string, string>): string
   }
 }
 
-/** Shipped content can't contain images in rich text: there is no way to name their files. */
-function withoutImages(opts: RichTextOptions | undefined): Partial<RichTextOptions> | undefined {
-  return opts && { ...opts, features: opts.features.filter((f) => f !== 'image') }
-}
+/** What reading one image file named in shipped Markdown gave: its media id, or the issue to report. */
+type ImageRead = { id: string } | { code: IssueCode; messageId: MessageId; problem?: string }
+
+/** Stands in for an image that couldn't be read, so the Markdown is still checked for everything else. */
+const NO_IMAGE = '0'.repeat(64)
 
 /**
  * Turns shipped content as a developer writes it into the stored shape:
- * Markdown strings in rich text fields become rich text, and `{ file, alt? }`
+ * Markdown strings in rich text and inline text fields become rich text, and `{ file, alt? }`
  * in image and file fields is read from disk, checked like an upload, and
  * replaced by `{ media, alt? }`. References to other shipped documents by key
  * become their group ids: `{ key }` in `ref` fields, `{ document: { type, key? } }`
@@ -114,6 +117,87 @@ export async function resolveShippedInput(
     return groupOf(path, { type: target, key: value.key }) ?? value
   }
 
+  /** `markdown` with its `inlay:key` link targets as `inlay:document` ones, or null after reporting an unknown key. */
+  const withDocumentLinks = (path: PathSegment[], markdown: string): string | null => {
+    let unknownKey = false
+    const out = markdown.replace(KEY_HREF, (href, refType: string, key: string | undefined) => {
+      const id = groupOf(path, key === undefined ? { type: refType } : { type: refType, key })
+      if (id === null) unknownKey = true
+      return id === null ? href : `](inlay:document/${id}`
+    })
+    return unknownKey ? null : out
+  }
+
+  /** Image files named in rich text, by `file:` URL, each read once. */
+  const imageReads = new Map<string, Promise<ImageRead>>()
+
+  const readImage = async (url: string, path: string): Promise<ImageRead> => {
+    let file = path
+    if (deps.shippedFiles) {
+      const shipped = deps.shippedFiles.get(url)
+      if (shipped === undefined) return { code: 'not_found', messageId: 'issue.shippedImageUnknown' }
+      file = shipped
+    } else {
+      const siteDir = deps.registry.siteDir
+      if (siteDir === null) return { code: 'invalid', messageId: 'issue.shippedImageOutside' }
+      const exists = await stat(path).then(
+        () => true,
+        () => false,
+      )
+      if (!exists) return { code: 'not_found', messageId: 'issue.shippedImageMissing' }
+      const real = await realInside(path, siteDir)
+      if (real === null) return { code: 'invalid', messageId: 'issue.shippedImageOutside' }
+      file = real
+    }
+    let bytes: Uint8Array
+    try {
+      bytes = await readFile(file)
+    } catch {
+      return { code: 'not_found', messageId: 'issue.shippedImageMissing' }
+    }
+    try {
+      const info = await inspectUpload(deps, bytes, basename(path))
+      if (!info.mime.startsWith('image/')) return { code: 'wrong_media_type', messageId: 'issue.shippedImageNotImage' }
+      files.set(info.id, { bytes, ...info })
+      return { id: info.id }
+    } catch (e) {
+      if (!(e instanceof InlayError) || e.code !== 'validation') throw e
+      return { code: 'invalid', messageId: 'issue.shippedImageInvalid', problem: e.message }
+    }
+  }
+
+  /**
+   * The library image each image target in `markdown` names, by target as written. Targets naming a file are read;
+   * those that can't be used are reported at `path` and map to `NO_IMAGE`. Returns `ok: false` if any was reported.
+   */
+  const shippedImages = async (path: PathSegment[], markdown: string): Promise<{ ok: boolean; images: Map<string, string> }> => {
+    const images = new Map<string, string>()
+    let ok = true
+    for (const { src, line } of markdownImages(markdown)) {
+      const fail = (code: IssueCode, messageId: MessageId, problem?: string) => {
+        const params = { line: String(line), src }
+        issue(path, code, messageId, problem === undefined ? params : { ...params, problem })
+        images.set(src, NO_IMAGE)
+        ok = false
+      }
+      const target = imageTarget(src, deps.registry.siteDir)
+      if (target.kind === 'remote') fail('invalid', 'issue.shippedImageRemote')
+      else if (target.kind === 'rooted') fail('invalid', 'issue.shippedImageRooted')
+      else if (target.kind === 'outside') fail('invalid', 'issue.shippedImageOutside')
+      else if (target.kind === 'file') {
+        let read = imageReads.get(target.url)
+        if (read === undefined) {
+          read = readImage(target.url, target.path)
+          imageReads.set(target.url, read)
+        }
+        const result = await read
+        if ('id' in result) images.set(src, result.id)
+        else fail(result.code, result.messageId, result.problem)
+      }
+    }
+    return { ok, images }
+  }
+
   /** The stored value for one found value, or `undefined` to leave it as it is. */
   const resolve = async (path: PathSegment[], meta: FieldMeta, value: unknown): Promise<unknown> => {
     if (meta.kind === 'ref') {
@@ -128,25 +212,29 @@ export async function resolveShippedInput(
       const id = groupOf(path, ref)
       return id === null ? undefined : { ...value, document: id }
     }
-    if (meta.kind === 'richText') {
+    if (meta.kind === 'inlineText') {
       if (typeof value !== 'string') return undefined
-      let unknownKey = false
-      const markdown = value.replace(KEY_HREF, (href, refType: string, key: string | undefined) => {
-        const id = groupOf(path, key === undefined ? { type: refType } : { type: refType, key })
-        if (id === null) unknownKey = true
-        return id === null ? href : `](inlay:document/${id}`
-      })
-      if (unknownKey) return undefined
-      const result = markdownToRichText(markdown, meta.richText)
+      const markdown = withDocumentLinks(path, value)
+      if (markdown === null) return undefined
+      const result = markdownToInlineText(markdown)
       for (const problem of result.ok ? [] : result.problems) {
         issue(path, 'invalid', 'issue.richText', { problem: problem.message })
       }
-      // What only the image-free reading finds are images the field allows but shipped content can't name.
-      const bare = markdownToRichText(markdown, withoutImages(meta.richText))
-      const known = new Set(result.ok ? [] : result.problems.map((p) => p.message))
-      const images = bare.ok ? [] : bare.problems.filter((p) => !known.has(p.message))
-      for (const image of images) issue(path, 'invalid', 'issue.shippedRichTextImage', { line: String(image.line) })
-      return result.ok && images.length === 0 ? result.doc : undefined
+      return result.ok ? result.doc : undefined
+    }
+    if (meta.kind === 'richText') {
+      if (typeof value !== 'string') return undefined
+      const markdown = withDocumentLinks(path, value)
+      if (markdown === null) return undefined
+      // A field that allows no images reports them itself, without any file being read.
+      const named = (meta.richText ?? DEFAULT_RICH_TEXT).features.includes('image')
+        ? await shippedImages(path, markdown)
+        : { ok: true, images: new Map<string, string>() }
+      const result = markdownToRichText(markdown, meta.richText, { images: named.images })
+      for (const problem of result.ok ? [] : result.problems) {
+        issue(path, 'invalid', 'issue.richText', { problem: problem.message })
+      }
+      return result.ok && named.ok ? result.doc : undefined
     }
     if (!isRecord(value) || !Object.hasOwn(value, 'file')) return undefined
     const source = fileSource(value.file)
@@ -205,20 +293,63 @@ export async function resolveShippedInput(
 }
 
 const FILE_KINDS: ReadonlySet<string> = new Set(['image', 'file'])
+const RICH_TEXT_KINDS: ReadonlySet<string> = new Set(['richText'])
+
+/** `input`, shipped content of `type`, with each rich-text Markdown string in its fields and slots replaced by `map`'s. */
+export function mapRichText(
+  registry: Registry,
+  type: string,
+  input: ContentInput,
+  map: (markdown: string) => unknown,
+): ContentInput {
+  const { template } = registry.getType(type)
+  const mapAll = (schema: z.ZodType, value: unknown): unknown => {
+    let out = value
+    for (const found of fieldValues(schema, value, RICH_TEXT_KINDS)) {
+      if (typeof found.value === 'string') out = setAt(out, found.path, map(found.value))
+    }
+    return out
+  }
+  const out: ContentInput = { ...input }
+  if (input.fields !== undefined) out.fields = mapAll(template.fields, input.fields) as Record<string, unknown>
+  if (input.slots !== undefined) {
+    const slots: NonNullable<ContentInput['slots']> = {}
+    for (const [key, given] of Object.entries(input.slots)) {
+      const slot = template.slots[key]
+      slots[key] = given === false || !slot ? given : (mapAll(slot.block.schema, given) as Record<string, unknown>)
+    }
+    out.slots = slots
+  }
+  return out
+}
 
 /**
  * Every `{ file }` named in the registry's shipped content (template fields and slots), once per source: the
- * source as written (a file: URL's href or an absolute path) and the local path it names. Values that don't name
- * a local file are left out; applying the content reports them.
+ * source as written (a file: URL's href or an absolute path), the local path it names, and the path to `read` it
+ * by. Images named by a file in rich-text Markdown are listed too, by their `file:` URL's href, so one file named
+ * several ways is listed once; such an image is read by its real path, the one checked to be inside the site's
+ * folder. Values that don't name a local file, and images outside the site's folder or missing, are left out;
+ * applying the content reports them.
  */
-export function shippedFiles(registry: Registry): Array<{ source: string; path: string }> {
-  const found = new Map<string, string>()
+export function shippedFiles(registry: Registry): Array<{ source: string; path: string; read: string }> {
+  const found = new Map<string, { path: string; read: string }>()
+  const { siteDir } = registry
   const collect = (schema: z.ZodType, value: unknown) => {
     for (const { value: v } of fieldValues(schema, value, FILE_KINDS)) {
       if (!isRecord(v) || !Object.hasOwn(v, 'file')) continue
       const source = fileSource(v.file)
       const path = localPath(v.file)
-      if (source !== null && path !== null) found.set(source, path)
+      if (source !== null && path !== null) found.set(source, { path, read: path })
+    }
+    if (siteDir === null) return
+    for (const { value: v } of fieldValues(schema, value, RICH_TEXT_KINDS)) {
+      if (typeof v !== 'string') continue
+      for (const { src } of markdownImages(v)) {
+        const target = imageTarget(src, siteDir)
+        if (target.kind !== 'file' || found.has(target.url)) continue
+        const real = realInsideSync(target.path, siteDir)
+        if (real !== null) found.set(target.url, { path: target.path, read: real })
+      }
     }
   }
   for (const [type, documents] of registry.content) {
@@ -233,5 +364,5 @@ export function shippedFiles(registry: Registry): Array<{ source: string; path: 
       }
     }
   }
-  return [...found].map(([source, path]) => ({ source, path }))
+  return [...found].map(([source, { path, read }]) => ({ source, path, read }))
 }

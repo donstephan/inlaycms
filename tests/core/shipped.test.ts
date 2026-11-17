@@ -1,10 +1,12 @@
 import type { Kysely } from 'kysely'
+import { z } from 'zod'
 import { createCore, type Core } from '../../src/core/core.js'
 import type { Database } from '../../src/core/db/schema.js'
 import { InlayError } from '../../src/core/errors.js'
+import { f } from '../../src/core/fields/builtins.js'
 import { t } from '../../src/core/messages/index.js'
 import { defineContent, defineEntries, type ShippedContent } from '../../src/core/registry/content.js'
-import { defineSite } from '../../src/core/registry/define.js'
+import { defineCollection, defineSite, defineTemplate } from '../../src/core/registry/define.js'
 import type { DocumentData } from '../../src/core/types.js'
 import { articleSite } from '../fixtures/articles.js'
 import { homeTitledSite } from '../fixtures/evolve.js'
@@ -114,6 +116,45 @@ describe('shipped content', () => {
     expect(body).not.toContain('inlay:key')
   })
 
+  it('resolves inlay:key links in inline text', async () => {
+    const Story = defineTemplate({
+      name: 'story',
+      label: 'Story',
+      fields: z.object({ title: f.text({ label: 'Title' }), headline: f.inlineText({ label: 'Headline' }) }),
+      render: (p) => `<h1>${p.fields.title}</h1>`,
+    })
+    const site = defineSite({
+      ...articleSite,
+      collections: [
+        ...articleSite.collections,
+        defineCollection({ name: 'stories', label: 'Stories', template: Story, route: '/stories/:slug' }),
+      ],
+      content: [
+        defineEntries('articles', [{ key: 'second', edition: 1, content: { en: { fields: { title: 'Second', body: 'Hello.' } } } }]),
+        defineEntries('stories', [
+          { key: 'big', edition: 1, content: { en: { fields: { title: 'Big', headline: '**Big** news, see [second](inlay:key/articles/second)' } } } },
+        ]),
+      ],
+    })
+    const { core, db } = await makeCore({ site })
+    await core.applyShippedContent()
+    const second = await row(db, 'articles', 'second')
+    const headline = (await published(core, (await row(db, 'stories', 'big')).id)).fields.headline
+    expect(headline).toEqual({
+      type: 'doc',
+      content: [
+        {
+          type: 'paragraph',
+          content: [
+            { type: 'text', text: 'Big', marks: [{ type: 'bold' }] },
+            { type: 'text', text: ' news, see ' },
+            { type: 'text', text: 'second', marks: [{ type: 'link', attrs: { document: second.group_id } }] },
+          ],
+        },
+      ],
+    })
+  })
+
   it('refuses an unknown key before writing anything', async () => {
     const home = defineContent('home', {
       edition: 1,
@@ -177,6 +218,18 @@ describe('shipped content', () => {
     expect(await next.listRevisions(home.id)).toHaveLength(2)
     expect(home.edition).toBe(2)
     expect((await row(db, 'home', 'home', 'es')).edition).toBe(2)
+  })
+
+  it('shipped content gets its activation time and keeps it across a new edition', async () => {
+    const { core, db } = await makeCore({ site: shippedSite() })
+    await core.applyShippedContent()
+    const event = (await db.selectFrom('publish_events').select('at').executeTakeFirstOrThrow()).at
+    const before = await row(db, 'home', 'home')
+    expect(before.first_published_at).toBe(event)
+    await again(db, [homeShipped(2, 'Hello again'), ...rest]).applyShippedContent()
+    const after = await row(db, 'home', 'home')
+    expect(after.edition).toBe(2)
+    expect(after.first_published_at).toBe(event)
   })
 
   it('a lower edition leaves the content alone (rollback)', async () => {

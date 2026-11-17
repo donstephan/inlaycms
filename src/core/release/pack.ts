@@ -62,10 +62,10 @@ export async function packRelease(opts: {
     const content: ReleaseManifest['content'] = []
     const sources = shippedFiles(registry)
     if (sources.length > 0) await mkdir(join(tmp, 'content'))
-    for (const { source, path } of sources) {
+    for (const { source, path, read } of sources) {
       let bytes: Buffer
       try {
-        bytes = await readFile(path)
+        bytes = await readFile(read)
       } catch {
         throw new InlayError('release', 'error.packFile', { path })
       }

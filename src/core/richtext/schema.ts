@@ -14,6 +14,7 @@ export const RICH_TEXT_FEATURES = [
   'blockquote',
   'image',
   'hardBreak',
+  'table',
 ] as const
 
 export type RichTextFeature = (typeof RICH_TEXT_FEATURES)[number]
@@ -41,14 +42,23 @@ export type RichTextListItem = { type: 'listItem'; content: [RichTextParagraph, 
 export type RichTextBulletList = { type: 'bulletList'; content: RichTextListItem[] }
 export type RichTextOrderedList = { type: 'orderedList'; attrs?: { start: number }; content: RichTextListItem[] }
 export type RichTextBlockquote = { type: 'blockquote'; content: RichTextBlock[] }
+export type RichTextTableCell = { type: 'tableHeader' | 'tableCell'; content: [RichTextParagraph] }
+export type RichTextTableRow = { type: 'tableRow'; content: RichTextTableCell[] }
+export type RichTextTable = { type: 'table'; content: RichTextTableRow[] }
 export type RichTextBlock =
   | RichTextParagraph
   | RichTextHeading
   | RichTextBulletList
   | RichTextOrderedList
   | RichTextBlockquote
+  | RichTextTable
 
-export type RichTextNode = RichTextBlock | RichTextListItem | RichTextInline
+export type RichTextNode =
+  | RichTextBlock
+  | RichTextListItem
+  | RichTextTableRow
+  | RichTextTableCell
+  | RichTextInline
 
 export type RichTextDoc = { type: 'doc'; content: RichTextNode[] }
 
@@ -62,6 +72,10 @@ export const richTextSchema = new Schema({
     orderedList: { group: 'block', content: 'listItem+', attrs: { start: { default: 1 } } },
     listItem: { content: 'paragraph block*' },
     blockquote: { group: 'block', content: 'block+' },
+    table: { group: 'block', content: 'tableRow+' },
+    tableRow: { content: '(tableHeader | tableCell)+' },
+    tableHeader: { content: 'paragraph' },
+    tableCell: { content: 'paragraph' },
     text: { group: 'inline' },
     hardBreak: { group: 'inline', inline: true },
     image: { group: 'inline', inline: true, attrs: { media: {}, alt: { default: null } } },
@@ -80,6 +94,7 @@ const NODE_FEATURE: Readonly<Record<string, RichTextFeature>> = {
   blockquote: 'blockquote',
   image: 'image',
   hardBreak: 'hardBreak',
+  table: 'table',
 }
 const LEAVES = new Set(['text', 'hardBreak', 'image'])
 const HEX64 = /^[0-9a-f]{64}$/
@@ -177,6 +192,51 @@ function cleanNode(raw: unknown, opts: RichTextOptions): Json | null {
   return out
 }
 
+/** A cell: one paragraph, several joined with a space; no image or line break. */
+function cleanCell(raw: unknown, type: string, opts: RichTextOptions): Json {
+  if (!isRecord(raw) || (raw.type !== 'tableHeader' && raw.type !== 'tableCell')) reject()
+  if (absent(raw.content)) return { type, content: [{ type: 'paragraph' }] }
+  if (!Array.isArray(raw.content)) reject()
+  const inline: Json[] = []
+  for (const child of raw.content) {
+    if (!isRecord(child) || child.type !== 'paragraph') reject()
+    if (!absent(child.marks)) reject()
+    if (absent(child.content)) continue
+    if (!Array.isArray(child.content)) reject()
+    const part: Json[] = []
+    for (const item of child.content) {
+      if (isRecord(item) && (item.type === 'image' || item.type === 'hardBreak')) reject()
+      const node = cleanNode(item, opts)
+      if (node !== null) part.push(node)
+    }
+    if (part.length === 0) continue
+    if (inline.length > 0) inline.push({ type: 'text', text: ' ' })
+    inline.push(...part)
+  }
+  return { type, content: [inline.length > 0 ? { type: 'paragraph', content: inline } : { type: 'paragraph' }] }
+}
+
+/** A table whose first row is its header and whose rows all have the header's width, or `null` if it has no cells. */
+function cleanTable(raw: Json, parent: string, opts: RichTextOptions): Json | null {
+  if (parent !== 'doc' || !opts.features.includes('table')) reject()
+  if (absent(raw.content)) return null
+  if (!Array.isArray(raw.content)) reject()
+  const rows: unknown[][] = raw.content.map((row) => {
+    if (!isRecord(row) || row.type !== 'tableRow') reject()
+    if (absent(row.content)) return []
+    return Array.isArray(row.content) ? row.content : reject()
+  })
+  const width = rows[0]?.length ?? 0
+  if (width === 0) return null
+  const content = rows.map((cells, r) => {
+    const type = r === 0 ? 'tableHeader' : 'tableCell'
+    const padded: Json[] = cells.slice(0, width).map((c) => cleanCell(c, type, opts))
+    while (padded.length < width) padded.push({ type, content: [{ type: 'paragraph' }] })
+    return { type: 'tableRow', content: padded }
+  })
+  return { type: 'table', content }
+}
+
 /**
  * Empty paragraphs (including ones left empty once trailing line breaks are dropped) are
  * dropped, except a list item's first; so are blockquotes left empty.
@@ -186,7 +246,7 @@ function cleanContent(raw: unknown, parent: string, opts: RichTextOptions): Json
   if (!Array.isArray(raw)) reject()
   const out: Json[] = []
   for (const child of raw) {
-    const node = cleanNode(child, opts)
+    const node = isRecord(child) && child.type === 'table' ? cleanTable(child, parent, opts) : cleanNode(child, opts)
     if (node === null) continue
     const empty = node.content === undefined
     if (empty && node.type === 'paragraph' && !(parent === 'listItem' && out.length === 0)) continue
@@ -247,10 +307,13 @@ function inlineText(node: unknown): string {
     .join('')
 }
 
+const inlineCell = (cell: unknown): string => inlineText(childrenOf(cell)[0])
+
 function blockTexts(node: unknown, out: string[]): string[] {
   for (const child of childrenOf(node)) {
     if (!isRecord(child)) continue
     if (child.type === 'paragraph' || child.type === 'heading') out.push(inlineText(child))
+    else if (child.type === 'tableRow') out.push(childrenOf(child).map(inlineCell).join('\t'))
     else blockTexts(child, out)
   }
   return out

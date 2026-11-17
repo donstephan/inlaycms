@@ -214,6 +214,20 @@ describe('readExport', () => {
     await bundle.close()
   })
 
+  it('reads firstPublishedAt, and a record without it as absent', async () => {
+    const content = nd(
+      doc('d1', { firstPublishedAt: '2026-01-02T00:00:00.000Z' }),
+      doc('d2', { firstPublishedAt: null }),
+      doc('d3'),
+    )
+    const bundle = await readExport(await archive(base({ manifest: { ...manifest, formatVersion: 2 }, content })))
+    const byId = new Map(bundle.documents.map((d) => [d.id, d]))
+    expect(byId.get('d1')!.firstPublishedAt).toBe('2026-01-02T00:00:00.000Z')
+    expect(byId.get('d2')!.firstPublishedAt).toBeNull()
+    expect(byId.get('d3')!.firstPublishedAt).toBeUndefined()
+    await bundle.close()
+  })
+
   it('ignores a schema version on a manifest type from an older export', async () => {
     const type = { name: 'posts', kind: 'collection', label: 'Posts', template: 'post', schema: {} }
     const versioned = { ...type, version: { template: 1, slots: {} } }

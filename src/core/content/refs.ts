@@ -95,7 +95,7 @@ export async function checkReferences(
         const collection = deps.registry.types.get(ref.meta.target ?? '')?.label ?? ref.meta.target ?? ''
         issue(ref, 'wrong_collection', 'issue.wrongCollection', { collection })
       }
-    } else if ((ref.meta.kind === 'link' || ref.meta.kind === 'richText') && !isRoutable(deps, target)) {
+    } else if ((ref.meta.kind === 'link' || ref.meta.kind === 'richText' || ref.meta.kind === 'inlineText') && !isRoutable(deps, target)) {
       issue(ref, 'not_routable', 'issue.notRoutable')
     }
   }

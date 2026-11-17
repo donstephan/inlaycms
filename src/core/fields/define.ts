@@ -77,6 +77,8 @@ export interface FieldMeta {
   admin?: AdminWidget
   /** The value a required field renders with when it has none (spec §6.2). Cloned before use. */
   empty?: unknown
+  /** Applied by the reader to a stored value before it is checked, such as dropping options the code no longer offers. */
+  readStored?: (value: unknown) => unknown
 }
 
 export const fieldRegistry: z.core.$ZodRegistry<FieldMeta> = z.registry<FieldMeta>()

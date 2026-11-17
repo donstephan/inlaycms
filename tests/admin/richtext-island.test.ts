@@ -17,9 +17,10 @@ import { openPicker, type Pick } from '../../client/admin/picker.js'
 import { WebAddress } from '../../src/adapters/admin/screens/pickers.js'
 import { f } from '../../src/core/fields/builtins.js'
 import { fieldMeta, type AgentRefs } from '../../src/core/fields/define.js'
-import { richTextWidget } from '../../src/core/fields/widgets.js'
+import { inlineTextWidget, richTextWidget } from '../../src/core/fields/widgets.js'
+import { parseInlineText } from '../../src/core/richtext/inline.js'
 import { markdownToRichText } from '../../src/core/richtext/markdown.js'
-import { DEFAULT_RICH_TEXT, parseRichText, type RichTextDoc } from '../../src/core/richtext/schema.js'
+import { DEFAULT_RICH_TEXT, parseRichText, type RichTextDoc, type RichTextTable } from '../../src/core/richtext/schema.js'
 import { renderToString } from '../../src/jsx/html.js'
 import { jsx } from '../../src/jsx/jsx-runtime.js'
 
@@ -34,11 +35,12 @@ const refs: AgentRefs = {
 const DOC = '33333333-3333-4333-8333-333333333333'
 const SHA = 'd'.repeat(64)
 
-type Field = ReturnType<typeof f.richText>
+type Field = ReturnType<typeof f.richText> | ReturnType<typeof f.inlineText>
 
 async function mount(schema: Field, value: unknown, opts: { readOnly?: boolean } = {}) {
+  const widget = fieldMeta(schema)!.kind === 'inlineText' ? inlineTextWidget : richTextWidget
   const html = await renderToString(
-    richTextWidget.render({
+    widget.render({
       name: 'fields.body',
       id: 'f-fields-body',
       value,
@@ -62,6 +64,37 @@ async function mount(schema: Field, value: unknown, opts: { readOnly?: boolean }
 
 const paragraph = (text: string): RichTextDoc => ({ type: 'doc', content: [{ type: 'paragraph', content: [{ type: 'text', text }] }] })
 
+function fromMarkdown(markdown: string): RichTextDoc {
+  const read = markdownToRichText(markdown)
+  if (!read.ok) throw new Error(JSON.stringify(read.problems))
+  return read.doc
+}
+
+/** A paragraph, a list and a table with a header row (`a`, `b`) and one body row (`c`, `d`). */
+const TABLE = fromMarkdown(['before', '', '- item', '', '| a | b |', '| --- | --- |', '| c | d |'].join('\n'))
+const TABLE_TOOLS = ['addRowAfter', 'addColumnAfter', 'deleteRow', 'deleteColumn', 'deleteTable']
+
+/** Puts the cursor inside the text node that reads `text`, after its first character. */
+function cursorIn(editor: ReturnType<typeof mountRichText>, text: string): void {
+  let at = -1
+  editor.state.doc.descendants((node, pos) => {
+    if (at < 0 && node.isText && node.text === text) at = pos + 1
+    return at < 0
+  })
+  if (at < 0) throw new Error(`no text "${text}"`)
+  editor.commands.setTextSelection(at)
+}
+
+/** The doc in the hidden input, as the core reads it. */
+function written(hidden: HTMLInputElement): RichTextDoc {
+  const parsed = parseRichText(JSON.parse(hidden.value), DEFAULT_RICH_TEXT)
+  if (!parsed.ok) throw new Error(`not a valid doc: ${hidden.value}`)
+  return parsed.doc
+}
+
+const tableIn = (doc: RichTextDoc) => doc.content.filter((node): node is RichTextTable => node.type === 'table')
+const cellTypes = (table: RichTextTable | undefined) => table?.content.map((row) => row.content.map((cell) => cell.type))
+
 afterEach(() => {
   delete window.InlayAdmin
   vi.restoreAllMocks()
@@ -81,6 +114,11 @@ describe('rich text island', () => {
       '4. four',
       '',
       '> quoted',
+      '',
+      '| **Name** | Link |',
+      '| --- | --- |',
+      '| one | [x](https://example.com) |',
+      '| two | |',
       '',
       `line one\\`,
       `line two ![alt](inlay:media/${SHA})`,
@@ -110,6 +148,16 @@ describe('rich text island', () => {
       expect(b.getAttribute('type')).toBe('button')
       expect(b.getAttribute('aria-pressed')).toBe('false')
     }
+
+    const table = await mount(f.richText({ label: 'Body', features: ['table'] }), paragraph('Hi'))
+    expect(table.buttons().map((b) => [b.dataset.command, b.textContent])).toEqual([
+      ['table', 'Insert table'],
+      ['addRowAfter', 'Add row below'],
+      ['addColumnAfter', 'Add column right'],
+      ['deleteRow', 'Delete row'],
+      ['deleteColumn', 'Delete column'],
+      ['deleteTable', 'Delete table'],
+    ])
   })
 
   it('shows each heading level separately and refuses levels that are not allowed', async () => {
@@ -223,6 +271,108 @@ describe('rich text island', () => {
     expect(document.activeElement).toBe(bold)
   })
 
+  it('inserts a 3×3 table with a header row', async () => {
+    const { editor, hidden, button } = await mount(f.richText({ label: 'Body' }), paragraph('Hi'))
+    editor.commands.setTextSelection(3)
+    expect(button('table').disabled).toBe(false)
+    button('table').click()
+    const tables = tableIn(written(hidden))
+    expect(tables).toHaveLength(1)
+    expect(cellTypes(tables[0])).toEqual([
+      ['tableHeader', 'tableHeader', 'tableHeader'],
+      ['tableCell', 'tableCell', 'tableCell'],
+      ['tableCell', 'tableCell', 'tableCell'],
+    ])
+  })
+
+  it('shows row and column buttons only inside a table, and no Delete row on the header row', async () => {
+    const { editor, button } = await mount(f.richText({ label: 'Body' }), TABLE)
+    const shown = () => TABLE_TOOLS.filter((command) => !button(command).hidden)
+    expect(shown()).toEqual([])
+    cursorIn(editor, 'd')
+    expect(shown()).toEqual(TABLE_TOOLS)
+    cursorIn(editor, 'b')
+    expect(shown()).toEqual(['addRowAfter', 'addColumnAfter', 'deleteColumn', 'deleteTable'])
+    cursorIn(editor, 'before')
+    expect(shown()).toEqual([])
+    expect(button('table').hidden).toBe(false)
+  })
+
+  it('disables the image and line-break buttons and Insert table inside a cell', async () => {
+    const { editor, button } = await mount(f.richText({ label: 'Body' }), TABLE)
+    const disabled = () => ['image', 'hardBreak', 'table'].map((command) => button(command).disabled)
+    cursorIn(editor, 'c')
+    expect(disabled()).toEqual([true, true, true])
+    cursorIn(editor, 'a')
+    expect(disabled()).toEqual([true, true, true])
+    cursorIn(editor, 'before')
+    expect(disabled()).toEqual([false, false, false])
+    cursorIn(editor, 'item')
+    expect(disabled()).toEqual([false, false, true])
+  })
+
+  it('ignores Enter in a cell', async () => {
+    const { editor, hidden } = await mount(f.richText({ label: 'Body' }), TABLE)
+    cursorIn(editor, 'c')
+    const before = hidden.value
+    for (const key of ['Enter', 'Shift-Enter', 'Mod-Enter']) editor.commands.keyboardShortcut(key)
+    expect(hidden.value).toBe(before)
+
+    cursorIn(editor, 'before')
+    editor.commands.keyboardShortcut('Enter')
+    expect(written(hidden).content.slice(0, 2)).toEqual([...paragraph('b').content, ...paragraph('efore').content])
+  })
+
+  it('deletes the table when its last column is deleted, and keeps it valid when its last body row is', async () => {
+    const { editor, hidden, button } = await mount(f.richText({ label: 'Body' }), TABLE)
+    cursorIn(editor, 'c')
+    expect(button('deleteRow').hidden).toBe(false)
+    button('deleteRow').click()
+    expect(cellTypes(tableIn(written(hidden))[0])).toEqual([['tableHeader', 'tableHeader']])
+
+    cursorIn(editor, 'a')
+    expect(button('deleteRow').hidden).toBe(true)
+    button('deleteColumn').click()
+    expect(tableIn(written(hidden))).toEqual([
+      { type: 'table', content: [{ type: 'tableRow', content: [{ type: 'tableHeader', content: [{ type: 'paragraph', content: [{ type: 'text', text: 'b' }] }] }] }] },
+    ])
+
+    expect(button('deleteColumn').hidden).toBe(false)
+    button('deleteColumn').click()
+    expect(written(hidden).content.map((node) => node.type)).toEqual(['paragraph', 'bulletList'])
+    expect(TABLE_TOOLS.filter((command) => !button(command).hidden)).toEqual([])
+  })
+
+  it('skips hidden and disabled buttons when moving with the arrow keys', async () => {
+    const doc = fromMarkdown(['before', '', '| a | b |', '| --- | --- |', '| c | d |'].join('\n'))
+    const { editor, buttons, button } = await mount(f.richText({ label: 'Body', features: ['bold', 'image', 'table'] }), doc)
+    const focused = () => (document.activeElement as HTMLElement).dataset.command
+    const press = (key: string) => document.activeElement!.dispatchEvent(new KeyboardEvent('keydown', { key, bubbles: true }))
+    const tabbable = () => buttons().filter((b) => b.tabIndex === 0).map((b) => b.dataset.command)
+
+    cursorIn(editor, 'c')
+    button('bold').focus()
+    press('ArrowRight')
+    expect(focused()).toBe('addRowAfter')
+    press('ArrowLeft')
+    expect(focused()).toBe('bold')
+    press('ArrowLeft')
+    expect(focused()).toBe('deleteTable')
+    press('Home')
+    expect(focused()).toBe('bold')
+    press('End')
+    expect(focused()).toBe('deleteTable')
+    expect(tabbable()).toEqual(['deleteTable'])
+
+    cursorIn(editor, 'before')
+    expect(tabbable()).toEqual(['bold'])
+    button('bold').focus()
+    press('ArrowLeft')
+    expect(focused()).toBe('table')
+    press('ArrowLeft')
+    expect(focused()).toBe('image')
+  })
+
   it('labels the editable area and shows read-only text without a toolbar', async () => {
     const { editor, root } = await mount(f.richText({ label: 'Body' }), paragraph('hi'))
     const area = root.querySelector('[contenteditable]')!
@@ -270,6 +420,59 @@ describe('rich text island', () => {
     target.dispatchEvent(new CustomEvent('htmx:afterSwap', { bubbles: true }))
     expect(target.querySelector('[contenteditable]')!.textContent).toBe('swapped')
     expect(root.querySelectorAll('[contenteditable]')).toHaveLength(1)
+  })
+})
+
+describe('inline text island', () => {
+  const HEADLINE = f.inlineText({ label: 'Headline' })
+
+  it('shows only bold, italic and link', async () => {
+    const { buttons } = await mount(HEADLINE, paragraph('hi'))
+    expect(buttons().map((b) => b.dataset.command)).toEqual(['bold', 'italic', 'link'])
+  })
+
+  it('allows no line break', async () => {
+    const { editor, hidden } = await mount(HEADLINE, paragraph('hi'))
+    cursorIn(editor, 'hi')
+    const before = hidden.value
+    for (const key of ['Enter', 'Shift-Enter', 'Mod-Enter']) editor.commands.keyboardShortcut(key)
+    expect(editor.state.doc.childCount).toBe(1)
+    expect(hidden.value).toBe(before)
+
+    // Claimed, so the browser doesn't add a line of its own.
+    for (const shiftKey of [false, true]) {
+      const enter = new KeyboardEvent('keydown', { key: 'Enter', shiftKey, bubbles: true, cancelable: true })
+      editor.view.dom.dispatchEvent(enter)
+      expect(enter.defaultPrevented).toBe(true)
+    }
+    expect(hidden.value).toBe(before)
+  })
+
+  it('joins pasted paragraphs with spaces', async () => {
+    const text = await mount(HEADLINE, undefined)
+    text.editor.view.pasteText('one\n\ntwo')
+    expect(text.editor.state.doc.childCount).toBe(1)
+    expect(text.editor.state.doc.textContent).toBe('one two')
+    expect(parseInlineText(JSON.parse(text.hidden.value)).ok).toBe(true)
+
+    const html = await mount(HEADLINE, undefined)
+    html.editor.view.pasteHTML('<p><strong>one</strong></p><p></p><p>two</p>')
+    expect(html.editor.state.doc.childCount).toBe(1)
+    expect(html.editor.state.doc.textContent).toBe('one two')
+    const parsed = parseInlineText(JSON.parse(html.hidden.value))
+    expect(parsed.ok && parsed.doc).toEqual({
+      type: 'doc',
+      content: [{ type: 'paragraph', content: [{ type: 'text', text: 'one', marks: [{ type: 'bold' }] }, { type: 'text', text: ' two' }] }],
+    })
+  })
+
+  it('marks the area as one line', async () => {
+    const { root } = await mount(HEADLINE, paragraph('hi'))
+    expect(root.hasAttribute('data-inline')).toBe(true)
+    expect(root.querySelector('[contenteditable]')!.getAttribute('aria-multiline')).toBe('false')
+
+    const body = await mount(f.richText({ label: 'Body' }), paragraph('hi'))
+    expect(body.root.querySelector('[contenteditable]')!.getAttribute('aria-multiline')).toBe('true')
   })
 })
 

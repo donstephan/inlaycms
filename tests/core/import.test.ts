@@ -1,4 +1,4 @@
-import { chmod, mkdtemp, readdir, rm, writeFile } from 'node:fs/promises'
+import { chmod, mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises'
 import { existsSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -179,6 +179,78 @@ describe('importContent', () => {
     expect(row).toEqual({ key: 'about', edition: 2 })
     const rev = await b.db.selectFrom('revisions').select('release_id').where('id', '=', aboutRev).executeTakeFirstOrThrow()
     expect(rev.release_id).toBe('rel-1')
+  })
+
+  it('imports firstPublishedAt', async () => {
+    const a = await seedRoundTrip()
+    const hand = '2020-05-05T05:05:05.000Z'
+    await a.db.updateTable('documents').set({ first_published_at: hand }).where('id', '=', a.homeId).execute()
+    const { file } = await exportOf(a.hidden, a.owner)
+    const b = await world({ site: hiddenSite, media: true, backups: true })
+    await b.core.importContent(file, b.owner)
+    const column = async (db: Kysely<Database>) =>
+      db.selectFrom('documents').select(['id', 'first_published_at']).orderBy('id').execute()
+    const imported = await column(b.db)
+    expect(imported.find((r) => r.id === a.homeId)!.first_published_at).toBe(hand)
+    expect(imported).toEqual(await column(a.db))
+  })
+
+  it('fills firstPublishedAt from the publish events of a version-2 export without it', async () => {
+    const a = await seedRoundTrip()
+    const { file } = await exportOf(a.hidden, a.owner)
+    const unpacked = await temp()
+    await tar.x({ file, cwd: unpacked })
+    const path = join(unpacked, 'content.ndjson')
+    const lines = (await readFile(path, 'utf8')).split('\n').filter(Boolean).map((l) => {
+      const r = JSON.parse(l)
+      if (r.record === 'document') delete r.firstPublishedAt
+      return JSON.stringify(r)
+    })
+    await writeFile(path, lines.join('\n') + '\n')
+    const stripped = join(await temp(), 'stripped.tar.gz')
+    await tar.c({ gzip: true, file: stripped, cwd: unpacked }, await readdir(unpacked))
+
+    const b = await world({ site: hiddenSite, media: true, backups: true })
+    await b.core.importContent(stripped, b.owner)
+    const events = await b.db.selectFrom('publish_events').selectAll().orderBy('id').execute()
+    const earliest = new Map<string, string>()
+    for (const e of events) {
+      for (const item of JSON.parse(e.items) as Array<{ documentId: string; action: string }>) {
+        if (item.action === 'publish' && !earliest.has(item.documentId)) earliest.set(item.documentId, e.at)
+      }
+    }
+    const rows = await b.db.selectFrom('documents').select(['id', 'first_published_at']).execute()
+    expect(rows.some((r) => r.first_published_at !== null)).toBe(true)
+    expect(rows.some((r) => r.first_published_at === null)).toBe(true)
+    for (const r of rows) expect(r.first_published_at).toBe(earliest.get(r.id) ?? null)
+  })
+
+  it('fills firstPublishedAt for a published document whose record says null', async () => {
+    const a = await seedRoundTrip()
+    const { file } = await exportOf(a.hidden, a.owner)
+    const unpacked = await temp()
+    await tar.x({ file, cwd: unpacked })
+    const path = join(unpacked, 'content.ndjson')
+    const lines = (await readFile(path, 'utf8')).split('\n').filter(Boolean).map((l) => {
+      const r = JSON.parse(l)
+      if (r.record === 'document') r.firstPublishedAt = null
+      return JSON.stringify(r)
+    })
+    await writeFile(path, lines.join('\n') + '\n')
+    const nulled = join(await temp(), 'nulled.tar.gz')
+    await tar.c({ gzip: true, file: nulled, cwd: unpacked }, await readdir(unpacked))
+
+    const b = await world({ site: hiddenSite, media: true, backups: true })
+    await b.core.importContent(nulled, b.owner)
+    const rows = await b.db.selectFrom('documents').select(['id', 'published_rev', 'first_published_at']).execute()
+    expect(rows.some((r) => r.published_rev !== null)).toBe(true)
+    for (const r of rows) {
+      if (r.published_rev !== null) expect(r.first_published_at).not.toBeNull()
+    }
+    expect(rows.find((r) => r.id === a.homeId)!.first_published_at).toBe(
+      (await a.db.selectFrom('documents').select('first_published_at').where('id', '=', a.homeId).executeTakeFirstOrThrow())
+        .first_published_at,
+    )
   })
 
   it('round-trips a redirect whose address has a percent sign', async () => {

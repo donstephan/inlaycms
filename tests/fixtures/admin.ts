@@ -13,8 +13,8 @@ export const Note = defineBlock({
 })
 
 /**
- * A template with one field of every simple kind, a group, a list, SEO, a plugin field without a widget, media,
- * references (one and many), links, rich text and an optional slot.
+ * A template with one field of every simple kind, a multi-select, a group, a list, SEO, a plugin field without a
+ * widget, media, references (one and many), links, rich text and an optional slot.
  */
 export const Kitchen = defineTemplate({
   name: 'kitchen',
@@ -25,6 +25,7 @@ export const Kitchen = defineTemplate({
     count: f.number({ label: 'Count' }).optional(),
     featured: f.boolean({ label: 'Featured' }),
     tone: f.select(['calm', 'bold'], { label: 'Tone', setting: true }),
+    topics: f.multiSelect(['news', 'tips', 'events'], { label: 'Topics' }).optional(),
     day: f.date({ label: 'Day' }).optional(),
     at: f.datetime({ label: 'At' }).optional(),
     contact: f.group(

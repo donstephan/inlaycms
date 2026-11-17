@@ -1,10 +1,10 @@
 import { f } from '../../src/core/fields/builtins.js'
 import type { Core } from '../../src/core/core.js'
 import { t } from '../../src/core/messages/index.js'
-import type { SingletonDef, SiteDefinition, TemplateDef } from '../../src/core/registry/define.js'
+import type { CollectionDef, SingletonDef, SiteDefinition, TemplateDef } from '../../src/core/registry/define.js'
 import { markdownToRichText } from '../../src/core/richtext/markdown.js'
 import type { Ctx } from '../../src/core/types.js'
-import { Hero, Home, webSite } from '../fixtures/web.js'
+import { Hero, Home, Testimonial, webSite } from '../fixtures/web.js'
 import { makeCore } from '../helpers/core.js'
 import { mcpClient, type McpTestClient } from '../helpers/mcp.js'
 
@@ -18,11 +18,21 @@ const HelpHero = {
   schema: Hero.schema.extend({ headline: f.text({ label: 'Headline', help: HEADLINE_HELP }) }),
 }
 const HelpHome = { ...Home, slots: { ...Home.slots, hero: { block: HelpHero } } } as unknown as TemplateDef
+/** Testimonials with a multi-select. */
+const TaggedTestimonial = {
+  ...Testimonial,
+  fields: Testimonial.fields.extend({
+    tags: f.multiSelect(['hipaa', 'cmmc', 'soc2'], { label: 'Tags', min: 0, max: 3 }).optional(),
+  }),
+} as unknown as TemplateDef
 const site: SiteDefinition = {
   ...webSite,
   guide: GUIDE,
   singletons: webSite.singletons.map(
     (s): SingletonDef => (s.name === 'home' ? { ...s, help: 'The front page of the site.', template: HelpHome } : s),
+  ),
+  collections: webSite.collections.map(
+    (c): CollectionDef => (c.name === 'testimonials' ? { ...c, template: TaggedTestimonial } : c),
   ),
 }
 
@@ -257,6 +267,29 @@ describe('get_document', () => {
     expect(text.split('\n')[0]).toBe(t('mcp.documentNotFound', { id: 'nope' }))
     expect(text).not.toMatch(/\n\s+at /)
     expect(json.error).toMatchObject({ code: 'not_found', message: t('mcp.documentNotFound', { id: 'nope' }) })
+  })
+})
+
+describe('a multi-select', () => {
+  it('reads and lists a multi-select', async () => {
+    const created = await core.createEntry(
+      'testimonials',
+      { fields: { quote: 'Great.', author: 'Maria', tags: ['soc2', 'hipaa'] } },
+      owner,
+    )
+    const { isError, json } = await mcp.call('get_document', { id: created.id })
+    expect(isError).toBe(false)
+    expect(json.content.fields.tags).toEqual(['hipaa', 'soc2'])
+
+    const described = await mcp.call('describe_type', { type: 'testimonials' })
+    expect(described.json.schema.properties.fields.properties.tags).toEqual({
+      type: 'array',
+      items: { enum: ['hipaa', 'cmmc', 'soc2'] },
+      uniqueItems: true,
+      minItems: 0,
+      maxItems: 3,
+      title: 'Tags',
+    })
   })
 })
 

@@ -1,7 +1,8 @@
 import { isRasterImage } from '../media/detect.js'
 import { missingMediaLabel } from '../media/labels.js'
 import { t } from '../messages/index.js'
-import { DEFAULT_RICH_TEXT, parseRichText, RICH_TEXT_FEATURES, richTextIsBlank } from '../richtext/schema.js'
+import { parseInlineText } from '../richtext/inline.js'
+import { DEFAULT_RICH_TEXT, parseRichText, RICH_TEXT_FEATURES, richTextIsBlank, type RichTextDoc } from '../richtext/schema.js'
 import type { AdminWidget, FormValues, WidgetProps } from './define.js'
 import { isRecord } from './zod-internals.js'
 
@@ -148,6 +149,41 @@ export const selectWidget: AdminWidget = {
     )
   },
   parse: (form, name) => parseNonEmpty(form, name),
+}
+
+/**
+ * Any of the options, as one checkbox each. A hidden `<name>.many` marks a stored list or a required field, so
+ * nothing ticked is saved as `[]` there and an absent optional value stays absent.
+ */
+export const multiSelectWidget: AdminWidget = {
+  fieldset: true,
+  render(p) {
+    const options = p.meta.options ?? []
+    const chosen = Array.isArray(p.value) ? (p.value as unknown[]) : []
+    return (
+      <div class="flex flex-wrap gap-x-6 gap-y-2">
+        {(Array.isArray(p.value) || !p.optional) && <input type="hidden" name={`${p.name}.many`} value="" disabled={p.readOnly} />}
+        {options.map((o, i) => (
+          <label class="flex items-center gap-2">
+            <input
+              type="checkbox"
+              value={o}
+              checked={chosen.includes(o)}
+              class="checkbox checkbox-sm"
+              {...control(p)}
+              id={i === 0 ? p.id : `${p.id}-${i}`}
+            />
+            <span>{o}</span>
+          </label>
+        ))}
+      </div>
+    )
+  },
+  parse(form, name) {
+    const values = form.all(name).filter((v) => v !== '')
+    if (values.length > 0) return values
+    return form.get(`${name}.many`) === undefined ? undefined : []
+  },
 }
 
 /** Whether `text` is HTML's valid date string (`YYYY-MM-DD`, a real day), which a `type=date` input keeps. */
@@ -534,7 +570,78 @@ function toolbarLabels(headings: readonly number[]): Record<string, string> {
     blockquote: t('admin.richtext.blockquote'),
     image: t('admin.richtext.image'),
     hardBreak: t('admin.richtext.hardBreak'),
+    table: t('admin.richtext.table'),
+    addRowAfter: t('admin.richtext.addRowAfter'),
+    addColumnAfter: t('admin.richtext.addColumnAfter'),
+    deleteRow: t('admin.richtext.deleteRow'),
+    deleteColumn: t('admin.richtext.deleteColumn'),
+    deleteTable: t('admin.richtext.deleteTable'),
   }
+}
+
+const RICH_TEXT_MOUNT = 'min-h-40 [&_.ProseMirror]:min-h-40 [&_.ProseMirror]:p-3'
+const INLINE_TEXT_MOUNT = 'min-h-10 [&_.ProseMirror]:min-h-10 [&_.ProseMirror]:px-3 [&_.ProseMirror]:py-2'
+
+function renderRichText(p: WidgetProps, inline: boolean) {
+  const opts = p.meta.richText ?? DEFAULT_RICH_TEXT
+  const features = RICH_TEXT_FEATURES.filter((feature) => opts.features.includes(feature))
+  const value = p.value === undefined ? '' : typeof p.value === 'string' ? p.value : JSON.stringify(p.value)
+  const links = `/admin/pick/documents?${new URLSearchParams({ locale: p.locale, web: '1' }).toString()}`
+  return (
+    <>
+      {p.value !== undefined && <input type="hidden" name={`${p.name}._present`} value="" disabled={p.readOnly} />}
+      <div
+        data-richtext
+        data-inline={inline}
+        data-name={p.name}
+        data-features={features.join(' ')}
+        data-headings={opts.headings.join(' ')}
+        data-labels={JSON.stringify(toolbarLabels(opts.headings))}
+        data-readonly={p.readOnly}
+        data-pick-link={links}
+        data-pick-image="/admin/pick/media?kind=image"
+        class="flex flex-col rounded-box border border-base-300 bg-base-100"
+      >
+        <div role="toolbar" aria-label={t('admin.richtext.toolbar', { field: p.meta.label })} aria-controls={p.id} class="flex flex-wrap gap-1 border-b border-base-300 p-1 empty:hidden"></div>
+        <div
+          data-richtext-mount
+          role="group"
+          id={p.id}
+          aria-label={p.meta.label}
+          aria-describedby={p.describedBy}
+          aria-invalid={p.invalid ? 'true' : undefined}
+          class={`${inline ? INLINE_TEXT_MOUNT : RICH_TEXT_MOUNT} [&_.ProseMirror]:outline-none [&_.ProseMirror-focused]:ring-2 [&_.ProseMirror-focused]:ring-primary [&_p]:my-2 [&_h2]:my-3 [&_h2]:text-2xl [&_h2]:font-bold [&_h3]:my-3 [&_h3]:text-xl [&_h3]:font-bold [&_h4]:my-2 [&_h4]:text-lg [&_h4]:font-semibold [&_h5]:font-semibold [&_h6]:font-semibold [&_h1]:text-3xl [&_h1]:font-bold [&_ul]:list-disc [&_ul]:pl-6 [&_ol]:list-decimal [&_ol]:pl-6 [&_blockquote]:border-l-4 [&_blockquote]:border-base-300 [&_blockquote]:pl-4 [&_a]:text-primary [&_a]:underline [&_table]:my-2 [&_table]:border-collapse [&_th]:border [&_th]:border-base-300 [&_th]:px-2 [&_th]:text-left [&_th]:font-semibold [&_td]:border [&_td]:border-base-300 [&_td]:px-2 [&_img]:inline-block [&_img]:max-h-40 [&_img]:rounded [&_.ProseMirror-selectednode]:outline-2 [&_.ProseMirror-selectednode]:outline-primary`}
+        ></div>
+        <p data-richtext-error hidden class="mx-3 mb-3 rounded-box bg-warning px-3 py-1 text-sm text-warning-content">
+          {t('admin.richtext.unreadable')}
+        </p>
+        <input type="hidden" name={p.name} value={value} disabled={p.readOnly} />
+        <noscript>
+          <p class="mx-3 mb-3 rounded-box bg-warning px-3 py-1 text-sm text-warning-content">{t('admin.form.needsJs')}</p>
+        </noscript>
+      </div>
+    </>
+  )
+}
+
+function parseRichTextForm(
+  form: FormValues,
+  name: string,
+  optional: boolean,
+  parse: (value: unknown) => { ok: true; doc: RichTextDoc } | { ok: false },
+): unknown {
+  const raw = form.get(name)
+  if (raw === undefined || raw === '') return undefined
+  let value: unknown
+  try {
+    value = JSON.parse(raw)
+  } catch {
+    return raw
+  }
+  const parsed = parse(value)
+  if (!parsed.ok) return value
+  const stored = form.get(`${name}._present`) !== undefined
+  return optional && !stored && richTextIsBlank(parsed.doc) ? undefined : parsed.doc
 }
 
 /**
@@ -544,58 +651,14 @@ function toolbarLabels(headings: readonly number[]): Record<string, string> {
  */
 export const richTextWidget: AdminWidget = {
   fieldset: true,
-  render(p) {
-    const opts = p.meta.richText ?? DEFAULT_RICH_TEXT
-    const features = RICH_TEXT_FEATURES.filter((feature) => opts.features.includes(feature))
-    const value = p.value === undefined ? '' : typeof p.value === 'string' ? p.value : JSON.stringify(p.value)
-    const links = `/admin/pick/documents?${new URLSearchParams({ locale: p.locale, web: '1' }).toString()}`
-    return (
-      <>
-        {p.value !== undefined && <input type="hidden" name={`${p.name}._present`} value="" disabled={p.readOnly} />}
-        <div
-          data-richtext
-          data-name={p.name}
-          data-features={features.join(' ')}
-          data-headings={opts.headings.join(' ')}
-          data-labels={JSON.stringify(toolbarLabels(opts.headings))}
-          data-readonly={p.readOnly}
-          data-pick-link={links}
-          data-pick-image="/admin/pick/media?kind=image"
-          class="flex flex-col rounded-box border border-base-300 bg-base-100"
-        >
-          <div role="toolbar" aria-label={t('admin.richtext.toolbar', { field: p.meta.label })} aria-controls={p.id} class="flex flex-wrap gap-1 border-b border-base-300 p-1 empty:hidden"></div>
-          <div
-            data-richtext-mount
-            role="group"
-            id={p.id}
-            aria-label={p.meta.label}
-            aria-describedby={p.describedBy}
-            aria-invalid={p.invalid ? 'true' : undefined}
-            class="min-h-40 [&_.ProseMirror]:min-h-40 [&_.ProseMirror]:p-3 [&_.ProseMirror]:outline-none [&_.ProseMirror-focused]:ring-2 [&_.ProseMirror-focused]:ring-primary [&_p]:my-2 [&_h2]:my-3 [&_h2]:text-2xl [&_h2]:font-bold [&_h3]:my-3 [&_h3]:text-xl [&_h3]:font-bold [&_h4]:my-2 [&_h4]:text-lg [&_h4]:font-semibold [&_h5]:font-semibold [&_h6]:font-semibold [&_h1]:text-3xl [&_h1]:font-bold [&_ul]:list-disc [&_ul]:pl-6 [&_ol]:list-decimal [&_ol]:pl-6 [&_blockquote]:border-l-4 [&_blockquote]:border-base-300 [&_blockquote]:pl-4 [&_a]:text-primary [&_a]:underline [&_img]:inline-block [&_img]:max-h-40 [&_img]:rounded [&_.ProseMirror-selectednode]:outline-2 [&_.ProseMirror-selectednode]:outline-primary"
-          ></div>
-          <p data-richtext-error hidden class="mx-3 mb-3 rounded-box bg-warning px-3 py-1 text-sm text-warning-content">
-            {t('admin.richtext.unreadable')}
-          </p>
-          <input type="hidden" name={p.name} value={value} disabled={p.readOnly} />
-          <noscript>
-            <p class="mx-3 mb-3 rounded-box bg-warning px-3 py-1 text-sm text-warning-content">{t('admin.form.needsJs')}</p>
-          </noscript>
-        </div>
-      </>
-    )
-  },
-  parse(form, name, meta, optional) {
-    const raw = form.get(name)
-    if (raw === undefined || raw === '') return undefined
-    let value: unknown
-    try {
-      value = JSON.parse(raw)
-    } catch {
-      return raw
-    }
-    const parsed = parseRichText(value, meta.richText ?? DEFAULT_RICH_TEXT)
-    if (!parsed.ok) return value
-    const stored = form.get(`${name}._present`) !== undefined
-    return optional && !stored && richTextIsBlank(parsed.doc) ? undefined : parsed.doc
-  },
+  render: (p) => renderRichText(p, false),
+  parse: (form, name, meta, optional) =>
+    parseRichTextForm(form, name, optional, (value) => parseRichText(value, meta.richText ?? DEFAULT_RICH_TEXT)),
+}
+
+/** One line of formatted text: the rich-text editor marked `data-inline`, one line tall, holding one paragraph. */
+export const inlineTextWidget: AdminWidget = {
+  fieldset: true,
+  render: (p) => renderRichText(p, true),
+  parse: (form, name, _meta, optional) => parseRichTextForm(form, name, optional, parseInlineText),
 }

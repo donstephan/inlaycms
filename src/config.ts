@@ -1,10 +1,11 @@
-import { existsSync } from 'node:fs'
+import { existsSync, realpathSync } from 'node:fs'
 import { mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { dirname, isAbsolute, join, resolve } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { InlayError } from './core/errors.js'
 import type { SiteDefinition } from './core/registry/define.js'
+import { siteDirUrl } from './core/release/site-dir.js'
 
 export interface InlayConfig {
   site: SiteDefinition
@@ -64,7 +65,7 @@ export async function loadConfig(file: string): Promise<LoadedConfig> {
   const media = config.media !== undefined ? fromBase(config.media) : near('media')
   return {
     config: {
-      site: config.site,
+      site: { ...config.site, siteDir: siteDirUrl(realpathSync(dir)) },
       ...(db !== undefined && { db }),
       ...(backups !== undefined && { backups }),
       ...(media !== undefined && { media }),

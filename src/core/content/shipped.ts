@@ -133,7 +133,7 @@ function withoutRefsTo(
     const last = r.path.at(-1)
     const parentPath = r.path.slice(0, -1)
     const parent = getAt(out, parentPath)
-    if (r.meta.kind === 'richText') {
+    if (r.meta.kind === 'richText' || r.meta.kind === 'inlineText') {
       const fixed = (doc: unknown) => {
         const walked = withoutLinks(doc, gone)
         const parsed = parseRichText(walked, r.meta.richText ?? DEFAULT_RICH_TEXT)
@@ -479,13 +479,18 @@ export async function writeShippedContent(
     await autoRedirect(deps, ctx, { ...before, head_slug: slug, head_path: path })
     await trx
       .updateTable('documents')
-      .set({ published_rev: revId, published_slug: slug, published_path: path })
+      .set((eb) => ({
+        published_rev: revId,
+        published_slug: slug,
+        published_path: path,
+        first_published_at: eb.fn.coalesce('first_published_at', eb.val(at)),
+      }))
       .where('id', '=', documentId)
       .execute()
     items.push({ documentId, revisionId: revId, action: 'publish' })
   }
   for (const a of actions) await syncRefs(deps, a.item.documentId!)
-  await recordEvent(deps, ctx, null, items)
+  await recordEvent(deps, ctx, null, items, at)
   return report
 }
 

@@ -223,6 +223,161 @@ All three take the token from `--token` or `INLAY_PUSH_TOKEN`. They exit 1 when 
 
 If your site's `tsconfig.json` has `skipLibCheck: false`, `tsc` reports one error from better-auth's own type files, which Inlay depends on: `Cannot find module 'bun:sqlite'`. It comes from types for running under Bun, has no effect on a Node site, and isn't something your code or Inlay can fix. Leave `skipLibCheck` on (`true`), or ignore that one error.
 
+## Content model
+
+What a site's fields can hold, beyond plain text and the basics of `f.richText`.
+
+### Tables
+
+Rich text holds tables, on by default. In Markdown (what assistants send and get back, and what shipped content is written in) a table is a GitHub-style table:
+
+```md
+| Plan | Price |
+| --- | --- |
+| **Pro** | [Buy](https://example.com/buy) |
+| *Lite* | free |
+```
+
+The first row is always the header row. A cell holds one line of text with bold, italic and links; images and line breaks can't go in a cell, and a table can't go inside a list or a quote. Write a `|` inside a cell as `\|`. Alignment markers (`:---:`) are accepted and dropped, short rows are padded with empty cells, and cells past the header's width are dropped. To leave tables out of a field, list its `features` without `'table'`: `f.richText({ label: 'Body', features: ['bold', 'italic', 'link'] })`.
+
+A table renders as plain HTML with no attributes, for your site's CSS to style: `<table>`, a `<thead>` holding the header row's `<th>` cells, and a `<tbody>` of `<td>` cells when there are rows below the header.
+
+### Inline text
+
+`f.inlineText({ label, maxLength })` is one line of formatted text, for a headline or a tagline that may need a word in bold or a link: bold, italic and links, and nothing else. It is stored as rich text holding a single paragraph, and the admin edits it on one line. `maxLength` counts the characters of the text, not of its formatting.
+
+Assistants and shipped content write it as one line of Markdown, such as `'**Big** news, see [the plans](inlay:key/pages/pricing)'`. A blank line (a second paragraph), a heading, a list, a line break or an image is refused.
+
+In a template, `ctx.inline(fields.headline)` renders the text without a `<p>`, so it fits inside an `<h1>`; a string is escaped, and `null` gives nothing. `ctx.richText` renders it with its `<p>`. `plainText(fields.headline)`, imported from `inlaycms/site`, gives the text without its formatting, for a `<title>` or an `alt`.
+
+An inline-text field can't be a collection's `titleField`, which must be plain text. Keep a plain `f.text` title beside it:
+
+```ts
+fields: z.object({
+  title: f.text({ label: 'Title' }),
+  headline: f.inlineText({ label: 'Headline', maxLength: 80 }),
+}),
+```
+
+### Publish dates
+
+`entry.publishedAt` (from `ctx.entries` and `ctx.query`) and `page.publishedAt` (in a template) are when Inlay first published the document, as an ISO time, or `null` for a draft that was never published (seen in preview) and for a route's page. It is set once and never moves, however often the document is edited or republished. A page of `ogType: 'article'` gets it as `article:published_time`.
+
+`ctx.query('posts', { sort: 'published' })` lists the newest first-publish first, with never-published entries last; ties keep the newest-created first. A post migrated from another site keeps its original date in its own `f.date` field, which you can sort by with `{ sort: { field: 'date', direction: 'desc' } }`.
+
+### Multi-select
+
+`f.multiSelect(options, { label, min, max })` picks any number of a fixed list of options, such as tags:
+
+```ts
+tags: f.multiSelect(['hipaa', 'cmmc', 'soc2'] as const, { label: 'Tags', min: 0, max: 3 }),
+```
+
+The value is an array of the options, saved in the options' order without duplicates, and `[]` when nothing is chosen. A draft may hold any number of them; `min` and `max` are checked when it is published. The admin shows one checkbox per option, labelled with the option itself, as `f.select` does. Assistants read and write the array as it is.
+
+To list the entries with a tag, filter them in a template:
+
+```ts
+const faqs = await ctx.query('faqs', { filter: (e) => e.fields.tags.includes('hipaa') })
+```
+
+An option you remove from the code drops out of the value when it is read, in the admin, on the site and over MCP, while the other options stay; the next save stores the value without it. Export keeps what is stored, so a backup loses nothing.
+
+### Nested lists
+
+Lists can hold lists, to any depth, and the admin shows every level with its own add, remove and move buttons. A mega menu is three deep: menu items hold columns, and columns hold links.
+
+```ts
+const Menu = defineTemplate({
+  name: 'menu',
+  label: 'Menu',
+  fields: z.object({
+    menu: f.list(
+      z.object({
+        title: f.text({ label: 'Title' }),
+        columns: f.list(
+          z.object({
+            heading: f.text({ label: 'Heading' }),
+            links: f.list(
+              z.object({
+                label: f.text({ label: 'Label' }),
+                href: f.text({ label: 'Address' }),
+                description: f.textarea({ label: 'Description' }).optional(),
+              }),
+              { label: 'Links', itemLabel: 'Link' },
+            ),
+          }),
+          { label: 'Columns', itemLabel: 'Column' },
+        ),
+      }),
+      { label: 'Menu', itemLabel: 'Menu item' },
+    ),
+    promo: f.group({ text: f.text({ label: 'Text' }), link: f.link({ label: 'Link' }) }, { label: 'Promo' }),
+  }),
+})
+```
+
+A template loops over each level:
+
+```tsx
+<nav>
+  {fields.menu.map((item) => (
+    <div>
+      <span>{item.title}</span>
+      {item.columns.map((column) => (
+        <section>
+          <h3>{column.heading}</h3>
+          <ul>
+            {column.links.map((link) => (
+              <li><a href={link.href}>{link.label}</a></li>
+            ))}
+          </ul>
+        </section>
+      ))}
+    </div>
+  ))}
+</nav>
+```
+
+### Images in shipped content
+
+Rich text in shipped content can show images from the site's folder (the folder holding `inlay.config.ts`). Name each one by its path from that folder, or by a `file:` URL:
+
+```ts
+defineContent('about', {
+  edition: 1,
+  content: {
+    en: {
+      fields: {
+        body: [
+          '![Our team](images/team.png)',
+          '![The 2026 chart](<images/my chart (1).png>)',
+          `![Logo](${new URL('./images/logo.png', import.meta.url)})`,
+        ].join('\n\n'),
+      },
+    },
+  },
+})
+```
+
+The alt text is kept. Write a path with spaces or parentheses inside `<…>`. Each file is checked like an upload and added to the media library once, however many documents or ways of writing its path name it; `images/team.png`, `./images/team.png` and its `file:` URL are the same image. `inlaycms pack` puts the files in the release, so a host shows them without the site's folder.
+
+Refused, each with the line it is on: an image on another website (`https://…`; a release never downloads anything, so download it into the folder), a path starting with `/` (that is an address on the site, not a file), a file outside the site's folder (`../`, or a link that leads out of it), a file that doesn't exist, and a file that isn't an image. An image already in the media library can still be named as `inlay:media/<id>`.
+
+### Markdown files
+
+Long rich text, such as a blog post, can live in its own `.md` file. Import it, and the import is the file's text:
+
+```ts
+import hello from './posts/hello.md'
+
+defineEntries('posts', [
+  { key: 'hello', edition: 1, content: { en: { slug: 'hello', fields: { title: 'Hello', body: hello } } } },
+])
+```
+
+The whole file is the Markdown: there is no front matter, so the title, dates and other fields stay in your code. An image path in the file is relative to the file itself, so `posts/hello.md` names `posts/chart.png` as `![A chart](chart.png)` or `![A chart](./chart.png)`. The image must still be inside the site's folder, and is checked and packed as above. Write each image inline: an image written as a reference (`![A chart][chart]` with `[chart]: chart.png` further down) is refused, and `inlaycms dev`, `check` and `pack` name the file and line. The types for `.md` imports come with `inlaycms/site`, so TypeScript knows the import is a string.
+
 ## Without Node: the Docker image
 
 The Inlay image holds the whole CLI as well as the host, so a computer with Docker needs no Node or npm. It's published on GitHub's container registry as `ghcr.io/donstephan/inlaycms`. Install the `inlaycms` script it carries:

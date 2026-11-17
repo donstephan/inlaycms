@@ -3,9 +3,12 @@ import { existsSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import * as tar from 'tar'
+import { z } from 'zod'
 import { InlayError } from '../../src/core/errors.js'
 import { createCore } from '../../src/core/core.js'
 import { exportFileName, type ContentRecord, type Manifest, type MediaIndex, type RedirectRecord } from '../../src/core/export/format.js'
+import { f } from '../../src/core/fields/builtins.js'
+import { defineCollection, defineSite, defineTemplate } from '../../src/core/registry/define.js'
 import { site as fixtureSite } from '../fixtures/site.js'
 import { png, sha256 } from '../fixtures/media.js'
 import { makeCore } from '../helpers/core.js'
@@ -117,6 +120,25 @@ describe('exportContent', () => {
     expect(revisionRecord).toMatchObject({ releaseId: null })
   })
 
+  it('exports firstPublishedAt under format version 2', async () => {
+    const w = await seed()
+    const target = join(await temp(), 'out.tar.gz')
+    await w.core.exportContent(target, w.owner)
+    const x = await unpack(target)
+    expect(x.manifest.formatVersion).toBe(2)
+    const rows = await w.db.selectFrom('documents').select(['id', 'first_published_at']).execute()
+    const docs = x.content.filter((c) => c.record === 'document')
+    expect(docs.length).toBe(rows.length)
+    for (const d of docs) {
+      if (d.record !== 'document') throw new Error('unreachable')
+      expect(d.firstPublishedAt).toBe(rows.find((r) => r.id === d.id)!.first_published_at)
+    }
+    const home = docs.find((d) => d.record === 'document' && d.id === w.home.id)!
+    expect(home.record === 'document' && home.firstPublishedAt).toBeTruthy()
+    const gone = docs.find((d) => d.record === 'document' && d.type === 'posts')!
+    expect(gone.record === 'document' && gone.firstPublishedAt).toBeNull()
+  })
+
   it('keeps hidden content', async () => {
     const w = await seed()
     const post = (await w.core.listEntries('posts', { includeDeleted: true }))[0]!
@@ -142,6 +164,35 @@ describe('exportContent', () => {
     expect(x.media.deletions.map((d) => d.filename).sort()).toEqual(['first.png', 'second.png'])
     expect(x.entries.some((e) => e.startsWith('media/') && e !== 'media/')).toBe(false)
     expect(x.manifest.counts.media).toBe(0)
+  })
+
+  it('exports a multi-select value as stored, retired options included', async () => {
+    const faqSite = (options: readonly [string, ...string[]]) =>
+      defineSite({
+        locales: ['en'],
+        defaultLocale: 'en',
+        collections: [
+          defineCollection({
+            name: 'faqs',
+            label: 'FAQs',
+            template: defineTemplate({
+              name: 'faq',
+              label: 'FAQ',
+              fields: z.object({ title: f.text({ label: 'Title' }), tags: f.multiSelect(options, { label: 'Tags' }) }),
+            }),
+          }),
+        ],
+      })
+    const w = await makeCore({ site: faqSite(['hipaa', 'cmmc', 'retired']), media: true })
+    const created = await w.core.createEntry('faqs', { fields: { title: 'A', tags: ['retired', 'hipaa'] } }, w.owner)
+    const now = createCore({ site: faqSite(['hipaa', 'cmmc']), db: w.db, media: w.mediaDir! })
+    expect((await now.getDocument(created.id))!.data.fields.tags).toEqual(['hipaa'])
+
+    const target = join(await temp(), 'out.tar.gz')
+    await now.exportContent(target, w.owner)
+    const x = await unpack(target)
+    const revision = x.content.find((c) => c.record === 'revision' && c.documentId === created.id)
+    expect(revision?.record === 'revision' && revision.data.fields.tags).toEqual(['hipaa', 'retired'])
   })
 
   it('refuses editors and writes nothing', async () => {

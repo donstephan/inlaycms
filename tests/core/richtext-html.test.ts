@@ -93,3 +93,26 @@ describe('richTextToHtml', () => {
     )
   })
 })
+
+describe('richTextToHtml tables', () => {
+  const cell = (type: string, ...content: unknown[]) => ({ type, content: [para(...content)] })
+  const row = (...cells: unknown[]) => ({ type: 'tableRow', content: cells })
+
+  it('renders a table with a head and a body, cells inline', () => {
+    const d = doc({
+      type: 'table',
+      content: [
+        row(cell('tableHeader', text('A')), cell('tableHeader', text('B', [bold]))),
+        row(cell('tableCell', text('1', [link('/x')])), { type: 'tableCell', content: [{ type: 'paragraph' }] }),
+      ],
+    })
+    expect(richTextToHtml(d, resolve)).toBe(
+      '<table><thead><tr><th>A</th><th><strong>B</strong></th></tr></thead><tbody><tr><td><a href="/x">1</a></td><td></td></tr></tbody></table>',
+    )
+  })
+
+  it('renders a header-only table without tbody', () => {
+    const d = doc({ type: 'table', content: [row(cell('tableHeader', text('A')))] })
+    expect(richTextToHtml(d, resolve)).toBe('<table><thead><tr><th>A</th></tr></thead></table>')
+  })
+})

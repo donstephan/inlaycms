@@ -1,7 +1,13 @@
 import { z } from 'zod'
+import { agentTypeSchema } from '../../src/core/agent/schema.js'
+import { validateContent } from '../../src/core/content/validate.js'
+import { storedTypeSchema } from '../../src/core/export/schema.js'
 import { f } from '../../src/core/fields/builtins.js'
 import { fieldMeta } from '../../src/core/fields/define.js'
+import { toDraftSchema } from '../../src/core/fields/walk.js'
 import { t } from '../../src/core/messages/index.js'
+import { defineCollection, defineSite, defineTemplate } from '../../src/core/registry/define.js'
+import { buildRegistry } from '../../src/core/registry/registry.js'
 
 const uuid = '6f1c2b1e-8a3d-4b7e-9c2a-1d2e3f4a5b6c'
 const uuid2 = '7f1c2b1e-8a3d-4b7e-9c2a-1d2e3f4a5b6d'
@@ -64,6 +70,74 @@ describe('select', () => {
     expect(ok(s, 'a')).toBe(true)
     expect(ok(s, 'c')).toBe(false)
     expect(fieldMeta(s)?.options).toEqual(['a', 'b'])
+  })
+})
+
+describe('multiSelect', () => {
+  const OPTIONS = ['hipaa', 'cmmc', 'soc2'] as const
+
+  /** A site with one collection whose `tags` is `field`. */
+  function tagged(field: z.ZodType) {
+    const Faq = defineTemplate({
+      name: 'faq',
+      label: 'FAQ',
+      fields: z.object({ title: f.text({ label: 'Title' }), tags: field }),
+    })
+    return buildRegistry(
+      defineSite({
+        locales: ['en'],
+        defaultLocale: 'en',
+        collections: [defineCollection({ name: 'faqs', label: 'FAQs', template: Faq })],
+      }),
+    )
+  }
+
+  it('saves values in the options\' order without duplicates', () => {
+    const field = f.multiSelect(OPTIONS, { label: 'Tags' })
+    const meta = fieldMeta(field)!
+    expect(meta).toMatchObject({ kind: 'multiSelect', options: OPTIONS, many: true, empty: [] })
+    const draft = toDraftSchema(field)
+    expect(draft.parse(['soc2', 'hipaa', 'soc2'])).toEqual(['hipaa', 'soc2'])
+    expect(draft.parse([])).toEqual([])
+    expect(field.parse(['cmmc', 'hipaa'])).toEqual(['hipaa', 'cmmc'])
+    expect(ok(draft, ['nope'])).toBe(false)
+    expect(ok(draft, 'hipaa')).toBe(false)
+  })
+
+  it('checks min and max only at publish', () => {
+    const field = f.multiSelect(OPTIONS, { label: 'Tags', min: 1, max: 2 })
+    const draft = toDraftSchema(field)
+    expect(ok(draft, [])).toBe(true)
+    expect(ok(draft, ['hipaa', 'cmmc', 'soc2'])).toBe(true)
+    // Duplicates are dropped before the values are counted.
+    expect(ok(field, ['hipaa', 'hipaa', 'cmmc', 'cmmc'])).toBe(true)
+
+    const registry = tagged(field)
+    const data = (tags: string[]) => ({ slug: 'a', fields: { title: 'A', tags }, slots: {} })
+    expect(validateContent(registry, 'faqs', data(['hipaa']), 'strict').ok).toBe(true)
+    expect(validateContent(registry, 'faqs', data([]), 'draft').ok).toBe(true)
+    expect(validateContent(registry, 'faqs', data(['hipaa', 'cmmc', 'soc2']), 'draft').ok).toBe(true)
+    const few = validateContent(registry, 'faqs', data([]), 'strict')
+    expect(few.ok).toBe(false)
+    if (!few.ok) expect(few.issues).toMatchObject([{ path: ['fields', 'tags'], code: 'too_few' }])
+    const many = validateContent(registry, 'faqs', data(['hipaa', 'cmmc', 'soc2']), 'strict')
+    expect(many.ok).toBe(false)
+    if (!many.ok) expect(many.issues).toMatchObject([{ path: ['fields', 'tags'], code: 'too_many' }])
+  })
+
+  it('describes itself to an assistant', () => {
+    const registry = tagged(f.multiSelect(OPTIONS, { label: 'Tags', min: 0, max: 3 }))
+    const agent = (agentTypeSchema(registry, 'faqs') as any).properties.fields.properties.tags
+    expect(agent).toEqual({
+      type: 'array',
+      items: { enum: ['hipaa', 'cmmc', 'soc2'] },
+      uniqueItems: true,
+      minItems: 0,
+      maxItems: 3,
+      title: 'Tags',
+    })
+    const stored = (storedTypeSchema(registry, 'faqs') as any).properties.fields.properties.tags
+    expect(stored).toMatchObject({ type: 'array', items: { enum: ['hipaa', 'cmmc', 'soc2'] }, title: 'Tags' })
   })
 })
 

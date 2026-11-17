@@ -3,7 +3,11 @@ import { content } from './content.js'
 
 const Home = defineTemplate({
   name: 'home',
-  fields: z.object({ title: f.text({ label: 'Title' }), picture: f.image({ label: 'Picture' }) }),
+  fields: z.object({
+    title: f.text({ label: 'Title' }),
+    picture: f.image({ label: 'Picture' }),
+    body: f.richText({ label: 'Body' }).optional(),
+  }),
 })
 
 export const site = defineSite({

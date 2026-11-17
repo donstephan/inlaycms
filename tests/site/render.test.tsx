@@ -1,9 +1,14 @@
-import { renderPage } from '../../src/adapters/site/render.js'
+import { renderPage, renderTemplateData } from '../../src/adapters/site/render.js'
 import type { Core } from '../../src/core/core.js'
 import { InlayError } from '../../src/core/errors.js'
 import { defineSingleton, defineSite, defineTemplate } from '../../src/core/registry/define.js'
 import type { Ctx, DocumentData, LiveDocument, LiveState } from '../../src/core/types.js'
 import { png } from '../fixtures/media.js'
+import { markdownToInlineText } from '../../src/core/richtext/inline.js'
+import type { RenderContext } from '../../src/core/registry/render.js'
+import type { RichTextDoc } from '../../src/core/richtext/schema.js'
+import { plainText } from '../../src/site.js'
+import type { Renderable } from '../../src/jsx/html.js'
 import { Page, webSite } from '../fixtures/web.js'
 import { makeCore } from '../helpers/core.js'
 
@@ -200,5 +205,112 @@ describe('renderPage: other templates', () => {
     })
     const { core } = await world(site)
     await expect(render(core, 'about')).rejects.toThrow('boom')
+  })
+})
+
+describe('inline text', () => {
+  const inlineDoc = (markdown: string): RichTextDoc => {
+    const r = markdownToInlineText(markdown)
+    if (!r.ok) throw new Error('bad markdown')
+    return r.doc
+  }
+  const twoParagraphs: RichTextDoc = {
+    type: 'doc',
+    content: [
+      { type: 'paragraph', content: [{ type: 'text', text: 'first' }] },
+      { type: 'paragraph', content: [{ type: 'text', text: 'second' }] },
+    ],
+  }
+
+  async function renderWith(
+    body: (ctx: RenderContext) => Renderable,
+    prepare?: (w: Awaited<ReturnType<typeof world>>) => Promise<void>,
+  ) {
+    const T = defineTemplate({ ...Page, render: (_props, ctx) => body(ctx) })
+    const site = defineSite({
+      ...webSite,
+      singletons: webSite.singletons.map((s) => (s.name === 'about' ? defineSingleton({ ...s, template: T }) : s)),
+    })
+    const w = await world(site)
+    await prepare?.(w)
+    return render(w.core, 'about')
+  }
+
+  it('renders inline text without a <p>', async () => {
+    const html = await renderWith((ctx) => <h1>{ctx.inline(inlineDoc('**Big** news'))}</h1>)
+    expect(html).toContain('<h1><strong>Big</strong> news</h1>')
+  })
+
+  it('resolves an internal link and escapes a plain string', async () => {
+    let target: string | undefined
+    const linked: RichTextDoc = {
+      type: 'doc',
+      content: [
+        {
+          type: 'paragraph',
+          content: [{ type: 'text', text: 'Blog', marks: [{ type: 'link', attrs: { document: '' } }] }],
+        },
+      ],
+    }
+    const html = await renderWith(
+      (ctx) => (
+        <p>
+          {ctx.inline(linked)}|{ctx.inline('<b>')}|{ctx.inline(null)}|{ctx.inline(undefined)}
+        </p>
+      ),
+      async ({ core, owner }) => {
+        target = (await core.findSingleton('blog'))!.groupId
+        const mark = (linked.content[0] as { content: Array<{ marks: Array<{ attrs: unknown }> }> }).content[0]!.marks[0]!
+        mark.attrs = { document: target }
+        await edit(core, owner, 'about', 'en', (d) => {
+          const body = structuredClone(linked)
+          ;(d.fields as Record<string, unknown>).body = body
+        })
+      },
+    )
+    expect(target).toBeDefined()
+    expect(html).toContain('<p><a href="/blog">Blog</a>|&lt;b&gt;||</p>')
+  })
+
+  it('renders only the first paragraph of a doc that holds more', async () => {
+    const html = await renderWith((ctx) => <h1>{ctx.inline(twoParagraphs)}</h1>)
+    expect(html).toContain('<h1>first</h1>')
+    expect(html).not.toContain('second')
+  })
+
+  it('renders inline text with its <p> through ctx.richText', async () => {
+    const html = await renderWith((ctx) => <div>{ctx.richText(inlineDoc('**Big** news'))}</div>)
+    expect(html).toContain('<div><p><strong>Big</strong> news</p></div>')
+  })
+
+  it('gives the plain text through plainText', () => {
+    expect(plainText(inlineDoc('**Big** news'))).toBe('Big news')
+    expect(plainText(null)).toBe('')
+  })
+})
+
+describe('publishedAt', () => {
+  const Dated = defineTemplate({ ...Page, render: ({ page }) => <p>[{String(page.publishedAt)}]</p> })
+  const datedSite = defineSite({
+    ...webSite,
+    singletons: webSite.singletons.map((s) => (s.name === 'about' ? defineSingleton({ ...s, template: Dated }) : s)),
+  })
+
+  it('gives the page its publishedAt', async () => {
+    const { core, db } = await world(datedSite)
+    const about = await core.findSingleton('about')
+    const row = await db.selectFrom('documents').select('first_published_at').where('id', '=', about!.id).executeTakeFirstOrThrow()
+    expect(row.first_published_at).not.toBeNull()
+    expect(await render(core, 'about')).toContain(`<p>[${row.first_published_at}]</p>`)
+  })
+
+  it("gives a route's template data page publishedAt null", async () => {
+    const { core } = await world()
+    const html = await renderTemplateData(core, Dated, { fields: { title: 'Feed' }, slots: {} }, {
+      locale: 'en',
+      path: '/feed',
+      baseUrl,
+    })
+    expect(html).toContain('<p>[null]</p>')
   })
 })

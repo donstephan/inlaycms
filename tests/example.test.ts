@@ -48,6 +48,14 @@ describe('example site', () => {
     expect(body).toMatch(/<img[^>]*srcset=/)
   })
 
+  it('serves a post written in a .md file, with its table and image', async () => {
+    const res = await get('/blog/tables-and-images')
+    expect(res.statusCode).toBe(200)
+    expect(res.body).toMatch(/<table><thead><tr><th>/)
+    expect(res.body).toMatch(/<img[^>]*srcset=/)
+    expect(res.body).toContain('alt="A blue and orange gradient"')
+  })
+
   it('renders the example 404 page', async () => {
     const res = await get('/nope')
     expect(res.statusCode).toBe(404)

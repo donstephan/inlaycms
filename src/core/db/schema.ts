@@ -16,6 +16,7 @@ export interface DocumentsTable {
   created_at: string;
   key: string | null;
   edition: number | null;
+  first_published_at: string | null;
 }
 
 export interface RevisionsTable {

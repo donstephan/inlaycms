@@ -3,7 +3,7 @@ import { existsSync } from 'node:fs'
 import { chmod, mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import type { Kysely } from 'kysely'
+import { sql, type Kysely } from 'kysely'
 import { Migrator } from 'kysely/migration'
 import { z } from 'zod'
 import { bootInlay } from '../../src/core/boot.js'
@@ -64,6 +64,12 @@ const teamSite = (photo: string): SiteDefinition =>
     ],
   })
 
+/** Takes the database back to before its newest system migration (0007), so a check has it pending. */
+async function dropLastMigration(db: Kysely<Database>): Promise<void> {
+  await sql`ALTER TABLE documents DROP COLUMN first_published_at`.execute(db)
+  await sql`DELETE FROM kysely_migration WHERE name = '0007_published_at'`.execute(db)
+}
+
 describe('checkDatabase', () => {
   let dir: string
   let path: string
@@ -79,8 +85,9 @@ describe('checkDatabase', () => {
 
   it('upgrades a snapshot and leaves the given file untouched', async () => {
     const db = openDatabase(path)
-    await new Migrator({ db, provider: { getMigrations: async () => ({ '0001_content': m0001 }) } }).migrateToLatest()
+    await migrateSystem(db)
     await createCore({ site, db }).applyShippedContent()
+    await dropLastMigration(db)
     await db.destroy()
 
     // A read-write connection removes its -wal and -shm files on close; a readonly one leaves them behind.
@@ -234,11 +241,10 @@ describe('checkDatabase', () => {
   it('lists pending system migrations', async () => {
     const db = openDatabase(path)
     await new Migrator({ db, provider: { getMigrations: async () => ({ '0001_content': m0001 }) } }).migrateToLatest()
-    await createCore({ site, db }).applyShippedContent()
     await db.destroy()
 
     const report = await checkDatabase({ site, db: path })
-    expect(report.systemMigrations).toEqual(['0002_media', '0003_redirects', '0004_token_cutoffs', '0005_site_lock', '0006_releases'])
+    expect(report.systemMigrations).toEqual(['0002_media', '0003_redirects', '0004_token_cutoffs', '0005_site_lock', '0006_releases', '0007_published_at'])
     expect(report.ok).toBe(true)
   })
 

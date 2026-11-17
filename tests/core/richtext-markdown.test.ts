@@ -1,5 +1,5 @@
 import { t } from '../../src/core/messages/index.js'
-import { markdownToRichText, richTextToMarkdown, type RichTextProblem } from '../../src/core/richtext/markdown.js'
+import { markdownImages, markdownToRichText, richTextToMarkdown, type RichTextProblem } from '../../src/core/richtext/markdown.js'
 import { DEFAULT_RICH_TEXT, parseRichText, richTextText, type RichTextDoc } from '../../src/core/richtext/schema.js'
 
 const uuid = '6f1c2b1e-8a3d-4b7e-9c2a-000000000001'
@@ -336,8 +336,8 @@ describe('markdownToRichText', () => {
     expect(html).toMatchObject([{ code: 'unsupported', line: 1 }])
     expect(html[0]?.message).toContain(t('richtext.feature.html'))
     expect(problems('Intro\n\n<div>x</div>')).toMatchObject([{ code: 'unsupported', line: 3 }])
-    const table = problems('| a | b |\n|---|---|\n| 1 | 2 |')
-    expect(table).toMatchObject([{ code: 'unsupported', line: 1 }])
+    const table = problems('| a | b |\n|---|---|\n| 1 | 2 |', { features: ['bold'] })
+    expect(table).toMatchObject([{ code: 'not_allowed', line: 1 }])
     expect(table[0]?.message).toContain(t('richtext.feature.table'))
     const strike = problems('~~gone~~')
     expect(strike).toMatchObject([{ code: 'unsupported', line: 1 }])
@@ -430,12 +430,169 @@ describe('markdownToRichText', () => {
     }
   })
 
+  it('lists image targets with their lines, not ones in code', () => {
+    expect(markdownImages('a `![a](./x.png)`\n\n![b](y.png)\n\n\\![c](z.png)')).toEqual([{ src: 'y.png', line: 3 }])
+    expect(markdownImages('![a](<images/my chart (1).png>)\nand\n![b](b.png) ![c](c.png)')).toEqual([
+      { src: 'images/my chart (1).png', line: 1 },
+      { src: 'b.png', line: 3 },
+      { src: 'c.png', line: 3 },
+    ])
+    expect(markdownImages('```\n![a](x.png)\n```\n\n    ![b](y.png)')).toEqual([])
+  })
+
+  it('reads an image target named in images as that library image', () => {
+    const images = new Map([['images/team.png', sha]])
+    expect(markdownToRichText('Hi\n\n![Team](images/team.png)', undefined, { images })).toEqual({
+      ok: true,
+      doc: doc(para(text('Hi')), para({ type: 'image', attrs: { media: sha, alt: 'Team' } })),
+    })
+    expect(problems('![x](other.png)')).toMatchObject([{ code: 'image_source', line: 1 }])
+    expect(markdownToRichText('![x](other.png)', undefined, { images })).toMatchObject({ ok: false, problems: [{ code: 'image_source', line: 1 }] })
+  })
+
   it.each(['**', '[', '![]()', '\\', '> ', '1.', '- ', '>', '[](<>)', '![', '*a **b* c**', '\u0000', '- # x', '- - x', '[a]:', '>'.repeat(200), '- '.repeat(100) + 'x'])(
     'never throws on %j',
     (s) => {
       expect(() => markdownToRichText(s)).not.toThrow()
     },
   )
+})
+
+describe('tables', () => {
+  const cell = (type: 'tableHeader' | 'tableCell', ...content: unknown[]) => ({
+    type,
+    content: [content.length > 0 ? para(...content) : { type: 'paragraph' }],
+  })
+  const th = (...content: unknown[]) => cell('tableHeader', ...content)
+  const td = (...content: unknown[]) => cell('tableCell', ...content)
+  const row = (...cells: unknown[]) => ({ type: 'tableRow', content: cells })
+  const tableOf = (...rows: unknown[]) => ({ type: 'table', content: rows })
+
+  it('round-trips a table with bold, italic and links in cells', () => {
+    const md = '| Plan | Price |\n| --- | --- |\n| **Pro** | [Buy](https://example.com/buy) |\n| *Lite* | free |\n'
+    const read = markdownToRichText(md)
+    expect(read).toEqual({
+      ok: true,
+      doc: doc(
+        tableOf(
+          row(th(text('Plan')), th(text('Price'))),
+          row(td(text('Pro', [bold])), td(text('Buy', [link('https://example.com/buy')]))),
+          row(td(text('Lite', [italic])), td(text('free'))),
+        ),
+      ),
+    })
+    if (!read.ok) return
+    expect(richTextToMarkdown(read.doc)).toBe(md)
+  })
+
+  it('round-trips a table between paragraphs', () => {
+    const md = 'Intro\n\n| a |\n| --- |\n| 1 |\n\nOutro'
+    const read = markdownToRichText(md)
+    expect(read.ok && richTextToMarkdown(read.doc)).toBe(md)
+  })
+
+  it('escapes a pipe and keeps backslashes in cells and in link URLs', () => {
+    const d = doc(
+      tableOf(
+        row(th(text('a | b \\ c')), th(text('q', [link('https://x.test/?q=a|b')]))),
+        row(td(text('x\\|y')), td(text('w', [link('https://x.test/a\\|b')]))),
+      ),
+    )
+    const markdown = richTextToMarkdown(d)
+    expect(markdown).toContain('| a \\| b \\\\ c |')
+    expect(markdown).toContain('(https://x.test/?q=a\\|b)')
+    expect(markdownToRichText(markdown), markdown).toEqual({ ok: true, doc: d })
+  })
+
+  it('keeps text with pipes and a line break a paragraph, not a table', () => {
+    for (const second of [':-- | --', '|---|---|', ':-:', '| - |']) {
+      expectRoundTrip(doc(para(text('a | b'), { type: 'hardBreak' }, text(second))))
+    }
+  })
+
+  it('pads short rows and trims long ones', () => {
+    expect(markdownToRichText('| a | b |\n| - | - |\n| 1 |\n| 1 | 2 | 3 |\n')).toEqual({
+      ok: true,
+      doc: doc(
+        tableOf(row(th(text('a')), th(text('b'))), row(td(text('1')), td()), row(td(text('1')), td(text('2')))),
+      ),
+    })
+  })
+
+  it('accepts and drops alignment markers', () => {
+    expect(markdownToRichText('| a |\n| :-: |\n| 1 |\n')).toEqual(markdownToRichText('| a |\n| --- |\n| 1 |\n'))
+    expect(markdownToRichText('| a |\n| :-: |\n| 1 |\n')).toEqual({
+      ok: true,
+      doc: doc(tableOf(row(th(text('a'))), row(td(text('1'))))),
+    })
+  })
+
+  it('round-trips a header-only table', () => {
+    const md = '| a | b |\n| --- | --- |\n'
+    const read = markdownToRichText(md)
+    expect(read).toEqual({ ok: true, doc: doc(tableOf(row(th(text('a')), th(text('b'))))) })
+    expect(read.ok && richTextToMarkdown(read.doc)).toBe(md)
+  })
+
+  it('round-trips random tables with pipes, backslashes and marks in cells and link URLs', () => {
+    let seed = 3
+    const random = () => {
+      seed = (seed * 1103515245 + 12345) % 2 ** 31
+      return seed / 2 ** 31
+    }
+    const pick = <T,>(list: readonly T[]): T => list[Math.floor(random() * list.length)]!
+    const texts = ['a', '|', '\\', '\\|', ':', '-', '---', '*', '_', '[', ']', '(', '<', '&amp;', '`', '#', '>', '1.', '!', 'x y', 'b |a| c', '||']
+    const markSets = [[], [], [bold], [italic], [link('/a|b\\|c')], [link('https://x.test/(a b)|c'), bold]]
+    let checked = 0
+    for (let n = 0; n < 1500; n++) {
+      const inline = () =>
+        Array.from({ length: Math.floor(random() * 4) }, () => text(pick(texts) + pick(texts), pick(markSets)))
+      const width = 1 + Math.floor(random() * 3)
+      const rows = Array.from({ length: 1 + Math.floor(random() * 3) }, () =>
+        row(...Array.from({ length: width }, () => td(...inline()))),
+      )
+      const parsed = parseRichText({ type: 'doc', content: [para(...inline()), tableOf(...rows)] }, DEFAULT_RICH_TEXT)
+      if (!parsed.ok) continue
+      checked++
+      expectRoundTrip(parsed.doc)
+    }
+    expect(checked).toBeGreaterThan(1000)
+  })
+
+  it('round-trips empty cells', () => {
+    expectRoundTrip(doc(tableOf(row(th(), th(text('b'))), row(td(), td()))))
+  })
+
+  it('refuses an image or a line break in a cell with the line', () => {
+    expect(problems(`| a |\n| --- |\n| ![x](inlay:media/${sha}) |\n`)).toEqual([
+      {
+        code: 'unsupported',
+        line: 3,
+        message: t('richtext.tableCell', { line: 3, feature: t('richtext.feature.image') }),
+      },
+    ])
+  })
+
+  it('refuses a table inside a list or a quote', () => {
+    const inList = problems('- item\n\n  | a |\n  | - |\n')
+    expect(inList).toEqual([{ code: 'unsupported', line: 3, message: t('richtext.tableNested', { line: 3 }) }])
+    expect(problems('> | a |\n> | - |\n')).toMatchObject([{ code: 'unsupported', line: 1 }])
+  })
+
+  it('refuses a table where the field leaves tables out', () => {
+    const found = problems('| a |\n| - |\n', { features: ['bold'] })
+    expect(found).toMatchObject([{ code: 'not_allowed', line: 1 }])
+    expect(found[0]?.message).toContain(t('richtext.feature.table'))
+  })
+
+  it('still refuses strikethrough and HTML in cells', () => {
+    const strike = problems('| a |\n| - |\n| ~~x~~ |\n')
+    expect(strike).toMatchObject([{ code: 'unsupported', line: 3 }])
+    expect(strike[0]?.message).toContain(t('richtext.feature.strike'))
+    const html = problems('| a |\n| - |\n| <b>x</b> |\n')
+    expect(html).toMatchObject([{ code: 'unsupported', line: 3 }])
+    expect(html[0]?.message).toContain(t('richtext.feature.html'))
+  })
 })
 
 describe('markdown fuzz', () => {

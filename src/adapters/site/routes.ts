@@ -6,6 +6,8 @@ import { t, type MessageId } from '../../core/messages/index.js'
 import type { TemplateDef } from '../../core/registry/define.js'
 import type { Registry } from '../../core/registry/registry.js'
 import type { RouteContext, RouteDef, RouteRequest, RouteResponse } from '../../core/registry/route.js'
+import { encodePath } from '../../core/site/paths.js'
+import { publicAssets, type PublicAssets } from './assets.js'
 import { queryApi } from './context.js'
 import { catalogPage, renderTemplateData } from './render.js'
 
@@ -18,6 +20,9 @@ export interface ReleaseRouteOptions {
   core: Core
   registry: Registry
   baseUrl: string
+  assets?: PublicAssets
+  /** The site is a staged release's forced preview: its renders stay noindex, with no canonical. */
+  preview?: boolean
   /** Host-supplied secret values; a route sees only the ones its site declares. */
   secrets: Readonly<Record<string, string>>
   log: FastifyBaseLogger
@@ -76,6 +81,7 @@ function send(reply: FastifyReply, res: RouteResponse): FastifyReply {
  */
 export function registerReleaseRoutes(app: FastifyInstance, opts: ReleaseRouteOptions): void {
   const { core, registry, baseUrl, log } = opts
+  const assets = opts.assets ?? publicAssets(null)
   const routes = registry.site.routes
   if (routes.length === 0) return
   const secrets: Record<string, string> = {}
@@ -131,17 +137,19 @@ export function registerReleaseRoutes(app: FastifyInstance, opts: ReleaseRouteOp
           locale,
         }
         const ctx: RouteContext = {
-          query: queryApi(core, { locale, baseUrl }),
+          query: queryApi(core, { locale, baseUrl, assets }),
           async render(template, data = {}, o = {}) {
             const read = templateRegistry(registry, template)
             const doc = readData(read, template.name, normalizeContent(read, template.name, data), { fill: true }).data
-            const html = await renderTemplateData(core, template, doc, { locale, path: route.path, baseUrl })
+            const canonical = route.sitemap === true && request.url.split('?')[0] === encodePath(route.path) ? route.path : null
+            const html = await renderTemplateData(core, template, doc, { locale, path: route.path, baseUrl, canonical, assets, preview: opts.preview === true })
             return { status: o.status ?? 200, headers: { 'content-type': HTML }, body: html }
           },
           fetch: (input, init) => globalThis.fetch(input, init),
           secrets,
           redirect: (location, status = 303) => ({ status, headers: { location } }),
           baseUrl,
+          asset: (path) => assets.url(path),
           locale,
         }
         return send(reply, await route.handler(req, ctx))

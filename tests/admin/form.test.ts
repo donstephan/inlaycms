@@ -207,6 +207,24 @@ describe('admin form engine', () => {
     expect((await roundTrip(data)).fields.more).toEqual({ url: 'javascript:alert(1)' })
   })
 
+  it('shows a character counter, and the hint past the suggested length', async () => {
+    const data = stored()
+    data.fields.seo = { title: 'x'.repeat(96), description: 'short' }
+    const doc = parseHtml(await render(data))
+    const titleInput = doc.querySelector('[name="fields.seo.title"]')!
+    const title = doc.querySelector(`[data-length-for="${titleInput.id}"]`)!
+    expect(title.querySelector('[data-length-count]')!.textContent).toContain('96 of 70')
+    expect(title.querySelector('[data-length-hint]')!.hasAttribute('hidden')).toBe(false)
+    expect(titleInput.getAttribute('aria-describedby')).toContain(title.id)
+    const descInput = doc.querySelector('[name="fields.seo.description"]')!
+    const desc = doc.querySelector(`[data-length-for="${descInput.id}"]`)!
+    expect(desc.querySelector('[data-length-count]')!.textContent).toContain('5 of 160')
+    expect(desc.querySelector('[data-length-hint]')!.hasAttribute('hidden')).toBe(true)
+    expect(descInput.getAttribute('aria-describedby')).toContain(desc.id)
+    const plain = doc.querySelector('[name="fields.title"]')!
+    expect(doc.querySelector(`[data-length-for="${plain.id}"]`)).toBeNull()
+  })
+
   it('puts settings and SEO in their own collapsed areas', async () => {
     const doc = parseHtml(await render(stored()))
     const tone = doc.querySelector('select[name="fields.tone"]')!

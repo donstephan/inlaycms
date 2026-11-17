@@ -55,6 +55,13 @@ export const routesSite = defineSite({
       path: '/api/latest',
       handler: async (_request, ctx) => ({ json: (await ctx.query.query('posts', { limit: 1 })).items.map((p) => p.slug) }),
     }),
+    defineRoute({ method: 'GET', path: '/asset', handler: (_request, ctx) => ({ json: { css: ctx.asset('site.css') } }) }),
+    defineRoute({
+      method: 'GET',
+      path: '/calculator',
+      sitemap: true,
+      handler: (_request, ctx) => ctx.render(ThankYou, { fields: { title: 'Calculator' } }),
+    }),
     defineRoute({ method: 'GET', path: '/go', handler: (_request, ctx) => ctx.redirect('/') }),
     defineRoute({ method: 'GET', path: '/empty', handler: () => ({}) }),
     defineRoute({

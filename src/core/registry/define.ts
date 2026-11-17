@@ -45,6 +45,8 @@ export interface TemplateRenderProps<F extends z.ZodObject, S extends Slots> {
   page: PageInfo
 }
 
+export type OgType = 'website' | 'article'
+
 export interface TemplateDef<F extends z.ZodObject = z.ZodObject, S extends Slots = Slots> {
   kind: 'template'
   name: string
@@ -52,6 +54,8 @@ export interface TemplateDef<F extends z.ZodObject = z.ZodObject, S extends Slot
   fields: F
   /** Slot order is key order. */
   slots: S
+  /** The page's Open Graph type (default `website`). */
+  ogType?: OgType
   render?(props: TemplateRenderProps<F, S>, ctx: RenderContext): Renderable
 }
 
@@ -60,6 +64,7 @@ export interface TemplateInput<F extends z.ZodObject, S extends Slots> {
   label?: string
   fields: F
   slots?: S
+  ogType?: OgType
   render?: (props: TemplateRenderProps<F, S>, ctx: RenderContext) => Renderable
 }
 
@@ -154,6 +159,15 @@ export interface RedirectDef {
   status?: 301 | 302
 }
 
+/** Search and sharing defaults shipped in the site's code; a global's `f.seoDefaults()` values win over them. */
+export interface SeoSettings {
+  /** Contains `%s` exactly once, where a page's title goes, such as `%s | My Site`. */
+  titleTemplate?: string
+  description?: string
+  /** A path under `/public/`, such as `/public/share.png`. */
+  image?: string
+}
+
 export interface SiteDefinition {
   locales: string[]
   defaultLocale: string
@@ -166,6 +180,8 @@ export interface SiteDefinition {
   content: ShippedContent[]
   guide?: string
   admin: AdminSettings
+  /** Search and sharing defaults. */
+  seo: SeoSettings
   /** A singleton with `path: null`, rendered with status 404 when no page matches. */
   notFound: string | null
   /** Exact paths that answer without the site password, such as a health check. */
@@ -193,6 +209,7 @@ export interface SiteInput {
   content?: ShippedContent[]
   guide?: string
   admin?: AdminSettings
+  seo?: SeoSettings
   notFound?: string | null
   publicPaths?: string[]
   secrets?: string[]
@@ -211,6 +228,7 @@ export function defineSite(def: SiteInput): SiteDefinition {
     translationFallback: def.translationFallback ?? true,
     content: def.content ?? [],
     admin: def.admin ?? {},
+    seo: def.seo ?? {},
     notFound: def.notFound ?? null,
     publicPaths: def.publicPaths ?? [],
     secrets: def.secrets ?? [],

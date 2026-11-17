@@ -29,7 +29,9 @@ export {
   type SingletonDef,
   type SingletonPath,
   type SiteDefinition,
+  type OgType,
   type RedirectDef,
+  type SeoSettings,
   type SiteInput,
   type SlotDef,
   type TemplateDef,
@@ -53,6 +55,9 @@ export {
 } from './core/registry/migration.js'
 export type {
   Entry,
+  HeadApi,
+  HeadLink,
+  HeadMeta,
   PageInfo,
   QueryOptions,
   QueryResult,

@@ -1,5 +1,5 @@
 import type { z } from 'zod'
-import { DATE_CHECK, DATETIME_CHECK, NON_BLANK } from '../fields/builtins.js'
+import { DATE_CHECK, DATETIME_CHECK, NON_BLANK, TITLE_TEMPLATE_CHECK } from '../fields/builtins.js'
 import { isRecord } from '../fields/zod-internals.js'
 import { t, type MessageId } from '../messages/index.js'
 import type { Registry } from '../registry/registry.js'
@@ -89,6 +89,9 @@ function mapIssue(issue: ZodIssue, value: unknown): Mapped {
   }
   if (issue.code === 'custom' && issue.params?.check === DATETIME_CHECK) {
     return { code: 'invalid', messageId: 'issue.datetime', params: {} }
+  }
+  if (issue.code === 'custom' && issue.params?.check === TITLE_TEMPLATE_CHECK) {
+    return { code: 'invalid', messageId: 'issue.titleTemplate', params: {} }
   }
   if (issue.code === 'invalid_type') {
     const messageId = EXPECTED[issue.expected]

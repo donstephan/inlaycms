@@ -127,11 +127,13 @@ describe('head tags', () => {
   it('injects before the first </head>, case-insensitively', () => {
     const head = buildHead({
       title: 'T',
-      seo: null,
+      description: null,
+      image: null,
+      ogType: 'website',
+      article: null,
       canonical: '/',
       alternates: [],
       defaultLocale: 'en',
-      image: null,
       baseUrl,
       preview: false,
     })
@@ -162,7 +164,13 @@ describe('sitemap', () => {
       { locale: 'en', path: '/' },
       { locale: 'es', path: '/es' },
     ])
-    expect(home.updatedAt.slice(0, 10)).toBe('2026-01-01')
+    expect(home.updatedAt?.slice(0, 10)).toBe('2026-01-01')
+  })
+
+  it('leaves out lastmod for an entry without updatedAt', () => {
+    const xml = renderSitemap([{ path: '/calc', alternates: [] }], 'https://example.com')
+    expect(xml).toContain('<url><loc>https://example.com/calc</loc></url>')
+    expect(xml).not.toContain('lastmod')
   })
 
   it('renders escaped XML', () => {

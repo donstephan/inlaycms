@@ -35,12 +35,16 @@ export interface RouteContext {
   secrets: Readonly<Record<string, string>>
   redirect(location: string, status?: 302 | 303): RouteResponse
   baseUrl: string
+  /** The `/public/` URL for a file of the site's `public/` folder, with `?v=<hash>` when the file exists. Never throws. */
+  asset(path: string): string
   locale: string
 }
 
 export interface RouteDef {
   method: RouteMethod
   path: string
+  /** List this GET route in the sitemap; its rendered pages get a canonical link and can be indexed. */
+  sitemap?: true
   handler: (request: RouteRequest, ctx: RouteContext) => Promise<RouteResponse> | RouteResponse
 }
 

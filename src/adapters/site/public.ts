@@ -1,7 +1,8 @@
 import { createHash } from 'node:crypto'
 import { lstat, readFile, realpath } from 'node:fs/promises'
-import { extname, resolve, sep } from 'node:path'
+import { extname, sep } from 'node:path'
 import type { FastifyInstance } from 'fastify'
+import { ASSET_VERSION_LENGTH, locate } from './assets.js'
 import { etagMatches } from './cache.js'
 import { catalogPage } from './render.js'
 
@@ -28,25 +29,6 @@ const TYPES: Record<string, string> = {
   '.map': 'application/json; charset=utf-8',
 }
 
-const ENCODED = /%2e|%2f|%5c/i
-
-/** The absolute path under `dir` that the raw wildcard names, or null when it is empty, tricky or outside `dir`. */
-function locate(dir: string, rawPath: string): string | null {
-  if (rawPath === '' || ENCODED.test(rawPath) || rawPath.includes('\\')) return null
-  let decoded: string
-  try {
-    decoded = decodeURIComponent(rawPath)
-  } catch {
-    return null
-  }
-  if (decoded.includes('\\') || decoded.includes('\0')) return null
-  const segments = decoded.split('/')
-  if (segments.some((s) => s === '' || s.startsWith('.'))) return null
-  const root = resolve(dir)
-  const file = resolve(root, ...segments)
-  return file.startsWith(root + sep) ? file : null
-}
-
 /** Serves the files under `opts.dir` at `/public/*`, GET and HEAD, never anything outside it. */
 export function registerPublicRoutes(app: FastifyInstance, opts: { dir: string; maxAge: number }): void {
   app.route({
@@ -70,8 +52,12 @@ export function registerPublicRoutes(app: FastifyInstance, opts: { dir: string; 
       } catch {
         return missing()
       }
-      const etag = `"${createHash('sha256').update(bytes).digest('hex').slice(0, 32)}"`
-      reply.header('cache-control', `public, max-age=${opts.maxAge}`).header('etag', etag)
+      const hex = createHash('sha256').update(bytes).digest('hex')
+      const etag = `"${hex.slice(0, 32)}"`
+      const version = new URLSearchParams(q === -1 ? '' : rawUrl.slice(q + 1)).get('v')
+      const cacheControl =
+        version === hex.slice(0, ASSET_VERSION_LENGTH) ? 'public, max-age=31536000, immutable' : `public, max-age=${opts.maxAge}`
+      reply.header('cache-control', cacheControl).header('etag', etag)
       if (etagMatches(request.headers['if-none-match'], etag)) return reply.code(304).send()
       const ext = extname(file).toLowerCase()
       reply.type(TYPES[ext] ?? 'application/octet-stream').header('x-content-type-options', 'nosniff')

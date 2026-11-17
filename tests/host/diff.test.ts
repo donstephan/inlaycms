@@ -63,7 +63,7 @@ describe('structuralDiff', () => {
       slots: { added: [], removed: [], optional: [], required: [] },
       locales: { added: [], removed: [] },
       fields: [],
-      routes: { added: [], removed: [] },
+      routes: { added: [], removed: [], sitemap: { added: [], removed: [] } },
       redirects: { added: [], removed: [], changed: [] },
       secrets: [],
       migrations: [],
@@ -266,6 +266,22 @@ describe('structuralDiff', () => {
     ])
   })
 
+  it('reports routes newly listed in, or dropped from, the sitemap', () => {
+    const plain = manifest({ routes: [{ method: 'GET', path: '/calc' }] })
+    const listed = manifest({
+      routes: [{ method: 'GET', path: '/calc', sitemap: true }, { method: 'GET', path: '/tool', sitemap: true }],
+    })
+    const on = structuralDiff(plain, listed)
+    expect(on.routes.sitemap).toEqual({
+      added: [{ method: 'GET', path: '/calc', sitemap: true }, { method: 'GET', path: '/tool', sitemap: true }],
+      removed: [],
+    })
+    expect(formatDiff({ structural: on, content: null })).toContain(t('diff.release.routeSitemapAdded', { path: '/calc' }))
+    const off = structuralDiff(listed, plain)
+    expect(off.routes.sitemap).toEqual({ added: [], removed: [{ method: 'GET', path: '/calc' }] })
+    expect(formatDiff({ structural: off, content: null })).toContain(t('diff.release.routeSitemapRemoved', { path: '/calc' }))
+  })
+
   it('routes added and removed, and the secrets and migrations of the staged release', () => {
     const current = manifest({
       routes: [{ method: 'GET', path: '/ping' }, { method: 'POST', path: '/contact' }],
@@ -278,7 +294,9 @@ describe('structuralDiff', () => {
       migrations: ['team-to-people'],
     })
     const diff = structuralDiff(current, staged)
-    expect(diff.routes).toEqual({ added: [{ method: 'GET', path: '/contact' }], removed: [{ method: 'POST', path: '/contact' }] })
+    expect(diff.routes).toEqual({ added: [{ method: 'GET', path: '/contact' }], removed: [{ method: 'POST', path: '/contact' }],
+      sitemap: { added: [], removed: [] },
+    })
     expect(diff.secrets).toEqual(['HOOK', 'OLD'])
     expect(diff.migrations).toEqual(['team-to-people'])
   })
@@ -348,7 +366,7 @@ describe('structuralDiff', () => {
       slots: { added: [], removed: [], optional: [], required: [] },
       locales: { added: ['en', 'fr'], removed: [] },
       fields: [],
-      routes: { added: [{ method: 'GET', path: '/ping' }], removed: [] },
+      routes: { added: [{ method: 'GET', path: '/ping' }], removed: [], sitemap: { added: [], removed: [] } },
       redirects: { added: [{ from: '/x', to: '/y', status: 301 }], removed: [], changed: [] },
       secrets: ['HOOK'],
       migrations: ['first'],

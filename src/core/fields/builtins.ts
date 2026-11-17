@@ -59,6 +59,7 @@ function isRealDate(s: string): boolean {
 
 interface TextOptions extends BaseOptions {
   maxLength?: number
+  suggestedLength?: number
 }
 
 /** Marks the issue from text and textarea's non-blank check (in `params.check`). */
@@ -67,13 +68,27 @@ export const NON_BLANK = 'nonBlank'
 export const DATE_CHECK = 'date'
 export const DATETIME_CHECK = 'datetime'
 
-function stringField(kind: 'text' | 'textarea', o: TextOptions) {
+/** The `check` param of the refinement that makes a title template need exactly one `%s`. */
+export const TITLE_TEMPLATE_CHECK = 'titleTemplate'
+
+/** Whether `s` has `%s` exactly once. */
+export function isTitleTemplate(s: string): boolean {
+  return s.split('%s').length === 2
+}
+
+function stringField(
+  kind: 'text' | 'textarea',
+  o: TextOptions,
+  also?: { test: (s: string) => boolean; check: string },
+) {
   let draft = z.string()
   if (o.maxLength !== undefined) draft = draft.max(o.maxLength)
+  if (also) draft = draft.refine(also.test, { params: { check: also.check } })
   const strict = draft.refine((s) => s.trim().length > 0, { params: { check: NON_BLANK } })
   return defineField(strict, {
     kind,
     ...base(o),
+    ...(o.suggestedLength !== undefined && { suggestedLength: o.suggestedLength }),
     draft,
     admin: kind === 'text' ? textWidget : textareaWidget,
     empty: '',
@@ -386,11 +401,28 @@ export const f = {
   seo(o: { label?: string } = {}) {
     return f.group(
       {
-        title: f.text({ label: t('label.seo.title'), maxLength: 70 }).optional(),
-        description: f.textarea({ label: t('label.seo.description'), maxLength: 160 }).optional(),
+        title: f.text({ label: t('label.seo.title'), suggestedLength: 70, maxLength: 300 }).optional(),
+        description: f.textarea({ label: t('label.seo.description'), suggestedLength: 160, maxLength: 500 }).optional(),
         image: f.image({ label: t('label.seo.image') }).optional(),
       },
       { label: o.label ?? t('label.seo'), seo: true },
+    )
+  },
+
+  seoDefaults(o: { label?: string } = {}) {
+    return defineField(
+      z.object({
+        titleTemplate: stringField(
+          'text',
+          { label: t('label.seoDefaults.titleTemplate'), help: t('label.seoDefaults.titleTemplateHelp'), maxLength: 100 },
+          { test: isTitleTemplate, check: TITLE_TEMPLATE_CHECK },
+        ).optional(),
+        description: f
+          .textarea({ label: t('label.seoDefaults.description'), suggestedLength: 160, maxLength: 500 })
+          .optional(),
+        image: f.image({ label: t('label.seoDefaults.image') }).optional(),
+      }),
+      { kind: 'group', label: o.label ?? t('label.seoDefaults'), seoDefaults: true },
     )
   },
 }

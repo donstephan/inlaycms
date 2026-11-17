@@ -2,7 +2,7 @@ import { t } from '../core/messages/index.js'
 import { canonicalJson, type ManifestRedirect, type ReleaseManifest } from '../core/release/manifest.js'
 import type { ReleaseDiff } from './push.js'
 
-type Route = { method: string; path: string }
+type Route = { method: string; path: string; sitemap?: true }
 type FieldChange = 'added' | 'removed' | 'type' | 'required' | 'optional'
 type Slot = { type: string; slot: string }
 
@@ -21,7 +21,11 @@ export interface StructuralDiff {
    * for a list's items (`fields.links[].url`).
    */
   fields: Array<{ type: string; path: string; change: FieldChange }>
-  routes: { added: Route[]; removed: Route[] }
+  /**
+   * `sitemap.added`: the staged release's sitemap routes that the current release doesn't list, new routes included.
+   * `sitemap.removed`: routes both releases have that the current release lists and the staged one doesn't.
+   */
+  routes: { added: Route[]; removed: Route[]; sitemap: { added: Route[]; removed: Route[] } }
   /** Code redirects by `from`; `changed` holds those whose target or status differs. Absent from a host before 0.3. */
   redirects?: { added: ManifestRedirect[]; removed: ManifestRedirect[]; changed: Array<{ before: ManifestRedirect; after: ManifestRedirect }> }
   /** Every secret the staged release needs. */
@@ -289,6 +293,7 @@ export function structuralDiff(current: ReleaseManifest | null, staged: ReleaseM
   }
   for (const [from, before] of curRedirects) if (!stagedRedirects.has(from)) redirects.removed.push(before)
 
+  const listed = new Set((current?.routes ?? []).filter((r) => r.sitemap === true).map(routeKey))
   return {
     types: { added: added(curNames, stagedNames), removed: added(stagedNames, curNames), changed },
     slots,
@@ -297,6 +302,10 @@ export function structuralDiff(current: ReleaseManifest | null, staged: ReleaseM
     routes: {
       added: added(current?.routes ?? [], staged.routes, routeKey),
       removed: added(staged.routes, current?.routes ?? [], routeKey),
+      sitemap: {
+        added: staged.routes.filter((r) => r.sitemap === true && !listed.has(routeKey(r))),
+        removed: staged.routes.filter((r) => r.sitemap !== true && listed.has(routeKey(r))),
+      },
     },
     redirects,
     secrets: [...staged.secrets],
@@ -375,8 +384,10 @@ export function formatDiff(diff: ReleaseDiff): string[] {
   for (const d of stale.values()) lines.push(t('diff.release.stale', d))
 
   for (const name of s.migrations) lines.push(t('diff.release.migration', { name }))
-  for (const r of s.routes.added) lines.push(t('diff.release.routeAdded', r))
-  for (const r of s.routes.removed) lines.push(t('diff.release.routeRemoved', r))
+  for (const r of s.routes.added) lines.push(t('diff.release.routeAdded', { method: r.method, path: r.path }))
+  for (const r of s.routes.removed) lines.push(t('diff.release.routeRemoved', { method: r.method, path: r.path }))
+  for (const r of s.routes.sitemap?.added ?? []) lines.push(t('diff.release.routeSitemapAdded', { path: r.path }))
+  for (const r of s.routes.sitemap?.removed ?? []) lines.push(t('diff.release.routeSitemapRemoved', { path: r.path }))
   for (const r of s.redirects?.added ?? []) lines.push(t('diff.release.redirectAdded', { from: r.from, to: r.to, status: r.status }))
   for (const r of s.redirects?.removed ?? []) lines.push(t('diff.release.redirectRemoved', { from: r.from, to: r.to }))
   for (const { after } of s.redirects?.changed ?? []) {

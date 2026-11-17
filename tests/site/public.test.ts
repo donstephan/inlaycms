@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto'
 import { mkdir, mkdtemp, rm, symlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -41,6 +42,19 @@ describe('/public/*', () => {
     expect(res.headers['cache-control']).toBe('public, max-age=3600')
     expect(res.headers.etag).toMatch(/^"[0-9a-f]{32}"$/)
     expect((await app.inject('/public/sub/a.js')).headers['content-type']).toContain('text/javascript')
+  })
+
+  it('answers a matching ?v immutable for a year, and a stale or missing one with the normal max-age', async () => {
+    const { app } = await setup()
+    const v = createHash('sha256').update('body{color:red}').digest('hex').slice(0, 12)
+    const right = await app.inject(`/public/site.css?v=${v}`)
+    expect(right.headers['cache-control']).toBe('public, max-age=31536000, immutable')
+    const stale = await app.inject('/public/site.css?v=000000000000')
+    const none = await app.inject('/public/site.css')
+    expect(stale.headers['cache-control']).toBe('public, max-age=3600')
+    expect(none.headers['cache-control']).toBe('public, max-age=3600')
+    expect(stale.headers.etag).toBe(right.headers.etag)
+    expect(none.headers.etag).toBe(right.headers.etag)
   })
 
   it("in a forced preview (a staged release's), is never stored or revalidated", async () => {

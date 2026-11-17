@@ -1,3 +1,6 @@
+import { mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import Fastify, { type FastifyInstance } from 'fastify'
 import { afterEach, vi } from 'vitest'
 import { inlay, type InlayOptions } from '../../src/adapters/site/plugin.js'
@@ -32,6 +35,40 @@ function stubFetch() {
 }
 
 describe('release routes', () => {
+  it('lists a sitemap route without lastmod, and renders it with a canonical and no noindex', async () => {
+    const { app } = await setup()
+    const xml = (await app.inject('/sitemap.xml')).body
+    expect(xml).toContain('<url><loc>https://example.com/calculator</loc></url>')
+    for (const url of ['/calculator', '/calculator?x=1']) {
+      const html = (await app.inject(url)).body
+      expect(html).toContain('<link rel="canonical" href="https://example.com/calculator">')
+      expect(html).toContain('og:url')
+      expect(html).not.toContain('noindex')
+    }
+  })
+
+  it('keeps noindex on a sitemap route under a forced preview', async () => {
+    const { app } = await setup({ preview: 'forced' })
+    const html = (await app.inject('/calculator')).body
+    expect(html).toContain('noindex')
+  })
+
+  it('still gives other route renders noindex and no canonical', async () => {
+    const { app } = await setup()
+    const html = (await app.inject('/gone')).body
+    expect(html).toContain('<meta name="robots" content="noindex">')
+    expect(html).not.toContain('rel="canonical"')
+  })
+
+  it('a route can version a /public file with ctx.asset', async () => {
+    const publicDir = await mkdtemp(join(tmpdir(), 'inlay-routes-public-'))
+    await writeFile(join(publicDir, 'site.css'), 'body{color:red}')
+    const { app } = await setup({ publicDir })
+    const res = await app.inject('/asset')
+    expect((res.json() as { css: string }).css).toMatch(/^\/public\/site\.css\?v=[0-9a-f]{12}$/)
+    await rm(publicDir, { recursive: true, force: true })
+  })
+
   it('a form POST gets parsed fields and renders a template', async () => {
     const fetch = stubFetch()
     const { app } = await setup({ secrets: { HOOK_TOKEN: 'tok' } })

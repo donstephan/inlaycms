@@ -468,7 +468,7 @@ describe('formatDiff', () => {
           { type: 'home', path: 'fields.summary', change: 'required' },
           { type: 'home', path: 'slots.hero.headline', change: 'type' },
         ],
-        routes: { added: [{ method: 'POST', path: '/contact' }], removed: [{ method: 'GET', path: '/ping' }] },
+        routes: { added: [{ method: 'POST', path: '/contact' }], removed: [{ method: 'GET', path: '/ping' }], sitemap: { added: [], removed: [] } },
         secrets: ['HOOK', 'MAIL'],
         migrations: ['split-names'],
         shipped: { stale: [{ type: 'home', key: 'home', locale: 'en', edition: 2 }, { type: 'home', key: 'home', locale: 'fr', edition: 2 }] },

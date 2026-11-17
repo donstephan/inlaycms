@@ -333,6 +333,13 @@ describe('agentTypeSchema', () => {
     expect(schema.properties.fields.properties.title.title).toBe('Title')
   })
 
+  it('reports a suggested length apart from maxLength', () => {
+    const title = schema.properties.fields.properties.seo.properties.title
+    expect(title.maxLength).toBe(300)
+    expect(title['x-suggestedLength']).toBe(70)
+    expect(title.description).toContain(t('agent.suggestedLength', { n: 70 }))
+  })
+
   it('marks settings', () => {
     expect(hero.variant.enum).toEqual(['light', 'dark'])
     expect(hero.variant['x-setting']).toBe(true)

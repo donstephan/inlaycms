@@ -26,6 +26,7 @@ import { fetchRemoteFile } from '../mcp/fetch-url.js'
 import { registerMcpRoute } from '../mcp/route.js'
 import { createInlayMcpHandler } from '../mcp/server.js'
 import { sendWebResponse, toWebRequest } from '../web.js'
+import { publicAssets, type PublicAssets } from './assets.js'
 import { cacheControl, etagMatches, PageCache, response, type CachedResponse, type CdnOptions } from './cache.js'
 import { createRenderContext } from './context.js'
 import { registerSiteHeaders, siteHeaders } from './headers.js'
@@ -190,7 +191,7 @@ function createApi(
   core: Core,
   cache: PageCache | undefined,
   service: AuthService,
-  opts: { baseUrl: string; secret: string; now: () => Date; host: HostApi | null },
+  opts: { baseUrl: string; secret: string; now: () => Date; host: HostApi | null; assets: PublicAssets },
 ): InlayApi {
   const { baseUrl } = opts
   const context = (locale: string | undefined) =>
@@ -200,6 +201,7 @@ function createApi(
       page: 1,
       baseUrl,
       alternates: [],
+      assets: opts.assets,
     })
 
   const api: Omit<InlayApi, typeof AUTH> = {
@@ -247,17 +249,18 @@ function registerSiteRoutes(
     preview?: 'forced'
     /** The name of the release a forced preview shows. */
     release?: string
+    assets: PublicAssets
   },
 ): void {
   const { registry } = core
   const { notFound } = registry.site
-  const { baseUrl, cdn } = opts
+  const { baseUrl, cdn, assets } = opts
   const banner = opts.release === undefined ? {} : { release: opts.release }
 
   async function notFoundPage(locale: string, state: LiveState): Promise<string> {
     if (notFound !== null) {
       const doc = await core.liveSingleton(notFound, locale, { state })
-      if (doc) return renderPage(core, doc, { state, page: 1, baseUrl, ...banner })
+      if (doc) return renderPage(core, doc, { state, page: 1, baseUrl, assets, ...banner })
     }
     return catalogPage('site.notFound.title', 'site.notFound')
   }
@@ -343,7 +346,7 @@ function registerSiteRoutes(
         }
       }
       if (match.kind === 'page') {
-        const html = await renderPage(core, match.document, { state, page: pageNumber, baseUrl, ...banner })
+        const html = await renderPage(core, match.document, { state, page: pageNumber, baseUrl, assets, ...banner })
         if (preview) return sendPreview(reply, 200, html)
         const res = response(200, html, HTML)
         if (cache && key !== null) {
@@ -518,6 +521,7 @@ const plugin: FastifyPluginAsync<InlayOptions> = async (app, opts) => {
     await db.destroy()
   })
 
+  const siteAssets = publicAssets(opts.publicDir ?? null)
   const cache = opts.cache === false ? undefined : new PageCache(opts.cache?.maxEntries ?? 500)
   if (cache) {
     const stop = core.onLiveChange(() => cache.clear())
@@ -526,7 +530,7 @@ const plugin: FastifyPluginAsync<InlayOptions> = async (app, opts) => {
 
   if (baseUrl.startsWith('https:') && !app.initialConfig.https) warnWithoutTrustProxy(app, baseUrl)
 
-  app.decorate('inlay', createApi(core, cache, auth, { baseUrl, secret, now, host: opts.host ?? null }))
+  app.decorate('inlay', createApi(core, cache, auth, { baseUrl, secret, now, host: opts.host ?? null, assets: siteAssets }))
   registerAuthHandler(app, { service: auth, baseUrl })
   if (opts.readOnly) refuseWrites(app)
   if (opts.preview === 'forced') neverStore(app)
@@ -572,12 +576,13 @@ const plugin: FastifyPluginAsync<InlayOptions> = async (app, opts) => {
   })
   registerMediaRoutes(app, core)
   if (opts.publicDir !== undefined) registerPublicRoutes(app, { dir: opts.publicDir, maxAge: opts.publicMaxAge ?? 3600 })
-  registerReleaseRoutes(app, { core, registry, baseUrl, secrets: opts.secrets ?? {}, log: app.log })
+  registerReleaseRoutes(app, { core, registry, baseUrl, assets: siteAssets, secrets: opts.secrets ?? {}, log: app.log, preview: opts.preview === 'forced' })
   registerPreviewRoutes(app, { secret, baseUrl, now })
   registerSiteRoutes(app, core, cache, {
     baseUrl,
     secret,
     now,
+    assets: siteAssets,
     ...(opts.cdn && { cdn: opts.cdn }),
     ...(opts.noSite && { noSite: opts.noSite }),
     ...(opts.preview && { preview: opts.preview }),

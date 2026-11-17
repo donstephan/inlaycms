@@ -14,6 +14,8 @@ import { fingerprint, generateKeyPair, sign } from '../../src/core/release/keys.
 import { manifestOfRegistry, manifestSchema, satisfies, type ReleaseManifest } from '../../src/core/release/manifest.js'
 import { packRelease } from '../../src/core/release/pack.js'
 import { INLAY_ENTRIES, loadRelease, openRelease, readRelease } from '../../src/core/release/read.js'
+import { defineSite } from '../../src/core/registry/define.js'
+import { defineRoute } from '../../src/core/registry/route.js'
 import { buildRegistry } from '../../src/core/registry/registry.js'
 import { inlayVersion } from '../../src/core/version.js'
 import { loadConfig } from '../../src/config.js'
@@ -128,6 +130,22 @@ describe('packRelease', () => {
     const { config } = await loadConfig(join(siteDir, 'inlay.config.ts'))
     const now = new Date(manifest.createdAt)
     expect(manifestOfRegistry(buildRegistry(config.site), { name: 'test-1', now })).toEqual({ ...manifest, files: {}, content: [] })
+  })
+
+  it('marks sitemap routes in the manifest', () => {
+    const site = defineSite({
+      locales: ['en'],
+      defaultLocale: 'en',
+      routes: [
+        defineRoute({ method: 'GET', path: '/calc', sitemap: true, handler: () => ({}) }),
+        defineRoute({ method: 'POST', path: '/contact', handler: () => ({}) }),
+      ],
+    })
+    const manifest = manifestOfRegistry(buildRegistry(site), { name: 'x', now: new Date(Date.UTC(2026, 10, 4)) })
+    expect(manifest.routes).toEqual([{ method: 'GET', path: '/calc', sitemap: true }, { method: 'POST', path: '/contact' }])
+    expect(manifest.routes[1]).not.toHaveProperty('sitemap')
+    expect(manifestSchema.parse(manifest).routes).toEqual(manifest.routes)
+    expect(manifestSchema.safeParse({ ...manifest, routes: [{ method: 'GET', path: '/calc', sitemap: false }] }).success).toBe(false)
   })
 
   it('site.js imports only the allow-list', async () => {

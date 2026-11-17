@@ -32,7 +32,7 @@ export interface ReleaseManifest {
   shipped: Array<{ type: string; key: string; edition: number; locales: Record<string, string> }>
   /** Names of the site's migration functions, in order. */
   migrations: string[]
-  routes: Array<{ method: string; path: string }>
+  routes: Array<{ method: string; path: string; sitemap?: true }>
   /** The site's code redirects in stored form; absent in manifests made before 0.3, which means none. */
   redirects?: ManifestRedirect[]
   locales: string[]
@@ -60,7 +60,7 @@ export const manifestSchema = z.strictObject({
     }),
   ),
   migrations: z.array(z.string()),
-  routes: z.array(z.strictObject({ method: z.string(), path: z.string() })),
+  routes: z.array(z.strictObject({ method: z.string(), path: z.string(), sitemap: z.literal(true).optional() })),
   redirects: z
     .array(z.strictObject({ from: z.string(), to: z.string(), status: z.union([z.literal(301), z.literal(302)]) }))
     .optional(),
@@ -177,7 +177,7 @@ export function manifestOfRegistry(
       })),
     ),
     migrations: site.migrations.map((m) => m.name),
-    routes: site.routes.map(({ method, path }) => ({ method, path })),
+    routes: site.routes.map((r) => ({ method: r.method, path: r.path, ...(r.sitemap === true && { sitemap: true as const }) })),
     redirects: registry.redirects.map(({ from, to, status }) => ({ from, to, status })),
     locales: [...registry.locales],
     types: Object.fromEntries(

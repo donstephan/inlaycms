@@ -3,7 +3,7 @@ import { liveAlternates, liveEntries, liveSingleton } from './live.js'
 
 export interface SitemapEntry {
   path: string
-  updatedAt: string
+  updatedAt?: string
   alternates: Array<{ locale: string; path: string }>
 }
 
@@ -26,6 +26,9 @@ export async function sitemapEntries(deps: CoreDeps): Promise<SitemapEntry[]> {
         out.push({ path: doc.path, updatedAt: doc.updatedAt, alternates })
       }
     }
+  }
+  for (const route of registry.site.routes) {
+    if (route.method === 'GET' && route.sitemap === true) out.push({ path: route.path, alternates: [] })
   }
   return out
 }

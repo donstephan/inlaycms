@@ -317,6 +317,10 @@ export const site = defineSite({
   The color keys are daisyUI's (`base-100`, `base-200`, `base-300`, `base-content`, and `primary`, `secondary`, `accent`, `neutral`, `info`, `success`, `warning` and `error`, each with a `-content` partner). Values are hex (`#0b5fff`) or CSS color functions such as `oklch(…)`. Anything else stops the site at startup.
 - **Contrast warnings.** When a text color and its background are both hex values and their contrast is below 4.5:1 (WCAG AA), Inlay logs a warning once at startup. The site still starts. Inlay's default theme passes AA.
 
+### Suggested length
+
+`f.text` and `f.textarea` take `suggestedLength`, a soft limit beside `maxLength`. The admin shows a character counter under the field and, past the number, a hint that the text may be cut off where it's shown. It doesn't block saving or publishing, and the number is reported to assistants too. `f.seo()` suggests 70 characters for the title (at most 300) and 160 for the description (at most 500).
+
 ### Custom field widgets
 
 Every built-in field brings its own control. A field you define with `defineField` can bring one too, through `admin`: `render` draws the control for one value, and `parse` reads it back from the submitted form.
@@ -352,6 +356,75 @@ export const color = (opts: { label: string; help?: string }) =>
 ### JavaScript
 
 Most of the admin is plain forms and works without JavaScript. Choosing images, files and linked pages, and editing formatted text, need it; the admin says so when it is off.
+
+## Search and sharing
+
+Inlay writes the head of every page it renders, just before the template's `</head>`: the `<title>`, the meta description, the canonical link, `hreflang` alternates (with `x-default`) for a translated page, Open Graph tags (`og:type`, `og:title`, `og:description`, `og:url`, `og:image`), Twitter card tags, and `robots: noindex` in preview and on pages with no URL of their own. A template's `f.seo()` field sets the page's own title, description and share image.
+
+Site-wide defaults go in `defineSite`:
+
+```ts
+export const site = defineSite({
+  ...,
+  seo: {
+    titleTemplate: '%s | Example Studio', // %s exactly once, where the page's title goes
+    description: 'Websites for small studios.',
+    image: '/public/share.png',           // a file under public/
+  },
+})
+```
+
+All three are optional. To let owners and editors change them in the admin, add `f.seoDefaults()` to one of your globals (once per site, as a top-level field, with `.optional()` so the global can ship empty):
+
+```ts
+const Settings = defineTemplate({
+  name: 'settings',
+  label: 'Site settings',
+  fields: z.object({ defaults: f.seoDefaults().optional() }),
+})
+```
+
+Each default comes from the global when it's filled in, then from the code, then there's none. Preview uses the global's draft, as it does for any global, and publishing the global updates every page.
+
+- **Title.** A page's `f.seo()` title is used exactly as written. Otherwise the page's title goes through the title template, except on the home page (`/`, or a language's root such as `/es`), which keeps its plain title. The 404 page and pages from code routes get the template too. `og:title` and `twitter:title` are the final title.
+- **Description.** The page's `f.seo()` description, then the default.
+- **Share image.** The page's `f.seo()` image, then the global's default image, then the code's `/public` image. Images from the media library are shared as their 1280px JPEG. A `/public` image is an absolute URL versioned like `ctx.asset`'s; if the file isn't there the URL has no version, and the page still renders.
+- **`ogType`.** `defineTemplate({ ogType: 'article' })` makes the template's pages `og:type` `article`, with `article:modified_time` (the last change). `article:published_time` comes in a later release. The default is `website`.
+- **Twitter cards.** `twitter:card` is `summary_large_image` when the page has a share image and `summary` when it doesn't. `twitter:title`, `twitter:description` and `twitter:image` repeat the Open Graph values.
+
+### Tags from templates
+
+Templates and blocks can add tags to the head through `ctx.head` while they render. They land after Inlay's own tags: metas, then links, then JSON-LD.
+
+```tsx
+const Faq = defineBlock({
+  name: 'faq',
+  label: 'FAQ',
+  schema: z.object({ question: f.text({ label: 'Question' }), answer: f.text({ label: 'Answer' }) }),
+  render: (p, ctx) => {
+    ctx.head.jsonLd({
+      '@context': 'https://schema.org',
+      '@type': 'FAQPage',
+      mainEntity: [{ '@type': 'Question', name: p.question, acceptedAnswer: { '@type': 'Answer', text: p.answer } }],
+    })
+    ctx.head.meta({ name: 'author', content: 'Example Studio' })
+    ctx.head.link({ rel: 'alternate', type: 'application/rss+xml', href: '/feed.xml' })
+    return <section>…</section>
+  },
+})
+```
+
+- **`jsonLd(value)`** adds a `<script type="application/ld+json">`. It's escaped so nothing in it can end the script. Each call adds its own script, and a value JSON can't write (`undefined`, a function, a BigInt) fails the render.
+- **`meta({ name, content })` or `meta({ property, content })`** replaces Inlay's meta with the same name or property (`og:type`, `og:image`, `description`, `robots`…), and the last call for a key wins. `<title>` stays Inlay's.
+- **`link({ rel, href, … })`** replaces Inlay's link with the same `rel` and `hreflang` (so `rel: 'canonical'` replaces the canonical link, while an RSS `alternate` without `hreflang` leaves the language alternates alone). Other links are kept in call order, once each when identical. `href` must be a path on the site or an `http(s)` URL.
+- **Twitter tags** follow the final `og:*` values, so `meta({ property: 'og:image', … })` also sets `twitter:image` and the large card. A `twitter:*` meta of your own wins over the mirrored one.
+- **Preview** always stays `noindex`: a `robots` meta from a template is dropped there.
+
+Values are escaped, so `ctx.head` can only add tags to the head. For anything else (raw HTML, scripts, styles), write it in the template's own `<head>`.
+
+### Routes in the sitemap
+
+`defineRoute({ method: 'GET', path, sitemap: true, handler })` lists the route in the sitemap. The pages its `ctx.render` returns get a canonical link and can be indexed. Other routes stay `noindex`.
 
 ## Backups, export and restore
 
@@ -428,6 +501,8 @@ Inlay keeps rendered pages in memory and clears them on every publish, so a sing
 - An `ETag` over the rendered page. A request with a matching `If-None-Match` gets a 304 without rendering, so unchanged pages cost the origin almost nothing to revalidate.
 - `Cache-Control: public, max-age=0, s-maxage=15, stale-if-error=86400`. Browsers revalidate on every visit, so an editor who publishes and refreshes sees the change at once. Shared caches may serve a page for 15 seconds before checking back, and keep serving the last good copy for a day if the origin is down.
 - Media files are content-addressed and sent with a one-year immutable lifetime.
+
+To cache a site file for a year, link it with `ctx.asset('site.css')` in a template or route. It gives `/public/site.css?v=<hash>`, where the hash comes from the file's contents, and a `/public` URL whose `v` matches is served `immutable` for a year, so an edited file gets a new URL. Other `/public` URLs keep `INLAY_PUBLIC_MAX_AGE`. A file that isn't there gives the plain `/public` URL, with no `v`.
 
 Tune the shared lifetime with `INLAY_CDN_MAX_AGE` (seconds, default 15) and `INLAY_CDN_STALE_IF_ERROR` (seconds, default 86400). `INLAY_CDN_MAX_AGE=0` makes shared caches revalidate on every request, which still saves bandwidth through the 304s. Preview pages are never cached (`no-store`), so a draft cannot reach a shared cache. Published pages are marked `Vary: Cookie`; if your CDN ignores that header for HTML, add a rule to bypass its cache when the `inlay_preview` cookie is present, or editors with a preview cookie may be served the cached public page.
 

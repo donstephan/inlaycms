@@ -1,6 +1,7 @@
 import type { z } from 'zod'
 import { resolveTheme } from '../theme.js'
 import { InlayError } from '../errors.js'
+import { isTitleTemplate } from '../fields/builtins.js'
 import { fieldMeta } from '../fields/define.js'
 import { defOf, unwrap } from '../fields/zod-internals.js'
 import type { MessageId } from '../messages/index.js'
@@ -33,6 +34,8 @@ export interface Registry {
   redirects: readonly CodeRule[]
   /** The code redirects indexed for matching. */
   redirectIndex: RuleIndex<MatchRule>
+  /** The global and top-level field holding `f.seoDefaults()`, if any. */
+  seoDefaults: { global: string; field: string } | null
   /** The paths of the GET code routes. */
   getRoutePaths: ReadonlySet<string>
   /** Throws `InlayError('not_found')` for an unknown type. */
@@ -66,6 +69,7 @@ function checkShape(
   shape: Record<string, z.core.$ZodType>,
   where: string,
   collections: ReadonlySet<string>,
+  nested: boolean,
 ): void {
   for (const [key, schema] of Object.entries(shape)) {
     const field = `${where}.${key}`
@@ -75,11 +79,13 @@ function checkShape(
     if (meta.kind === 'ref' && (meta.target === undefined || !collections.has(meta.target))) {
       fail('definition.refUnknown', { field, target: meta.target ?? '' })
     }
+    if (meta.seoDefaults && nested) fail('definition.seoDefaultsPlace', { field })
     const def = defOf(unwrap(schema))
-    if (meta.kind === 'group' && def.shape) checkShape(def.shape, field, collections)
+    if (meta.kind === 'group' && def.shape) checkShape(def.shape, field, collections, true)
     if (meta.kind === 'list' && def.element) {
+      if (fieldMeta(def.element as z.ZodType)?.seoDefaults) fail('definition.seoDefaultsPlace', { field })
       const item = defOf(unwrap(def.element))
-      if (item.shape) checkShape(item.shape, field, collections)
+      if (item.shape) checkShape(item.shape, field, collections, true)
     }
   }
 }
@@ -91,10 +97,13 @@ function checkTemplate(
 ): void {
   if (checked.has(template)) return
   checked.add(template)
-  checkShape(template.fields.shape, template.name, collections)
+  if (template.ogType !== undefined && template.ogType !== 'website' && template.ogType !== 'article') {
+    fail('definition.ogType', { name: template.name, value: String(template.ogType) })
+  }
+  checkShape(template.fields.shape, template.name, collections, false)
   for (const [key, slot] of Object.entries(template.slots)) {
     if (!NAME.test(key)) fail('definition.slotName', { name: key, template: template.name })
-    checkShape(slot.block.schema.shape, slot.block.name, collections)
+    checkShape(slot.block.schema.shape, slot.block.name, collections, true)
   }
 }
 
@@ -138,6 +147,14 @@ function checkType(type: TypeDef, site: SiteDefinition): void {
 
 function checkSettings(site: SiteDefinition, types: ReadonlyMap<string, TypeDef>): void {
   resolveTheme(site.admin.theme)
+  const { titleTemplate, description, image } = site.seo
+  if (titleTemplate !== undefined && (typeof titleTemplate !== 'string' || !isTitleTemplate(titleTemplate))) {
+    fail('definition.seoTitleTemplate', { value: String(titleTemplate) })
+  }
+  if (image !== undefined && (typeof image !== 'string' || !image.startsWith('/public/') || image.length === '/public/'.length)) {
+    fail('definition.seoImage', { value: String(image) })
+  }
+  if (description !== undefined && typeof description !== 'string') fail('definition.seoDescription', {})
   if (site.notFound !== null) {
     const def = types.get(site.notFound)
     if (!def || def.kind !== 'singleton' || def.path !== null || !def.template.render) {
@@ -189,11 +206,12 @@ function shadowedType(registry: Registry, path: string): string | null {
 
 function checkRoutes(registry: Registry): void {
   const seen = new Set<string>()
-  for (const { method, path } of registry.site.routes) {
+  for (const { method, path, sitemap } of registry.site.routes) {
     if (method !== 'GET' && method !== 'POST') fail('definition.routeMethod', { method: String(method), path: String(path) })
     if (typeof path !== 'string' || normalizePath(path) !== path || /[:*?#%]/.test(path)) {
       fail('definition.routePath', { path: String(path) })
     }
+    if (sitemap !== undefined && (sitemap !== true || method !== 'GET')) fail('definition.routeSitemap', { method, path })
     if (isRouteReserved(path)) fail('definition.routeReserved', { path })
     const name = shadowedType(registry, path)
     if (name !== null) fail('definition.routeShadows', { path, name })
@@ -288,6 +306,17 @@ export function buildRegistry(site: SiteDefinition): Registry {
 
   checkSettings(site, types)
 
+  let seoDefaults: Registry['seoDefaults'] = null
+  for (const type of all) {
+    for (const [key, schema] of Object.entries(type.template.fields.shape)) {
+      if (!fieldMeta(schema as z.ZodType)?.seoDefaults) continue
+      const here = `${type.name}.${key}`
+      if (type.kind !== 'global') fail('definition.seoDefaultsPlace', { field: `${type.template.name}.${key}` })
+      if (seoDefaults) fail('definition.seoDefaultsTwice', { first: `${seoDefaults.global}.${seoDefaults.field}`, second: here })
+      seoDefaults = { global: type.name, field: key }
+    }
+  }
+
   const content = new Map<string, readonly ShippedDocument[]>()
   for (const shipped of site.content) {
     const type = types.get(shipped.type)
@@ -332,6 +361,7 @@ export function buildRegistry(site: SiteDefinition): Registry {
     templates,
     content,
     redirects,
+    seoDefaults,
     redirectIndex: ruleIndex(redirects.map((r): MatchRule => ({ from: r.from, to_path: r.to, to_group_id: null, status: r.status }))),
     getRoutePaths,
     getType(name) {

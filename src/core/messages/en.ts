@@ -75,6 +75,9 @@ export const en = {
     'The attribute name "{name}" isn\'t allowed in a template. Use letters, numbers and dashes only.',
   'config.renderMissing':
     'The template "{name}" has no render function, so its pages can\'t be shown. Add a render function to the template.',
+  'config.headJsonLd': "A template added JSON-LD that can't be written as JSON.",
+  'config.headHref':
+    'A template added a link to "{href}", which isn\'t a safe address. Use a path on this site or an http(s) URL.',
   'config.publicKey':
     "That isn't a public key. It should look like ed25519: followed by letters and digits (as printed by inlaycms keygen), but it was: {text}",
   'config.baseUrl':
@@ -227,6 +230,8 @@ export const en = {
     'The route path "{path}" belongs to Inlay itself (the home page, the admin, sign-in, MCP, media, public files, the sitemap or robots.txt). Pick another path.',
   'definition.routeShadows':
     'The route path "{path}" would hide pages of "{name}" in one of the site\'s languages. Pick a path no page uses.',
+  'definition.routeSitemap':
+    'The route {method} "{path}" has sitemap: true. Only GET routes can be listed in the sitemap.',
   'definition.routeDuplicate': 'Two routes handle {method} requests to "{path}". Keep one of them.',
   'definition.routeMethod': 'The route "{path}" uses the method {method}. Routes can only handle GET and POST.',
   'definition.redirectFrom':
@@ -241,6 +246,23 @@ export const en = {
   'definition.redirectDuplicate': 'The site redirects "{from}" more than once. Keep one of them.',
   'definition.redirectRoute':
     'The redirect from "{from}" would never run, because a GET route answers at that path. Remove the redirect or the route.',
+  'definition.seoTitleTemplate':
+    'The site\'s title template "{value}" must contain %s exactly once, where each page\'s title goes, such as "%s | My Site".',
+  'definition.seoImage':
+    'The site\'s default share image "{value}" must be a file under /public/, such as /public/share.png.',
+  'definition.seoDescription': "The site's default description must be text.",
+  'definition.seoDefaultsTwice':
+    'Search and sharing defaults appear in both {first} and {second}. Keep f.seoDefaults() in one global only.',
+  'definition.seoDefaultsPlace': '{field} uses f.seoDefaults(), which can only be a top-level field of a global.',
+  'definition.ogType': 'The template "{name}" has ogType "{value}". Use "website" or "article".',
+  'label.seoDefaults': 'Search and sharing defaults',
+  'label.seoDefaults.titleTemplate': 'Title template',
+  'label.seoDefaults.titleTemplateHelp':
+    'Put %s where the page\'s title goes, such as "%s | My Site". Pages with their own search title, and the home page, don\'t use it.',
+  'label.seoDefaults.description': 'Default description',
+  'label.seoDefaults.image': 'Default share image',
+  'issue.titleTemplate':
+    '{field} must contain %s exactly once, where the page\'s title goes, such as "%s | My Site".',
   'label.seo': 'Search and sharing',
   'label.seo.title': 'Title',
   'label.seo.description': 'Description',
@@ -408,6 +430,8 @@ export const en = {
   'diff.release.migration': 'The migration function `{name}` will run.',
   'diff.release.routeAdded': 'Adds the route {method} {path}.',
   'diff.release.routeRemoved': 'Removes the route {method} {path}.',
+  'diff.release.routeSitemapAdded': 'Lists the route {path} in the sitemap.',
+  'diff.release.routeSitemapRemoved': 'No longer lists the route {path} in the sitemap.',
   'diff.release.redirectAdded': 'Adds the redirect {from} to {to} ({status}).',
   'diff.release.redirectRemoved': 'Removes the redirect {from} to {to}.',
   'diff.release.redirectChanged': 'The redirect from {from} now goes to {to} ({status}).',
@@ -577,6 +601,7 @@ export const en = {
     'Line {line}: a value starts with a quote mark (") that is never closed. Add the closing quote mark.',
   'agent.setting': 'A setting: it changes how this looks, not what it says.',
   'agent.refTarget': "Points to an entry in {label}. Give the entry's groupId.",
+  'agent.suggestedLength': "Best kept to {n} characters or fewer, so it isn't cut off where it's shown. Longer text is still accepted, up to the maximum length.",
   'agent.problem': '{field}: {problem}',
   'agent.date': 'A date written as YYYY-MM-DD, such as 2026-03-15.',
   'agent.datetime': 'A date and time written as YYYY-MM-DDTHH:MM:SS with Z or an offset, such as 2026-03-15T09:30:00Z.',
@@ -1067,6 +1092,8 @@ export const en = {
   'admin.form.neededCount': '{n} needed to publish',
   'admin.form.hiddenSummary': 'Hidden from the page',
   'admin.form.none': 'None',
+  'admin.form.length': '{count} of {suggested} characters',
+  'admin.form.lengthOver': "Longer than the suggested {suggested} characters, so it may be cut off where it's shown, such as in search results. You can still save and publish it.",
   'admin.form.utc': '(UTC time)',
   'admin.form.slugHint': 'Leave empty to make one from the title',
   'admin.form.settings': 'Settings',

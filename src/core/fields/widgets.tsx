@@ -46,26 +46,59 @@ function parseNonEmpty(form: FormValues, name: string): string | undefined {
 /** A one-line text input, which browsers would strip of newlines, as a free text box with the stored value as it is. */
 const plainInput = (p: WidgetProps, value: string) => <input type="text" value={value} class="input input-bordered w-full" {...control(p)} />
 
+/** The control's attributes, with the counter's id added to what describes it when there is a counter. */
+const countedControl = (p: WidgetProps) =>
+  p.meta.suggestedLength === undefined ? control(p) : { ...control(p), 'aria-describedby': [p.describedBy, `${p.id}-length`].filter((x) => x !== undefined).join(' ') }
+
+/** A live character count under a control, with a hint that shows once the text is past the suggested length. */
+function LengthCounter({ p, value }: { p: WidgetProps; value: string }) {
+  const n = p.meta.suggestedLength
+  if (n === undefined) return null
+  const length = value.length
+  return (
+    <p id={`${p.id}-length`} data-length-for={p.id} data-suggested-length={n} data-label={t('admin.form.length', { count: '{count}', suggested: n })} aria-live="polite" class="text-sm text-base-content/70">
+      <span data-length-count>{t('admin.form.length', { count: length, suggested: n })}</span>{' '}
+      <span data-length-hint hidden={length <= n}>
+        {t('admin.form.lengthOver', { suggested: n })}
+      </span>
+    </p>
+  )
+}
+
 export const textWidget: AdminWidget = {
   render(p) {
     const value = asText(p.value)
+    const attrs = countedControl(p)
     // A one-line input would drop the newlines of a stored value, so it gets a text box instead.
-    if (!/[\r\n]/.test(value)) return plainInput(p, value)
-    return (
-      <textarea rows="3" class="textarea textarea-bordered w-full" {...control(p)}>
+    const input = /[\r\n]/.test(value) ? (
+      <textarea rows="3" class="textarea textarea-bordered w-full" {...attrs}>
         {textareaBody(value)}
       </textarea>
+    ) : (
+      <input type="text" value={value} class="input input-bordered w-full" {...attrs} />
+    )
+    return (
+      <>
+        {input}
+        <LengthCounter p={p} value={value} />
+      </>
     )
   },
   parse: (form, name, _meta, optional) => parseText(form, name, optional),
 }
 
 export const textareaWidget: AdminWidget = {
-  render: (p) => (
-    <textarea rows="4" class="textarea textarea-bordered w-full" {...control(p)}>
-      {textareaBody(asText(p.value))}
-    </textarea>
-  ),
+  render(p) {
+    const value = asText(p.value)
+    return (
+      <>
+        <textarea rows="4" class="textarea textarea-bordered w-full" {...countedControl(p)}>
+          {textareaBody(value)}
+        </textarea>
+        <LengthCounter p={p} value={value} />
+      </>
+    )
+  },
   parse: (form, name, _meta, optional) => parseText(form, name, optional),
 }
 

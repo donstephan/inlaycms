@@ -28,6 +28,12 @@ describe('text / textarea', () => {
     expect(ok(draft, '   ')).toBe(true)
     expect(ok(draft, 'toolong')).toBe(false)
   })
+  it('a suggested length never fails validation', () => {
+    const s = f.text({ label: 'T', suggestedLength: 5 })
+    expect(ok(s, 'x'.repeat(50))).toBe(true)
+    expect(ok(fieldMeta(s)!.draft!, 'x'.repeat(50))).toBe(true)
+    expect(fieldMeta(s)?.suggestedLength).toBe(5)
+  })
   it('textarea behaves the same', () => {
     const s = f.textarea({ label: 'T', help: 'h' })
     expect(ok(s, 'a\nb')).toBe(true)
@@ -165,7 +171,34 @@ describe('seo', () => {
     expect(fieldMeta(shape.description as z.ZodType)?.label).toBe(t('label.seo.description'))
     expect(fieldMeta(shape.image as z.ZodType)?.label).toBe(t('label.seo.image'))
     expect(ok(s, {})).toBe(true)
-    expect(ok(s, { title: 'x'.repeat(71) })).toBe(false)
+    expect(ok(s, { title: 'x'.repeat(300), description: 'x'.repeat(500) })).toBe(true)
+    expect(ok(s, { title: 'x'.repeat(301) })).toBe(false)
+    expect(ok(s, { description: 'x'.repeat(501) })).toBe(false)
+    expect(fieldMeta(shape.title as z.ZodType)?.suggestedLength).toBe(70)
+    expect(fieldMeta(shape.description as z.ZodType)?.suggestedLength).toBe(160)
     expect(f.seo({ label: 'Custom' }) && fieldMeta(f.seo({ label: 'Custom' }))?.label).toBe('Custom')
+  })
+})
+
+describe('seoDefaults', () => {
+  it('checks the title template for one %s in draft and strict mode', () => {
+    const s = f.seoDefaults()
+    const draft = fieldMeta(s)!.draft ?? s
+    const shape = s._zod.def.shape
+    const title = shape.titleTemplate as z.ZodType
+    const titleDraft = fieldMeta(title)!.draft!
+    for (const schema of [title, titleDraft]) {
+      expect(ok(schema, '%s | X')).toBe(true)
+      expect(ok(schema, 'X')).toBe(false)
+      expect(ok(schema, '%s %s')).toBe(false)
+      expect(ok(schema, 'x'.repeat(101))).toBe(false)
+    }
+    expect(draft).toBeDefined()
+    expect(ok(s, { titleTemplate: '%s | X' })).toBe(true)
+    expect(ok(s, { titleTemplate: 'X' })).toBe(false)
+    expect(ok(s, {})).toBe(true)
+    expect(ok(s, { description: 'y'.repeat(400) })).toBe(true)
+    expect(ok(s, { description: 'y'.repeat(501) })).toBe(false)
+    expect(fieldMeta(s)).toMatchObject({ kind: 'group', seoDefaults: true })
   })
 })

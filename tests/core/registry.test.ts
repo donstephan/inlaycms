@@ -344,6 +344,20 @@ describe('routes', () => {
     expect(r.site.routes.map((x) => `${x.method} ${x.path}`)).toEqual(['POST /contact', 'GET /contact', 'GET /api/latest', 'POST /blog'])
   })
 
+  it('accepts sitemap: true on a GET route', () => {
+    const r = buildRegistry(defineSite(withRoutes(defineRoute({ method: 'GET', path: '/calc', sitemap: true, handler: () => ({}) }))))
+    expect(r.site.routes[0]?.sitemap).toBe(true)
+  })
+
+  it('refuses sitemap: true on a POST route', () => {
+    const post = defineRoute({ method: 'POST', path: '/contact', sitemap: true, handler: () => ({}) })
+    expect(refusal(withRoutes(post))).toMatchObject({
+      code: 'definition',
+      messageId: 'definition.routeSitemap',
+      params: { method: 'POST', path: '/contact' },
+    })
+  })
+
   it('defineRoute returns the definition', () => {
     const def = { method: 'GET' as const, path: '/x', handler: () => ({}) }
     expect(defineRoute(def)).toEqual(def)
@@ -479,5 +493,82 @@ describe('code redirects', () => {
     const route = defineRoute({ method: 'POST', path: '/contact', handler: () => ({}) })
     const r = buildRegistry(defineSite({ ...withRedirects(redirect('/contact')), routes: [route] }))
     expect(r.redirects[0]?.from).toBe('/contact')
+  })
+})
+
+describe('seo', () => {
+  const refusal = (input: Partial<SiteInput>) => {
+    try {
+      buildRegistry(defineSite({ locales: ['en', 'es'], defaultLocale: 'en', ...input }))
+    } catch (e) {
+      return { code: (e as InlayError).code, messageId: (e as InlayError).messageId }
+    }
+    return null
+  }
+  const withDefaults = (name: string, key = 'defaults') =>
+    defineGlobal({
+      name,
+      label: name,
+      template: defineTemplate({ name: `${name}Template`, fields: z.object({ [key]: f.seoDefaults() }) }),
+    })
+
+  it('accepts code defaults', () => {
+    const seo = { titleTemplate: '%s | Site', description: 'd', image: '/public/og.png' }
+    expect(buildRegistry(defineSite({ ...site, seo })).site.seo).toEqual(seo)
+  })
+
+  it('refuses a title template without exactly one %s', () => {
+    for (const titleTemplate of ['Site', '%s | %s']) {
+      expect(refusal({ ...site, seo: { titleTemplate } })).toEqual({ code: 'definition', messageId: 'definition.seoTitleTemplate' })
+    }
+  })
+
+  it('refuses a default image outside /public/', () => {
+    for (const image of ['og.png', '/media/x', '/public/']) {
+      expect(refusal({ ...site, seo: { image } })).toEqual({ code: 'definition', messageId: 'definition.seoImage' })
+    }
+  })
+
+  it('finds the defaults global', () => {
+    expect(buildRegistry(defineSite({ ...site, globals: [...site.globals, withDefaults('settings')] })).seoDefaults).toEqual({
+      global: 'settings',
+      field: 'defaults',
+    })
+    expect(buildRegistry(site).seoDefaults).toBeNull()
+  })
+
+  it('refuses f.seoDefaults() in two globals, or twice in one', () => {
+    const twice = defineGlobal({
+      name: 'both',
+      label: 'both',
+      template: defineTemplate({ name: 'bothTemplate', fields: z.object({ a: f.seoDefaults(), b: f.seoDefaults() }) }),
+    })
+    for (const globals of [[withDefaults('one'), withDefaults('two')], [twice]]) {
+      expect(refusal({ ...site, globals })).toEqual({ code: 'definition', messageId: 'definition.seoDefaultsTwice' })
+    }
+  })
+
+  it('refuses f.seoDefaults() inside a group, a list, a block or a non-global type', () => {
+    const global = (fields: z.ZodObject, slots = {}) =>
+      defineGlobal({ name: 'g', label: 'g', template: defineTemplate({ name: 'gt', fields, slots }) })
+    const block = defineBlock({ name: 'seoBlock', label: 'B', schema: z.object({ d: f.seoDefaults() }) })
+    const cases = [
+      { ...site, globals: [global(z.object({ g: f.group({ d: f.seoDefaults() }, { label: 'G' }) }))] },
+      { ...site, globals: [global(z.object({ l: f.list(f.group({ d: f.seoDefaults() }, { label: 'I' }), { label: 'L' }) }))] },
+      { ...site, globals: [global(z.object({ l: f.list(f.seoDefaults(), { label: 'L' }) }))] },
+      { ...site, globals: [global(z.object({}), { s: { block } })] },
+      { ...site, singletons: [...site.singletons, withTemplate(z.object({ d: f.seoDefaults() }))] },
+    ]
+    for (const input of cases) {
+      expect(refusal(input)).toEqual({ code: 'definition', messageId: 'definition.seoDefaultsPlace' })
+    }
+  })
+
+  it('refuses an unknown ogType', () => {
+    const template = defineTemplate({ name: 'blog', fields: z.object({}), ogType: 'blog' as never })
+    expect(refusal({ ...site, singletons: [...site.singletons, page('blogPage', { template })] })).toEqual({
+      code: 'definition',
+      messageId: 'definition.ogType',
+    })
   })
 })

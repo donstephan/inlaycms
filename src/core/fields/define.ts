@@ -60,8 +60,12 @@ export interface FieldMeta {
   label: string
   help?: string
   setting?: boolean
+  /** A soft limit the admin and assistants are told about; going past it never fails validation. */
+  suggestedLength?: number
   /** Marks the group whose values fill the page's SEO tags. */
   seo?: true
+  /** Marks the group holding the site's search and sharing defaults. */
+  seoDefaults?: true
   draft?: z.ZodType
   refs?: (value: unknown) => ContentRef[]
   options?: readonly string[]

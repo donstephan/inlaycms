@@ -136,6 +136,13 @@ describe('describe_type', () => {
     expect(text).toContain(HEADLINE_HELP)
   })
 
+  it('reports both the suggested and the maximum length of SEO fields', async () => {
+    const { json } = await mcp.call('describe_type', { type: 'home' })
+    const description = json.schema.properties.fields.properties.seo.properties.description
+    expect(description.maxLength).toBe(500)
+    expect(description['x-suggestedLength']).toBe(160)
+  })
+
   it('names the title field of a collection', async () => {
     const { json } = await mcp.call('describe_type', { type: 'testimonials' })
     expect(json).toMatchObject({ kind: 'collection', titleField: 'author' })

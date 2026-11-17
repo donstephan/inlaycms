@@ -34,10 +34,12 @@ function decorate(registry: Registry, meta: FieldMeta, json: Json): void {
     meta.kind === 'ref' && meta.target !== undefined
       ? t('agent.refTarget', { label: registry.getType(meta.target).label })
       : undefined,
+    meta.suggestedLength !== undefined ? t('agent.suggestedLength', { n: meta.suggestedLength }) : undefined,
     meta.help,
   ].filter((part) => part !== undefined)
   if (description.length > 0) json.description = description.join(' ')
   if (meta.setting) json['x-setting'] = true
+  if (meta.suggestedLength !== undefined) json['x-suggestedLength'] = meta.suggestedLength
 }
 
 /**

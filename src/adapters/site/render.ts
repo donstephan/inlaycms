@@ -8,8 +8,10 @@ import type { TemplateDef } from '../../core/registry/define.js'
 import type { PageInfo } from '../../core/registry/render.js'
 import type { ContentIssue, DocumentData, ImageValue, LiveDocument, LiveState } from '../../core/types.js'
 import { escapeHtml, raw, renderToString, toHtml, type SafeHtml } from '../../jsx/html.js'
+import type { PublicAssets } from './assets.js'
 import { createRenderContext, type PreloadingRenderContext } from './context.js'
 import { buildHead, injectHead } from './head.js'
+import { isHomePath, mediaShareImage, pageTitle, resolveSeoDefaults } from './seo.js'
 
 const DOCTYPE = /^\s*<!doctype\s/i
 const BODY = /<body\b[^>]*>/i
@@ -69,7 +71,7 @@ function withPreviewBanner(html: string, release?: string): string {
 export async function renderPage(
   core: Core,
   doc: LiveDocument,
-  opts: { state: LiveState; page: number; baseUrl: string; release?: string },
+  opts: { state: LiveState; page: number; baseUrl: string; release?: string; assets?: PublicAssets },
 ): Promise<string> {
   const { release, ...render } = opts
   if (render.state !== 'preview') return renderTemplate(core, doc, render)
@@ -131,7 +133,7 @@ const withDoctype = (html: string) => (DOCTYPE.test(html) ? html : `<!doctype ht
 async function renderTemplate(
   core: Core,
   doc: LiveDocument,
-  opts: { state: LiveState; page: number; baseUrl: string },
+  opts: { state: LiveState; page: number; baseUrl: string; assets?: PublicAssets },
   internal: { pane?: boolean } = {},
 ): Promise<string> {
   const { template } = core.registry.getType(doc.type)
@@ -144,6 +146,7 @@ async function renderTemplate(
     page: opts.page,
     baseUrl: opts.baseUrl,
     alternates,
+    ...(opts.assets && { assets: opts.assets }),
   })
   await ctx.preload([doc])
 
@@ -159,17 +162,23 @@ async function renderTemplate(
   const html = await renderBody(template, doc.data, page, ctx, internal)
 
   const seo = seoValue(template.fields, doc.data.fields)
+  const defaults = await resolveSeoDefaults(core.registry, ctx, opts.baseUrl)
   const own = doc.path
   const base = doc.fallback ? (alternates.find((a) => a.locale === core.registry.defaultLocale)?.path ?? own) : own
+  const ogType = template.ogType ?? 'website'
   const head = buildHead({
-    title: doc.title,
-    seo,
+    title: pageTitle(doc.title, seo?.title, defaults.titleTemplate, isHomePath(core.registry, doc.path)),
+    description: seo?.description || defaults.description || null,
+    image: mediaShareImage(ctx.image(seo?.image), opts.baseUrl) ?? defaults.image,
+    ogType,
+    // publishedAt comes with part 3 (content model): read doc.publishedAt here once LiveDocument has it.
+    article: ogType === 'article' ? { publishedTime: null, modifiedTime: doc.updatedAt } : null,
     canonical: own === null || base === null ? null : opts.page > 1 ? `${base}?page=${opts.page}` : base,
     alternates: doc.fallback ? [] : alternates.filter((a) => !a.fallback),
     defaultLocale: core.registry.defaultLocale,
-    image: ctx.image(seo?.image),
     baseUrl: opts.baseUrl,
     preview: opts.state === 'preview',
+    collected: ctx.headTags(),
   })
   let out = injectHead(html, head)
   if (internal.pane && doc.path !== null) {
@@ -191,7 +200,7 @@ export async function renderTemplateData(
   core: Core,
   template: TemplateDef,
   data: DocumentData,
-  opts: { locale: string; path: string; baseUrl: string },
+  opts: { locale: string; path: string; baseUrl: string; canonical?: string | null; assets?: PublicAssets; preview?: boolean },
 ): Promise<string> {
   const ctx = createRenderContext(core, {
     locale: opts.locale,
@@ -199,6 +208,7 @@ export async function renderTemplateData(
     page: 1,
     baseUrl: opts.baseUrl,
     alternates: [],
+    ...(opts.assets && { assets: opts.assets }),
   })
   await ctx.preloadData(template, data)
   const field = data.fields.title
@@ -214,15 +224,19 @@ export async function renderTemplateData(
   }
   const html = await renderBody(template, data, page, ctx, {})
   const seo = seoValue(template.fields, data.fields)
+  const defaults = await resolveSeoDefaults(core.registry, ctx, opts.baseUrl)
   const head = buildHead({
-    title,
-    seo,
-    canonical: null,
+    title: pageTitle(title, seo?.title, defaults.titleTemplate, false),
+    description: seo?.description || defaults.description || null,
+    image: mediaShareImage(ctx.image(seo?.image), opts.baseUrl) ?? defaults.image,
+    ogType: template.ogType ?? 'website',
+    article: null,
+    canonical: opts.canonical ?? null,
     alternates: [],
     defaultLocale: core.registry.defaultLocale,
-    image: ctx.image(seo?.image),
     baseUrl: opts.baseUrl,
-    preview: false,
+    preview: opts.preview === true,
+    collected: ctx.headTags(),
   })
   return withDoctype(injectHead(html, head))
 }

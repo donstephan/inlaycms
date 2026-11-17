@@ -324,7 +324,7 @@ it('exports the types the admin host hooks are written with', async () => {
     slots: { added: [], removed: [], optional: [], required: [] },
     locales: { added: [], removed: [] },
     fields: [],
-    routes: { added: [], removed: [] },
+    routes: { added: [], removed: [], sitemap: { added: [], removed: [] } },
     secrets: [],
     migrations: [],
     shipped: { stale: [] },

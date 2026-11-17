@@ -29,6 +29,8 @@ import type {
   LiveState,
   MediaInfo,
 } from '../../core/types.js'
+import { publicAssets, type PublicAssets } from './assets.js'
+import { createHeadCollector, type CollectedHead } from './head.js'
 import { raw, type SafeHtml } from '../../jsx/html.js'
 
 export interface RenderContextOptions {
@@ -37,6 +39,7 @@ export interface RenderContextOptions {
   page: number
   baseUrl: string
   alternates: RenderContext['alternates']
+  assets?: PublicAssets
 }
 
 export type PreloadingRenderContext = RenderContext & {
@@ -44,6 +47,8 @@ export type PreloadingRenderContext = RenderContext & {
   preload(docs: LiveDocument[]): Promise<void>
   /** As `preload`, for `data` of `template` that no document holds (a page a route renders). */
   preloadData(template: TemplateDef, data: DocumentData): Promise<void>
+  /** What `head` collected so far. */
+  headTags(): CollectedHead
 }
 
 /** Rich text images get this width as `src` when the original is at least as wide. */
@@ -130,10 +135,12 @@ export function createRenderContext(core: Core, opts: RenderContextOptions): Pre
   const { registry } = core
   const { locale, state } = opts
   const preview = state === 'preview'
+  const assets = opts.assets ?? publicAssets(null)
   const media = new Map<string, MediaInfo | null>()
   const docs = new Map<string, LiveDocument | null>()
   const collections = new Map<string, Promise<LiveDocument[]>>()
   const globals = new Map<string, Promise<LiveDocument | null>>()
+  const head = createHeadCollector()
 
   /**
    * Whether `doc` can be shown as is. In preview, a draft that isn't complete can't: an entry is
@@ -306,6 +313,8 @@ export function createRenderContext(core: Core, opts: RenderContextOptions): Pre
     preview,
     page: opts.page,
     baseUrl: opts.baseUrl,
+    asset: (path) => assets.url(path),
+    head: head.api,
     alternates: opts.alternates,
     image,
     file,
@@ -316,11 +325,12 @@ export function createRenderContext(core: Core, opts: RenderContextOptions): Pre
     global,
     preload,
     preloadData,
+    headTags: head.collected,
   }
 }
 
 /** Published content at `locale`, the way templates query it, for one request. */
-export function queryApi(core: Core, opts: { locale: string; baseUrl: string }): QueryApi {
+export function queryApi(core: Core, opts: { locale: string; baseUrl: string; assets?: PublicAssets }): QueryApi {
   const ctx = createRenderContext(core, { ...opts, state: 'published', page: 1, alternates: [] })
   return { query: ctx.query, global: ctx.global, entries: ctx.entries }
 }

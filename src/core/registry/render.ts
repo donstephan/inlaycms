@@ -77,6 +77,29 @@ export interface PageInfo {
   page: number
 }
 
+export type HeadMeta = { name: string; content: string } | { property: string; content: string }
+
+export interface HeadLink {
+  rel: string
+  href: string
+  hreflang?: string
+  type?: string
+  sizes?: string
+  media?: string
+  as?: string
+  crossorigin?: string
+}
+
+/** Adds tags to the page's `<head>`, after Inlay's own. */
+export interface HeadApi {
+  /** A `<script type="application/ld+json">` of `value`. Throws when `value` can't be written as JSON. */
+  jsonLd(value: unknown): void
+  /** Replaces Inlay's meta with the same name or property; the last call for a key wins. */
+  meta(attrs: HeadMeta): void
+  /** Replaces Inlay's link with the same `rel` and `hreflang`. Throws on an unsafe `href`. */
+  link(attrs: HeadLink): void
+}
+
 export interface RenderContext {
   locale: string
   defaultLocale: string
@@ -84,6 +107,10 @@ export interface RenderContext {
   preview: boolean
   page: number
   baseUrl: string
+  /** The `/public/` URL for a file of the site's `public/` folder, with `?v=<hash>` when the file exists. Never throws. */
+  asset(path: string): string
+  /** Tags for the page's `<head>`, collected during this render. */
+  head: HeadApi
   alternates: Array<{ locale: string; path: string; fallback: boolean }>
   /** Alt is the value's, then the media's default, then `''`. `null` when the media is missing. */
   image(v: ImageValue | null | undefined): ResolvedImage | null

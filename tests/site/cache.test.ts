@@ -1,3 +1,6 @@
+import { mkdtemp, rm } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import type { FastifyInstance } from 'fastify'
 import { z } from 'zod'
 import { PageCache, response } from '../../src/adapters/site/cache.js'
@@ -155,6 +158,38 @@ describe('site cache', () => {
     expect((await a.inject('/')).headers['x-inlay-cache']).toBeUndefined()
     expect((await a.inject('/')).headers['x-inlay-cache']).toBeUndefined()
     expect((await a.inject('/nope')).headers['x-inlay-cache']).toBeUndefined()
+  })
+
+  describe('with another connection to the same database', () => {
+    let dir: string
+    beforeEach(async () => {
+      dir = await mkdtemp(join(tmpdir(), 'inlay-cache-shared-'))
+    })
+    afterEach(() => rm(dir, { recursive: true, force: true }))
+
+    it('misses with new content after the other connection publishes', async () => {
+      const db = join(dir, 'inlay.db')
+      const { app: other, core, owner } = await app({ db })
+      await other.ready()
+      const { app: a } = await app({ db })
+      expect(await cacheHeader(a, '/')).toBe('miss')
+      expect(await cacheHeader(a, '/')).toBe('hit')
+      await editHeadline(core, owner, 'Published elsewhere', true)
+      const res = await a.inject('/')
+      expect(res.headers['x-inlay-cache']).toBe('miss')
+      expect(res.body).toContain('Published elsewhere')
+      expect(await cacheHeader(a, '/')).toBe('hit')
+    })
+
+    it('keeps a hit through its own writes that leave the site as it is', async () => {
+      const db = join(dir, 'inlay.db')
+      const { app: other } = await app({ db })
+      await other.ready()
+      const { app: a, core, owner } = await app({ db })
+      await a.inject('/')
+      await editHeadline(core, owner, 'Draft only', false)
+      expect(await cacheHeader(a, '/')).toBe('hit')
+    })
   })
 
   it('does not store a render that started before a publish', async () => {

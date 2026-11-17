@@ -5,6 +5,7 @@ import type { AuthService } from '../../core/auth/service.js'
 import { DEFAULT_KEEP, SCHEDULE_INTERVAL_MS } from '../../core/backup/schedule.js'
 import { bootInlay } from '../../core/boot.js'
 import { readOnlyCore, type Core } from '../../core/core.js'
+import { dataVersion } from '../../core/db/connection.js'
 import { InlayError } from '../../core/errors.js'
 import { DEFAULT_MAX_BYTES, DEFAULT_UPLOAD_TYPES } from '../../core/media/detect.js'
 import { t } from '../../core/messages/index.js'
@@ -524,7 +525,16 @@ const plugin: FastifyPluginAsync<InlayOptions> = async (app, opts) => {
   })
 
   const siteAssets = publicAssets(opts.publicDir ?? null)
-  const cache = opts.cache === false ? undefined : new PageCache(opts.cache?.maxEntries ?? 500)
+  // A commit from another connection (the other worker during a `serve` swap, a second `inlaycms dev`) changes
+  // data_version; this connection's own writes don't, and the live ones among them clear the cache below.
+  let seen = dataVersion(db)
+  const changedElsewhere = () => {
+    const version = dataVersion(db)
+    if (version === seen) return false
+    seen = version
+    return true
+  }
+  const cache = opts.cache === false ? undefined : new PageCache(opts.cache?.maxEntries ?? 500, changedElsewhere)
   if (cache) {
     const stop = core.onLiveChange(() => cache.clear())
     app.addHook('onClose', async () => stop())

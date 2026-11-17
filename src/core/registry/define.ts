@@ -114,6 +114,8 @@ export interface CollectionDef<T extends TemplateDef = TemplateDef> {
   /** URL pattern containing `:slug`; `null` for a data collection. */
   route: string | null
   customPaths: boolean
+  /** A heading for this collection in the admin's menu; collections without one go under Content when they have pages of their own, under Building blocks otherwise. */
+  group?: string
   titleField: string
 }
 
@@ -124,6 +126,8 @@ export interface CollectionInput<T extends TemplateDef = TemplateDef> {
   template: T
   route?: string | null
   customPaths?: boolean
+  /** A heading for this collection in the admin's menu; collections without one go under Content when they have pages of their own, under Building blocks otherwise. */
+  group?: string
   titleField?: string
 }
 

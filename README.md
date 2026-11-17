@@ -517,6 +517,17 @@ export const site = defineSite({
   The color keys are daisyUI's (`base-100`, `base-200`, `base-300`, `base-content`, and `primary`, `secondary`, `accent`, `neutral`, `info`, `success`, `warning` and `error`, each with a `-content` partner). Values are hex (`#0b5fff`) or CSS color functions such as `oklch(…)`. Anything else stops the site at startup.
 - **Contrast warnings.** When a text color and its background are both hex values and their contrast is below 4.5:1 (WCAG AA), Inlay logs a warning once at startup. The site still starts. Inlay's default theme passes AA.
 
+### Menu groups
+
+A collection's `group` puts it under its own heading in the admin's menu. Custom groups sit between Content and Building blocks, in the order the site first uses them. Without a group, a collection with pages of its own (a `route` or `customPaths`) goes under Content, and any other collection goes under Building blocks. A group named "Content" or "Building blocks" adds the collection to that heading. Pages, Site-wide content and Media always stay under Content.
+
+```ts
+collections: [
+  defineCollection({ name: 'plans', label: 'Plans', template: plan, group: 'Pricing' }),
+  defineCollection({ name: 'discounts', label: 'Discounts', template: discount, group: 'Pricing' }),
+],
+```
+
 ### Suggested length
 
 `f.text` and `f.textarea` take `suggestedLength`, a soft limit beside `maxLength`. The admin shows a character counter under the field and, past the number, a hint that the text may be cut off where it's shown. It doesn't block saving or publishing, and the number is reported to assistants too. `f.seo()` suggests 70 characters for the title (at most 300) and 160 for the description (at most 500).

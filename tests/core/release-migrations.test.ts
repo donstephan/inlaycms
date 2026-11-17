@@ -1,6 +1,11 @@
+import { mkdtemp, rm } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import type { Kysely } from 'kysely'
 import { systemCtx } from '../../src/core/auth/roles.js'
 import { createCore } from '../../src/core/core.js'
+import { openDatabase } from '../../src/core/db/connection.js'
+import { migrateSystem } from '../../src/core/db/migrate.js'
 import type { Database } from '../../src/core/db/schema.js'
 import { InlayError } from '../../src/core/errors.js'
 import { defineSite } from '../../src/core/registry/define.js'
@@ -326,6 +331,32 @@ describe('release migrations', () => {
       }),
     ).rejects.toThrow('roll back')
     expect(await db.selectFrom('release_migrations').selectAll().execute()).toHaveLength(0)
+  })
+
+  it('takes the write lock before the first function runs', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'inlay-release-migrations-'))
+    const file = join(dir, 'inlay.db')
+    const db = openDatabase(file)
+    const other = openDatabase(file, { busyTimeoutMs: 0 })
+    try {
+      await migrateSystem(db)
+      const core = createCore({ site: shippedSite(), db, now: () => new Date() })
+      await insertRelease(db, 'r1')
+      const migrations = [
+        defineMigration({
+          name: 'contended',
+          run: async (ctx) => {
+            await ctx.types()
+            await expect(insertRelease(other, 'r2')).rejects.toMatchObject({ code: 'SQLITE_BUSY' })
+          },
+        }),
+      ]
+      expect(await core.runReleaseMigrations('r1', migrations)).toEqual(['contended'])
+    } finally {
+      await other.destroy()
+      await db.destroy()
+      await rm(dir, { recursive: true, force: true })
+    }
   })
 
   it('migration names must be unique', () => {

@@ -2,6 +2,7 @@ import type { Kysely } from 'kysely'
 import { findSingleton, findTranslation, getDocument, listEntries } from './content/read.js'
 import { findEntry, searchEntries } from './content/search.js'
 import { recentActivity } from './content/activity.js'
+import { withTransaction } from './content/dry-run.js'
 import { describeChanges, listPendingChanges, publish, unpublish, type PublishResult } from './content/publish.js'
 import {
   applyShippedContent,
@@ -239,9 +240,7 @@ export function createCore(opts: CreateCoreOptions): Core {
     ),
     runReleaseMigrations: live(
       (releaseId, migrations) =>
-        deps.db
-          .transaction()
-          .execute((trx) => runReleaseMigrations({ ...deps, db: trx }, releaseId, migrations, systemCtx('release'))),
+        withTransaction(deps, (tx) => runReleaseMigrations(tx, releaseId, migrations, systemCtx('release'))),
       (ran) => ran.length > 0,
     ),
     createTranslation: (groupId, locale, ctx) => createTranslation(deps, groupId, locale, ctx),

@@ -674,6 +674,7 @@ export const en = {
   'admin.nav.security': 'Security',
   'admin.nav.account': 'Your account',
   'admin.nav.content': 'Content',
+  'admin.nav.blocks': 'Building blocks',
   'admin.nav.site': 'Site',
   'admin.nav.open': 'Open menu',
   'admin.nav.close': 'Close menu',

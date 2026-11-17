@@ -10,12 +10,13 @@ const savepoints = new WeakMap<object, number>()
 /**
  * Runs `fn` in a transaction. When `deps.db` is already a transaction, `fn`
  * runs in a savepoint of it: a throw rolls back only what `fn` wrote, and
- * the rest commits or rolls back with the outer transaction. With `write`, a
- * new transaction takes the write lock before `fn` reads anything, so a commit
- * from another connection can't make its first write fail with
- * SQLITE_BUSY_SNAPSHOT; it waits for that connection instead. `write` inside
- * a transaction throws `error.transactionWrite`: what the outer one read can't
- * be made safe from there.
+ * the rest commits or rolls back with the outer transaction. A new transaction
+ * takes the write lock before `fn` reads anything, so a commit from another
+ * connection (another process on the same database) can't make its first write
+ * fail with SQLITE_BUSY or SQLITE_BUSY_SNAPSHOT; it waits for that connection
+ * instead. `write` says the caller needs that guarantee for everything it
+ * reads: inside a transaction it throws `error.transactionWrite`, since the
+ * outer one may not have taken the lock first.
  */
 export async function withTransaction<T>(
   deps: CoreDeps,
@@ -24,7 +25,7 @@ export async function withTransaction<T>(
 ): Promise<T> {
   if (!deps.db.isTransaction) {
     return deps.db.transaction().execute(async (trx) => {
-      if (opts.write) await sql`update releases set name = name where id = ''`.execute(trx)
+      await sql`update releases set name = name where id = ''`.execute(trx)
       return fn({ ...deps, db: trx })
     })
   }

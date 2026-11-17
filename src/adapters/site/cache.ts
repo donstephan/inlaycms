@@ -38,7 +38,15 @@ export class PageCache {
   readonly #entries = new Map<string, CachedResponse>()
   #generation = 0
 
-  constructor(readonly maxEntries: number) {}
+  readonly #changedElsewhere: () => boolean
+
+  /** `changedElsewhere`: asked on every lookup; true empties the cache first (a write the site's own core didn't make). */
+  constructor(
+    readonly maxEntries: number,
+    changedElsewhere: () => boolean = () => false,
+  ) {
+    this.#changedElsewhere = changedElsewhere
+  }
 
   get generation(): number {
     return this.#generation
@@ -49,6 +57,7 @@ export class PageCache {
   }
 
   get(key: string): CachedResponse | undefined {
+    if (this.#changedElsewhere()) this.clear()
     const value = this.#entries.get(key)
     if (value === undefined) return undefined
     this.#entries.delete(key)

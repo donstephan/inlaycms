@@ -3,11 +3,11 @@ import { noticeOf, type AdminContext } from '../../src/adapters/admin/context.js
 import { resolveTheme } from '../../src/adapters/admin/theme.js'
 import { adminPage } from '../../src/adapters/admin/views/layout.js'
 import { t } from '../../src/core/messages/index.js'
-import { defineSite } from '../../src/core/registry/define.js'
+import { defineCollection, defineSite } from '../../src/core/registry/define.js'
 import { raw } from '../../src/jsx/html.js'
 import { parseHtml, signIn, submittedForm } from '../helpers/admin.js'
 import { makeApp } from '../helpers/app.js'
-import { webSite } from '../fixtures/web.js'
+import { posts, testimonials, webSite } from '../fixtures/web.js'
 
 const CSP =
   "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; object-src 'none'; base-uri 'none'; frame-ancestors 'none'"
@@ -34,6 +34,15 @@ async function noOwner() {
 
 const navLinks = (html: string) =>
   [...parseHtml(html).querySelectorAll('nav a[href]')].map((a) => ({ href: a.getAttribute('href'), text: a.textContent?.trim() }))
+
+/** The main menu's groups: each list's accessible name (from the heading it is labelled by) and its links. */
+const menuSections = (html: string) => {
+  const doc = parseHtml(html)
+  return [...doc.querySelectorAll('nav[aria-label="Main menu"] ul.menu > li > ul[aria-labelledby]')].map((list) => ({
+    title: doc.getElementById(list.getAttribute('aria-labelledby')!)?.textContent?.trim() ?? '',
+    hrefs: [...list.querySelectorAll(':scope > li > a[href]')].map((a) => a.getAttribute('href')),
+  }))
+}
 
 function expectStructure(res: LightMyRequestResponse) {
   const doc = parseHtml(res.body)
@@ -97,10 +106,61 @@ describe('navigation', () => {
     const owner = await signIn(app, 'owner@example.com')
     const doc = parseHtml((await owner.get('/admin')).body)
     const titles = [...doc.querySelectorAll('nav[aria-label="Main menu"] .menu-title')].map((li) => li.textContent?.trim())
-    expect(titles).toEqual(['Content', 'Site'])
+    expect(titles).toEqual(['Content', 'Building blocks', 'Site'])
     const badge = doc.querySelector('nav a[href="/admin/collections/posts"] .badge')
     expect(badge?.textContent?.trim()).toBe(String(total))
     expect(doc.querySelector('nav a[href="/admin/media"] .badge')).toBeNull()
+  })
+
+  it('puts collections under their group headings', async () => {
+    const like = { template: testimonials.template, titleField: 'author' }
+    const site = defineSite({
+      ...webSite,
+      collections: [
+        posts,
+        defineCollection({ name: 'plans', label: 'Plans', ...like, group: 'Pricing' }),
+        defineCollection({ name: 'team', label: 'Team', ...like, group: 'Library ' }),
+        defineCollection({ name: 'faqs', label: 'FAQs', ...like, group: 'Library' }),
+        testimonials,
+        defineCollection({ name: 'extras', label: 'Extras', ...like, group: 'Content' }),
+        defineCollection({ name: 'notes', label: 'Notes', ...like, group: '  ' }),
+        defineCollection({ name: 'articles', label: 'Articles', template: posts.template, customPaths: true }),
+        defineCollection({ name: 'guides', label: 'Guides', template: posts.template, route: '/guides/:slug' }),
+        defineCollection({ name: 'widgets', label: 'Widgets', ...like, group: 'Building blocks' }),
+      ],
+    })
+    const { app } = await makeApp({ withOwner: true, site })
+    open.push(app)
+    const owner = await signIn(app, 'owner@example.com')
+    const body = (await owner.get('/admin')).body
+    const sections = menuSections(body)
+    const headings = [...parseHtml(body).querySelectorAll('nav[aria-label="Main menu"] .menu-title')].map((li) => li.textContent)
+    expect(headings).toContain('Library')
+    expect(sections.map((s) => s.title)).toEqual(['Content', 'Pricing', 'Library', 'Building blocks', 'Site'])
+    const hrefs = (title: string) => sections.find((s) => s.title === title)?.hrefs
+    expect(hrefs('Content')).toEqual([
+      '/admin/pages',
+      '/admin/globals',
+      '/admin/collections/posts',
+      '/admin/collections/extras',
+      '/admin/collections/articles',
+      '/admin/collections/guides',
+      '/admin/media',
+    ])
+    expect(hrefs('Library')).toEqual(['/admin/collections/team', '/admin/collections/faqs'])
+    expect(hrefs('Pricing')).toEqual(['/admin/collections/plans'])
+    expect(hrefs('Building blocks')).toEqual([
+      '/admin/collections/testimonials',
+      '/admin/collections/notes',
+      '/admin/collections/widgets',
+    ])
+  })
+
+  it('hides a heading with nothing under it', async () => {
+    const { app } = await makeApp({ withOwner: true, site: defineSite({ ...webSite, collections: [posts, defineCollection({ ...testimonials, group: 'Content' })] }) })
+    open.push(app)
+    const owner = await signIn(app, 'owner@example.com')
+    expect(menuSections((await owner.get('/admin')).body).map((s) => s.title)).toEqual(['Content', 'Site'])
   })
 
   it('puts the search, View site and Publish in the top bar', async () => {

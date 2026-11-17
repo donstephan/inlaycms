@@ -64,8 +64,7 @@ interface NavItem {
 
 interface NavGroups {
   top: NavItem[]
-  content: NavItem[]
-  site: NavItem[]
+  sections: { title: string; items: NavItem[] }[]
 }
 
 /** The sections `actor` may visit, grouped as in the menu; collections carry their entry counts. */
@@ -73,16 +72,25 @@ function navItems(ctx: AdminContext, actor: Actor, counts: Record<string, { tota
   const { site } = ctx.core.registry
   const top: NavItem[] = [{ section: 'dashboard', href: '/admin', label: t('admin.nav.dashboard'), icon: 'dashboard' }]
   const content: NavItem[] = []
+  const blocks: NavItem[] = []
+  const custom = new Map<string, NavItem[]>()
   if (site.singletons.length > 0) content.push({ section: 'pages', href: '/admin/pages', label: t('admin.nav.pages'), icon: 'file' })
   if (site.globals.length > 0) content.push({ section: 'globals', href: '/admin/globals', label: t('admin.nav.globals'), icon: 'globe' })
+  const contentTitle = t('admin.nav.content')
+  const blocksTitle = t('admin.nav.blocks')
   for (const collection of site.collections) {
-    content.push({
+    const item: NavItem = {
       section: `collection:${collection.name}`,
       href: `/admin/collections/${encodeURIComponent(collection.name)}`,
       label: collection.label,
       icon: 'collection',
       count: counts[collection.name]?.total ?? 0,
-    })
+    }
+    const group = collection.group?.trim() ?? ''
+    const hasPages = collection.route !== null || collection.customPaths
+    if (group === contentTitle || (group === '' && hasPages)) content.push(item)
+    else if (group === blocksTitle || group === '') blocks.push(item)
+    else custom.set(group, [...(custom.get(group) ?? []), item])
   }
   content.push({ section: 'media', href: '/admin/media', label: t('admin.nav.media'), icon: 'image' })
   const siteItems: NavItem[] = [{ section: 'redirects', href: '/admin/redirects', label: t('admin.nav.redirects'), icon: 'redirect' }]
@@ -94,7 +102,13 @@ function navItems(ctx: AdminContext, actor: Actor, counts: Record<string, { tota
     }
     siteItems.push({ section: 'security', href: '/admin/security', label: t('admin.nav.security'), icon: 'lock' })
   }
-  return { top, content, site: siteItems }
+  const sections = [
+    { title: contentTitle, items: content },
+    ...[...custom].map(([title, items]) => ({ title, items })),
+    { title: blocksTitle, items: blocks },
+    { title: t('admin.nav.site'), items: siteItems },
+  ]
+  return { top, sections }
 }
 
 function NavLink({ item, section }: { item: NavItem; section: Section | undefined }) {
@@ -180,14 +194,20 @@ function Nav({
         {groups.top.map((item) => (
           <NavLink item={item} section={section} />
         ))}
-        <li class="menu-title mt-3 text-xs">{t('admin.nav.content')}</li>
-        {groups.content.map((item) => (
-          <NavLink item={item} section={section} />
-        ))}
-        <li class="menu-title mt-3 text-xs">{t('admin.nav.site')}</li>
-        {groups.site.map((item) => (
-          <NavLink item={item} section={section} />
-        ))}
+        {groups.sections
+          .filter((group) => group.items.length > 0)
+          .map((group, i) => (
+            <li>
+              <span id={`admin-nav-group-${i}`} class="menu-title mt-3 text-xs">
+                {group.title}
+              </span>
+              <ul aria-labelledby={`admin-nav-group-${i}`} class="ms-0 flex flex-col gap-0.5 ps-0 before:hidden">
+                {group.items.map((item) => (
+                  <NavLink item={item} section={section} />
+                ))}
+              </ul>
+            </li>
+          ))}
       </ul>
       <div class="border-t border-base-300 p-2">
         <PersonMenu actor={actor} section={section} />

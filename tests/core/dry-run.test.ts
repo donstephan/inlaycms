@@ -90,17 +90,15 @@ describe('withTransaction with write', () => {
     return { a, b, deps, insert, values }
   }
 
-  it('without it, a commit from another connection after a read fails the first write', async () => {
+  it('without it, a new transaction still takes the write lock before its first read', async () => {
     const { a, b, deps, insert, values } = await connections()
     try {
-      await expect(
-        withTransaction(deps, async (tx) => {
-          await sql`select count(*) from t`.execute(tx.db)
-          await insert(b, 'other')
-          await insert(tx.db, 'mine')
-        }),
-      ).rejects.toMatchObject({ code: 'SQLITE_BUSY_SNAPSHOT' })
-      expect(await values()).toEqual(['other'])
+      await withTransaction(deps, async (tx) => {
+        await sql`select count(*) from t`.execute(tx.db)
+        await expect(insert(b, 'other')).rejects.toMatchObject({ code: 'SQLITE_BUSY' })
+        await insert(tx.db, 'mine')
+      })
+      expect(await values()).toEqual(['mine'])
     } finally {
       await b.destroy()
       await a.destroy()

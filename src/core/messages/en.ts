@@ -77,7 +77,7 @@ export const en = {
     'The template "{name}" has no render function, so its pages can\'t be shown. Add a render function to the template.',
   'config.headJsonLd': "A template added JSON-LD that can't be written as JSON.",
   'config.headHref':
-    'A template added a link to "{href}", which isn\'t a safe address. Use a path on this site or an http(s) URL.',
+    'A template added a link to "{href}", which isn\'t a safe address. Use a path on this site or an http or https URL.',
   'config.publicKey':
     "That isn't a public key. It should look like ed25519: followed by letters and digits (as printed by inlaycms keygen), but it was: {text}",
   'config.baseUrl':
@@ -342,6 +342,9 @@ export const en = {
     'Inlay can\'t go ahead until the site code and the database fit together. Fix the {count} {count|problem|problems} below and try again.\n{list}',
   'error.noDatabase': 'There is no database file at {path}.',
   'error.configMissing': 'There is no Inlay config file at {path}.',
+  'error.testSitePath': 'A test site fetches paths on the site, starting with / (such as /about), not "{path}".',
+  'error.testSiteBody': 'A test site can send a text or URLSearchParams body, nothing else.',
+  'error.testSiteClosed': 'This test site has been closed. Make a new one with createTestSite.',
   'error.packImport':
     "{file} imports {specifier}, which a release can't include. Site code imports Inlay from inlaycms/site (and the JSX runtime), and may use packages that can be bundled with it, but not Node's own modules or the rest of inlaycms. This check catches mistakes; what makes a release trusted is its signature.",
   'error.packForbidden':

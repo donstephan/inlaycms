@@ -10,6 +10,7 @@ export default defineConfig({
       { find: /^inlaycms\/jsx-runtime$/, replacement: src('./src/jsx/jsx-runtime.ts') },
       { find: /^inlaycms\/jsx-dev-runtime$/, replacement: src('./src/jsx/jsx-dev-runtime.ts') },
       { find: /^inlaycms\/site$/, replacement: src('./src/site.ts') },
+      { find: /^inlaycms\/testing$/, replacement: src('./src/testing.ts') },
       { find: /^inlaycms$/, replacement: src('./src/index.ts') },
     ],
   },

@@ -35,6 +35,10 @@
       "types": "./dist/site.d.ts",
       "default": "./dist/site.js"
     },
+    "./testing": {
+      "types": "./dist/testing.d.ts",
+      "default": "./dist/testing.js"
+    },
     "./jsx-runtime": {
       "types": "./dist/jsx/jsx-runtime.d.ts",
       "default": "./dist/jsx/jsx-runtime.js"

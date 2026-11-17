@@ -38,6 +38,7 @@ export const INLAY_ENTRIES: Readonly<Record<string, string>> = {
   'inlaycms/site': entry('site'),
   'inlaycms/jsx-runtime': entry('jsx/jsx-runtime'),
   'inlaycms/jsx-dev-runtime': entry('jsx/jsx-dev-runtime'),
+  'inlaycms/testing': entry('testing'),
 }
 
 /** The files of the `inlaycms` shim package, by name. */

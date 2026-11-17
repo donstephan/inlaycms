@@ -148,6 +148,12 @@ await check('read the release with the installed package', () => {
   if (r.stdout.trim() !== '["en","es"]') throw new Error(`unexpected locales: ${r.stdout}`)
 })
 
+await check('inlaycms/testing with the installed package', () => {
+  // Plain node, no tsx: the installed package's exports must name dist/testing.js.
+  const r = spawnSync('node', ['testing-smoke.ts'], { env, encoding: 'utf8' })
+  if (r.status !== 0) throw new Error(`exit ${r.status}: ${r.stdout}${r.stderr}`)
+})
+
 await check('cli activate offline', () => {
   const r = cli(['activate', 'release.tgz', '--data', DATA])
   expectCli(r, 'inlaycms activate')

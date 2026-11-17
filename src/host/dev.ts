@@ -8,7 +8,7 @@ import { loadConfig } from '../config.js'
 import { InlayError } from '../core/errors.js'
 import { t } from '../core/messages/index.js'
 import { INLAY_ENTRIES } from '../core/release/read.js'
-import { createSiteApp } from './app.js'
+import { createSiteApp, sourceFromConfig } from './app.js'
 import { INLAY_BIN } from './bin.js'
 import { ensureDataDir, readHostConfig } from './config.js'
 
@@ -147,16 +147,10 @@ async function runSite(configFile: string, io: DevIo): Promise<number> {
   process.on('disconnect', () => void close())
   try {
     useRunningInlay()
-    const { config, dir } = await loadConfig(configFile)
+    const loaded = await loadConfig(configFile)
     const host = readHostConfig(process.env)
     await ensureDataDir(host)
-    const publicDir = join(dir, 'public')
-    app = (
-      await createSiteApp(host, { site: config.site, publicDir: existsSync(publicDir) ? publicDir : null }, {
-        content: 'apply',
-        logger: true,
-      })
-    ).app
+    app = (await createSiteApp(host, sourceFromConfig(loaded), { content: 'apply', logger: true })).app
     if (closing) return 0
     await app.listen({ port: host.port, host: host.host })
   } catch (e) {

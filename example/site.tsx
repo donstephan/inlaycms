@@ -217,6 +217,23 @@ const ThankYou = defineTemplate({
   ),
 })
 
+/** The contact page; the `GET /contact` route renders it. */
+const Contact = defineTemplate({
+  name: 'contact',
+  label: 'Contact',
+  fields: z.object({
+    title: f.text({ label: 'Title' }),
+  }),
+  render: ({ fields }, ctx) => (
+    <Layout ctx={ctx}>
+      <main>
+        <h1>{fields.title}</h1>
+        <ContactForm ctx={ctx} />
+      </main>
+    </Layout>
+  ),
+})
+
 const BlogIndex = defineTemplate({
   name: 'blogIndex',
   label: 'Blog',
@@ -390,7 +407,8 @@ export const site = defineSite({
   admin: { name: 'Example Studio', logo: '/public/logo.svg' },
   notFound: 'notFound',
   secrets: ['SLACK_WEBHOOK'],
-  routes: contactRoutes(ThankYou),
+  routes: contactRoutes(ThankYou, Contact),
+  redirects: [{ from: '/about-us', to: '/about' }],
   migrations,
   singletons: [
     defineSingleton({

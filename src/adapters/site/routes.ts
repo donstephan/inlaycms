@@ -25,6 +25,8 @@ export interface ReleaseRouteOptions {
   preview?: boolean
   /** Host-supplied secret values; a route sees only the ones its site declares. */
   secrets: Readonly<Record<string, string>>
+  /** What a route gets as `ctx.fetch`. */
+  fetch: typeof fetch
   log: FastifyBaseLogger
 }
 
@@ -145,7 +147,7 @@ export function registerReleaseRoutes(app: FastifyInstance, opts: ReleaseRouteOp
             const html = await renderTemplateData(core, template, doc, { locale, path: route.path, baseUrl, canonical, assets, preview: opts.preview === true })
             return { status: o.status ?? 200, headers: { 'content-type': HTML }, body: html }
           },
-          fetch: (input, init) => globalThis.fetch(input, init),
+          fetch: opts.fetch,
           secrets,
           redirect: (location, status = 303) => ({ status, headers: { location } }),
           baseUrl,

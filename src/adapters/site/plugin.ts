@@ -65,6 +65,8 @@ export interface InlayOptions {
   publicMaxAge?: number
   /** Secret values by name, such as API tokens. Routes see only the ones their site declares in `secrets`. */
   secrets?: Record<string, string>
+  /** What routes get as `ctx.fetch`; the global `fetch` by default. */
+  fetch?: typeof fetch
   /** `'apply'` (the default) applies the site's shipped content at boot; `'none'` leaves content to release activation. */
   content?: 'apply' | 'none'
   /**
@@ -576,7 +578,7 @@ const plugin: FastifyPluginAsync<InlayOptions> = async (app, opts) => {
   })
   registerMediaRoutes(app, core)
   if (opts.publicDir !== undefined) registerPublicRoutes(app, { dir: opts.publicDir, maxAge: opts.publicMaxAge ?? 3600 })
-  registerReleaseRoutes(app, { core, registry, baseUrl, assets: siteAssets, secrets: opts.secrets ?? {}, log: app.log, preview: opts.preview === 'forced' })
+  registerReleaseRoutes(app, { core, registry, baseUrl, assets: siteAssets, secrets: opts.secrets ?? {}, fetch: opts.fetch ?? ((input, init) => globalThis.fetch(input, init)), log: app.log, preview: opts.preview === 'forced' })
   registerPreviewRoutes(app, { secret, baseUrl, now })
   registerSiteRoutes(app, core, cache, {
     baseUrl,

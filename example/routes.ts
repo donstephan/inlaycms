@@ -1,14 +1,16 @@
 import { defineRoute } from 'inlaycms/site'
 import type { RouteDef, TemplateDef } from 'inlaycms/site'
 
-const copy: Record<string, { thanks: string; note: string; missing: string; missingNote: string }> = {
+const copy: Record<string, { contact: string; thanks: string; note: string; missing: string; missingNote: string }> = {
   en: {
+    contact: 'Contact us',
     thanks: 'Thank you',
     note: 'We got your message and will reply within two working days.',
     missing: 'Please add your email',
     missingNote: 'We need an email address to reply to you. Go back and try again.',
   },
   es: {
+    contact: 'Contactanos',
     thanks: 'Gracias',
     note: 'Recibimos tu mensaje y te responderemos en dos dias habiles.',
     missing: 'Falta tu email',
@@ -21,9 +23,18 @@ function field(body: unknown, name: string): string {
   return typeof value === 'string' ? value.trim() : ''
 }
 
-/** The contact form on the About page posts here. `thankYou` is the template the answer renders with. */
-export function contactRoutes(thankYou: TemplateDef): RouteDef[] {
+/** The contact form on the About page posts here. `thankYou` is the template the answer renders with, `contact` the one `GET /contact` renders. */
+export function contactRoutes(thankYou: TemplateDef, contact: TemplateDef): RouteDef[] {
   return [
+    defineRoute({
+      method: 'GET',
+      path: '/contact',
+      sitemap: true,
+      handler: async (_request, ctx) => {
+        const text = copy[ctx.locale] ?? copy.en!
+        return ctx.render(contact, { fields: { title: text.contact } })
+      },
+    }),
     defineRoute({
       method: 'POST',
       path: '/contact',

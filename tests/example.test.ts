@@ -56,6 +56,19 @@ describe('example site', () => {
     expect(res.body).toContain('alt="A blue and orange gradient"')
   })
 
+  it('sends the old /about-us to /about with a code redirect', async () => {
+    const res = await get('/about-us')
+    expect(res.statusCode).toBe(301)
+    expect(res.headers.location).toBe('/about')
+  })
+
+  it('serves the contact page and lists it in the sitemap', async () => {
+    const res = await get('/contact')
+    expect(res.statusCode).toBe(200)
+    expect(res.body).toMatch(/<form[^>]*action="\/contact"/)
+    expect((await get('/sitemap.xml')).body).toContain('/contact</loc>')
+  })
+
   it('renders the example 404 page', async () => {
     const res = await get('/nope')
     expect(res.statusCode).toBe(404)

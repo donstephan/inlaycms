@@ -186,6 +186,7 @@ describe('packRelease', () => {
       ['an import() of a built-in by concatenation', "export const fs = import('node:' + 'fs')", 'error.packImport', { specifier: 'node:fs' }],
       ['process.env', 'export const x = process.env.X', 'error.packForbidden', { what: 'process' }],
       ['inlaycms itself', "export { openDatabase } from 'inlaycms'", 'error.packImport', { specifier: 'inlaycms' }],
+      ['inlaycms/testing', "export { createTestSite } from 'inlaycms/testing'", 'error.packImport', { specifier: 'inlaycms/testing' }],
       ['eval', "export const run = (s: string) => eval(s)", 'error.packForbidden', { what: 'eval' }],
       ['globalThis.Function', "export const f = globalThis.Function('x')", 'error.packForbidden', { what: 'globalThis.Function' }],
       ['global.eval', "export const run = (s: string) => global.eval(s)", 'error.packForbidden', { what: 'global.eval' }],
@@ -614,7 +615,7 @@ describe('readRelease', () => {
     await loadRelease(releaseDir)
     const shim = join(releaseDir, 'node_modules/inlaycms')
     const names = (await readdir(shim)).sort()
-    expect(names).toEqual(['index.js', 'jsx-dev-runtime.js', 'jsx-runtime.js', 'package.json', 'site.js'])
+    expect(names).toEqual(['index.js', 'jsx-dev-runtime.js', 'jsx-runtime.js', 'package.json', 'site.js', 'testing.js'])
     const right = await readFile(join(shim, 'index.js'), 'utf8')
     await writeFile(join(shim, 'index.js'), 'export {}\n')
     await rm(join(shim, 'site.js'))

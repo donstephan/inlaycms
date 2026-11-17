@@ -1,6 +1,9 @@
+import { existsSync } from 'node:fs'
+import { join } from 'node:path'
 import Fastify, { type FastifyInstance } from 'fastify'
 import type { Kysely } from 'kysely'
 import { AUTH, inlay, type HostApi } from '../adapters/site/plugin.js'
+import type { LoadedConfig } from '../config.js'
 import { catalogPage } from '../adapters/site/render.js'
 import type { Core } from '../core/core.js'
 import { openDatabase } from '../core/db/connection.js'
@@ -27,6 +30,12 @@ export interface SiteSource {
   publicDir: string | null
   /** Each shipped file's source as the site names it, to the file to read. */
   shippedFiles?: ReadonlyMap<string, string>
+}
+
+/** The source of a site run from its code (`inlaycms dev` and `inlaycms/testing`): its `public/` folder, if it has one. */
+export function sourceFromConfig(loaded: LoadedConfig): SiteSource {
+  const publicDir = join(loaded.dir, 'public')
+  return { site: loaded.config.site, publicDir: existsSync(publicDir) ? publicDir : null }
 }
 
 /**
@@ -56,6 +65,8 @@ export async function createSiteApp(
     diff?: (core: Core) => Promise<ContentDiff>
     /** The largest release file a push may send (`PUSH_MAX_BYTES` by default); for tests. */
     pushMaxBytes?: number
+    /** What routes get as `ctx.fetch`; the global `fetch` by default. */
+    fetch?: typeof fetch
   },
 ): Promise<{ app: FastifyInstance; core: Core }> {
   const app = Fastify({ logger: opts.logger ?? false, trustProxy: config.trustProxy })
@@ -116,6 +127,7 @@ export async function createSiteApp(
       publicMaxAge: config.publicMaxAge,
       ...(source?.publicDir != null && { publicDir: source.publicDir }),
       secrets: config.secrets(source?.site.secrets ?? []),
+      ...(opts.fetch && { fetch: opts.fetch }),
       content: opts.content,
       ...(source?.shippedFiles && { shippedFiles: source.shippedFiles }),
       ...(opts.now && { now: opts.now }),

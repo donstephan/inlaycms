@@ -92,6 +92,17 @@ describe('release routes', () => {
     expect(missing.body).toBe('email required')
   })
 
+  it('gives routes the fetch the plugin was given', async () => {
+    const global = stubFetch()
+    const standIn = vi.fn<typeof fetch>(async () => new Response('ok'))
+    const { app } = await setup({ secrets: { HOOK_TOKEN: 'tok' }, fetch: standIn })
+    const res = await app.inject({ method: 'POST', url: '/contact', headers: { 'content-type': FORM }, payload: 'email=a%40b.c' })
+    expect(res.statusCode).toBe(200)
+    expect(standIn).toHaveBeenCalledTimes(1)
+    expect(String(standIn.mock.calls[0]![0])).toBe('https://example.com/__hook')
+    expect(global).not.toHaveBeenCalled()
+  })
+
   it('renders at the request locale, with a status', async () => {
     stubFetch()
     const { app } = await setup()

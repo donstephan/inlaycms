@@ -35,6 +35,18 @@ export function normalizePath(raw: string): string | null {
   return decoded.length > 1 && decoded.endsWith('/') ? decoded.slice(0, -1) : decoded
 }
 
+/**
+ * The lowercase form of a decoded, slash-trimmed path, for the fallback tried just before a 404.
+ * `null` when the path has no uppercase letter, lowercases to a reserved path, or ends in a segment
+ * that looks like a file (contains a `.`).
+ */
+export function lowercaseFallback(path: string): string | null {
+  const lower = path.toLowerCase()
+  if (lower === path || isReserved(lower)) return null
+  if ((lower.split('/').at(-1) ?? '').includes('.')) return null
+  return lower
+}
+
 export function encodePath(path: string): string {
   return path.split('/').map(encodeURIComponent).join('/')
 }

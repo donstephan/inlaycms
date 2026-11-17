@@ -82,6 +82,12 @@ export async function upgradeDatabase(
       document: { id: d.id, type: d.type, locale: d.locale, title: d.title },
     })
   }
+  for (const { from, hidden } of await core.listCodeRedirects()) {
+    if (hidden) report.warnings.push({ code: 'redirect_hidden', message: t('report.redirectHidden', { from }), redirect: { from } })
+  }
+  for (const from of await core.codeRedirectLoops()) {
+    report.warnings.push({ code: 'redirect_loop', message: t('report.redirectLoop', { from }), redirect: { from } })
+  }
   return report
 }
 

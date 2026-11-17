@@ -9,6 +9,8 @@ import { inlayVersion } from '../version.js'
 
 export const MANIFEST_FORMAT = 1
 
+export type ManifestRedirect = { from: string; to: string; status: 301 | 302 }
+
 /** What `manifest.json` in a release says; `manifest.sig` signs its bytes. */
 export interface ReleaseManifest {
   format: 1
@@ -31,6 +33,8 @@ export interface ReleaseManifest {
   /** Names of the site's migration functions, in order. */
   migrations: string[]
   routes: Array<{ method: string; path: string }>
+  /** The site's code redirects in stored form; absent in manifests made before 0.3, which means none. */
+  redirects?: ManifestRedirect[]
   locales: string[]
   /** Each type's kind and slot names, by type name. */
   types: Record<string, { kind: 'singleton' | 'collection' | 'global'; slots: string[] }>
@@ -57,6 +61,9 @@ export const manifestSchema = z.strictObject({
   ),
   migrations: z.array(z.string()),
   routes: z.array(z.strictObject({ method: z.string(), path: z.string() })),
+  redirects: z
+    .array(z.strictObject({ from: z.string(), to: z.string(), status: z.union([z.literal(301), z.literal(302)]) }))
+    .optional(),
   locales: z.array(z.string()),
   types: z.record(
     z.string(),
@@ -171,6 +178,7 @@ export function manifestOfRegistry(
     ),
     migrations: site.migrations.map((m) => m.name),
     routes: site.routes.map(({ method, path }) => ({ method, path })),
+    redirects: registry.redirects.map(({ from, to, status }) => ({ from, to, status })),
     locales: [...registry.locales],
     types: Object.fromEntries(
       [...registry.types].map(([name, def]) => [name, { kind: def.kind, slots: Object.keys(def.template.slots) }]),

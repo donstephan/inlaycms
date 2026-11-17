@@ -283,7 +283,7 @@ describe('importRedirects', () => {
       'from,to,status',
       '/fine,/about',
       '/bad-status,/about,303',
-      '/offsite,https://x.com',
+      '/offsite,http://x.com',
       '/fine,/',
       '/loop-a,/loop-b',
       '/loop-b,/loop-a',

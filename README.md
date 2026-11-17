@@ -204,7 +204,7 @@ export INLAY_PUSH_TOKEN=...   # or --token <token>
 npx inlaycms push https://example.com --key keys/release.key
 ```
 
-`push` packs the site into a temporary file (as `pack` does, type check included; `--key` or `INLAY_SIGNING_KEY`, `--name`, `--no-typecheck`), or sends the release file given with `--file`. The host checks its signature, the Inlay version and the secrets it needs, keeps it as staged (not live yet) and answers with what it would change, which `push` prints one line per item: content types, slots, languages and fields added or removed (removed content is hidden, never deleted), the published documents a new required field leaves with a gap, the shipped documents it will create or replace, migration functions, routes and secrets. It also warns about shipped content that changed while its edition didn't ("`home` content changed but is still edition 2; it won't be applied"): bump the edition to have it applied. Several releases can be staged at once.
+`push` packs the site into a temporary file (as `pack` does, type check included; `--key` or `INLAY_SIGNING_KEY`, `--name`, `--no-typecheck`), or sends the release file given with `--file`. The host checks its signature, the Inlay version and the secrets it needs, keeps it as staged (not live yet) and answers with what it would change, which `push` prints one line per item: content types, slots, languages and fields added or removed (removed content is hidden, never deleted), the published documents a new required field leaves with a gap, the shipped documents it will create or replace, migration functions, routes, code redirects and secrets. It also warns about shipped content that changed while its edition didn't ("`home` content changed but is still edition 2; it won't be applied"): bump the edition to have it applied. Several releases can be staged at once.
 
 A staged release also gets a preview link, which `push` prints: opening it shows the whole site as that release would, on a copy of the live content, for 24 hours, in that browser only. Nothing can be changed in a preview; the admin stays the live site's. Exit the preview at `/_inlay/preview/exit`.
 
@@ -430,6 +430,49 @@ Inlay keeps rendered pages in memory and clears them on every publish, so a sing
 - Media files are content-addressed and sent with a one-year immutable lifetime.
 
 Tune the shared lifetime with `INLAY_CDN_MAX_AGE` (seconds, default 15) and `INLAY_CDN_STALE_IF_ERROR` (seconds, default 86400). `INLAY_CDN_MAX_AGE=0` makes shared caches revalidate on every request, which still saves bandwidth through the 304s. Preview pages are never cached (`no-store`), so a draft cannot reach a shared cache. Published pages are marked `Vary: Cookie`; if your CDN ignores that header for HTML, add a rule to bypass its cache when the `inlay_preview` cookie is present, or editors with a preview cookie may be served the cached public page.
+
+## Redirects
+
+Redirects that belong to the site go in its code, so they ship with each release:
+
+```ts
+export const site = defineSite({
+  ...,
+  redirects: [
+    { from: '/about-us', to: '/about' },
+    { from: '/blog/:slug', to: '/:slug' },
+    { from: '/g2', to: 'https://www.g2.com/products/realciso/reviews' },
+    { from: '/old-landing', to: '/', status: 302 },
+  ],
+})
+```
+
+`from` is a path or a pattern with `:name` segments, `to` is a site path (with those names filled in) or an `https://` address, and `status` is `301` (the default) or `302`.
+
+- A published page at a rule's `from` wins over the rule, and so does a code route. An admin redirect with the same `from` overrides a code rule, and deleting it brings the code rule back. A delete that would leave visitors going round in a loop is refused, as a new redirect that would loop is. The admin's Redirects screen and the `list_redirects` tool show code rules read-only.
+- Rules ship with each release, so they follow activation and rollback: a rule is live only while its release is.
+- `inlaycms check` warns about rules that loop, and about rules that never fire because published pages answer at their `from` (in every language the rule applies in), without failing.
+- A redirect to an `https://` address, whether it comes from code, the admin, a CSV import or the MCP tools, doesn't pass the visitor's query string on. Redirects within the site still do.
+- Paths are case-sensitive. The one exception: a path with an uppercase letter that would otherwise be a 404 is redirected when something answers at its lowercase form. A page or a code route there gets a 301 to the lowercase path. A redirect rule there sends the visitor straight to the rule's target with the rule's own status, so a `302` rule stays a 302. That doesn't apply to reserved paths (`/admin`, `/media`, `/public` and the like) or to paths whose last segment contains a `.`.
+
+## Security headers
+
+Every response carries `X-Content-Type-Options: nosniff`, `Referrer-Policy: strict-origin-when-cross-origin` and `Content-Security-Policy: frame-ancestors 'self'` (only the site itself may frame its pages). When the site's base URL is `https://`, responses also carry `Strict-Transport-Security: max-age=31536000`, so browsers keep to https for a year. The admin sends its own stricter policy, and a response that sets one of these headers itself keeps its own.
+
+A site changes or adds headers with `headers` in `defineSite`. A value replaces Inlay's default and `false` leaves the default out:
+
+```ts
+export const site = defineSite({
+  ...,
+  headers: {
+    'Content-Security-Policy': "default-src 'self'; img-src 'self' https://images.example.com; frame-ancestors 'none'",
+    'Permissions-Policy': 'camera=(), microphone=(), geolocation=()',
+    'Strict-Transport-Security': 'max-age=63072000; includeSubDomains; preload',
+  },
+})
+```
+
+A CSP set here replaces the default one, so include `frame-ancestors` in it. If your reverse proxy already sends HSTS, set `'Strict-Transport-Security': false` so browsers don't get it twice.
 
 ## Site password
 

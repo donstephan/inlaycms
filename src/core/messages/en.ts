@@ -215,6 +215,10 @@ export const en = {
     'The site\'s publicPaths lists "{path}", but every entry must be a path starting with /, such as /healthz.',
   'definition.secretName':
     'The site\'s secrets list "{name}" more than once or in the wrong form. Each secret is listed once, in capital letters, digits and underscores starting with a letter, such as SLACK_WEBHOOK.',
+  'definition.headerName':
+    'The site\'s headers list "{name}", which is not allowed. List each header once, by a name made of letters, digits and hyphens, such as Permissions-Policy. Inlay sets Cache-Control, Content-Type, Set-Cookie, Location, ETag and Vary itself.',
+  'definition.headerValue':
+    'The site\'s header "{name}" has a value that is not allowed. Give it a single line of text, or false to leave Inlay\'s default out.',
   'definition.migrationName':
     'The site\'s migrations use the name "{name}" more than once or leave it empty. Give each migration its own name, such as team-to-people.',
   'definition.routePath':
@@ -225,6 +229,18 @@ export const en = {
     'The route path "{path}" would hide pages of "{name}" in one of the site\'s languages. Pick a path no page uses.',
   'definition.routeDuplicate': 'Two routes handle {method} requests to "{path}". Keep one of them.',
   'definition.routeMethod': 'The route "{path}" uses the method {method}. Routes can only handle GET and POST.',
+  'definition.redirectFrom':
+    'The redirect from "{from}" can\'t be used. Write the old address as a path such as /old-page, with no "?" or "#", no repeated ":name", and not under Inlay\'s own paths or the default language\'s prefix.',
+  'definition.redirectTo':
+    'The redirect from "{from}" goes to "{to}", which can\'t be used. Point it at a path such as /about (without the default language\'s prefix) or a full https:// address without a user name.',
+  'definition.redirectParam':
+    'The redirect from "{from}" uses ":{name}" in its target, but the old address has no such part. Use only the ":name" parts of the old address.',
+  'definition.redirectUrlParam':
+    'The redirect from "{from}" uses ":{name}" in a full https:// address. Parts like ":{name}" are filled in only on paths of this site, so remove it from the address.',
+  'definition.redirectStatus': 'The redirect from "{from}" uses the status {status}. Redirects can only use 301 or 302.',
+  'definition.redirectDuplicate': 'The site redirects "{from}" more than once. Keep one of them.',
+  'definition.redirectRoute':
+    'The redirect from "{from}" would never run, because a GET route answers at that path. Remove the redirect or the route.',
   'label.seo': 'Search and sharing',
   'label.seo.title': 'Title',
   'label.seo.description': 'Description',
@@ -392,6 +408,9 @@ export const en = {
   'diff.release.migration': 'The migration function `{name}` will run.',
   'diff.release.routeAdded': 'Adds the route {method} {path}.',
   'diff.release.routeRemoved': 'Removes the route {method} {path}.',
+  'diff.release.redirectAdded': 'Adds the redirect {from} to {to} ({status}).',
+  'diff.release.redirectRemoved': 'Removes the redirect {from} to {to}.',
+  'diff.release.redirectChanged': 'The redirect from {from} now goes to {to} ({status}).',
   'diff.release.secrets': 'Needs the {count|secret|secrets} {names} set on the server.',
   'error.previewUnavailable': "The preview of this release couldn't be started. Try again in a moment.",
   'error.previewNotStaged': "{name} isn't waiting to go live any more (it was made live or deleted), so it can't be previewed.",
@@ -487,6 +506,10 @@ export const en = {
     'The shipped {label} "{key}" ({locale}) asks for the path {path}, which is already taken, so it was saved without a page of its own. Give it a free path in the shipped content or in the admin.',
   'report.slugShadowed':
     '"{title}" ({locale}) has the slug "{slug}", but its page {path} is hidden by a page or path Inlay serves first. Editors can\'t save it until the slug changes.',
+  'report.redirectHidden':
+    'The redirect from {from} never fires: a published page now answers at that address. That is expected once the page has replaced the old URL, and you can remove the rule from the code when convenient.',
+  'report.redirectLoop':
+    'The redirect from {from} sends visitors round in a loop together with the other redirects, so the server skips it. Change its target or remove one of the rules.',
   'richtext.unsupported': "Line {line}: rich text can't contain {feature}. Remove it, or write it as normal text instead.",
   'richtext.notAllowed': "Line {line}: this field can't contain {feature}. Remove it, or write it as normal text instead.",
   'richtext.headingLevel':
@@ -520,13 +543,19 @@ export const en = {
   'richtext.feature.other': 'this kind of formatting',
   'error.redirectInvalid': "This redirect can't be saved. Fix the problems listed and try again.",
   'error.redirectNotFound': "We couldn't find that redirect. It may already have been deleted.",
+  'error.redirectDeleteLoop':
+    "This redirect can't be deleted: without it, visitors to \"{path}\" would be sent round in a loop and never reach a page. Change where the other redirects in that loop go first.",
   'label.redirect.from': 'Old address',
   'label.redirect.to': 'New address',
   'label.redirect.status': 'Redirect type',
   'issue.redirectFrom':
     '{field} "{path}" can\'t be used. It must be an address on this site that starts with "/", such as /old-page, without "?" or "#", and not one reserved by Inlay (such as /admin or /media).',
   'issue.redirectTo':
-    '{field} "{path}" can\'t be used. It must be an address on this site that starts with "/", such as /new-page, without "?" or "#".',
+    '{field} "{path}" can\'t be used. It must be an address on this site that starts with "/", such as /new-page, without "?" or "#", or a full address on another site that starts with "https://".',
+  'issue.redirectUrl':
+    '{field} "{path}" can\'t be used. An address on another site must start with "https://", such as https://example.com/page, and must not include a user name or password.',
+  'issue.redirectUrlParam':
+    '{field} uses ":{name}" in an address on another site. Parts like ":{name}" can only be filled in on addresses on this site. Remove it, or use an address on this site.',
   'issue.redirectToDefaultLocale':
     '{field} "{path}" starts with "/{locale}", but addresses in the main language leave that out. Remove "/{locale}" from the start.',
   'issue.redirectParam':
@@ -864,6 +893,12 @@ export const en = {
   'admin.redirects.note': 'Note',
   'admin.redirects.permanent': '301 moved for good',
   'admin.redirects.temporary': '302 moved for now',
+  'admin.redirects.code.heading': "From the site's code",
+  'admin.redirects.code.intro':
+    "These redirects come with the site's code. They change only when a new version of the site is released. To replace one, add a redirect here with the same old address.",
+  'admin.redirects.code.table': "Redirects from the site's code",
+  'admin.redirects.code.overridden': 'Replaced by a redirect you added',
+  'admin.redirects.code.hidden': 'Not used: a page has this address',
   'admin.redirects.source.manual': 'By hand',
   'admin.redirects.source.auto': 'Automatic (an address changed)',
   'admin.redirects.source.import': 'Import',
@@ -876,7 +911,8 @@ export const en = {
   'admin.redirects.toPath': 'An address',
   'admin.redirects.toDocument': 'A page on this site',
   'admin.redirects.toPathLabel': 'New address',
-  'admin.redirects.toPathHint': 'A site address such as /about, or one that uses the :name parts of the old address.',
+  'admin.redirects.toPathHint':
+    'A site address such as /about, or one that uses the :name parts of the old address. To send visitors to another site, enter its full address starting with https://.',
   'admin.redirects.choose': 'Choose…',
   'admin.redirects.add': 'Add redirect',
   'admin.redirects.import': 'Import from a file',
@@ -1422,15 +1458,16 @@ export const en = {
   'mcp.param.mediaOffset': 'How many files to skip, to see the next ones. Defaults to 0.',
   'mcp.tool.list_redirects.title': 'List redirects',
   'mcp.tool.list_redirects.description':
-    'Lists the redirects that send visitors from an old address to a new one. "to" is either a path or { document, title }, a page or entry that the redirect follows if its address changes.',
+    'Lists the redirects that send visitors from an old address to a new one. "to" is a path, a full https:// address on another site, or { document, title }, a page or entry that the redirect follows if its address changes. Redirects that come with the site\'s code are listed after the others with source "code" and id null: they are read-only and can only be overridden, by creating a redirect with the same old address.',
   'mcp.tool.create_redirect.title': 'Create a redirect',
   'mcp.tool.create_redirect.description':
     'Sends visitors from an old address to a new one, such as after a page was moved or renamed. The old address must not be the address of a published page. To follow a page or entry even if its address changes later, point "to" at its groupId.',
   'mcp.tool.delete_redirect.title': 'Delete a redirect',
   'mcp.tool.delete_redirect.description':
-    'Deletes a redirect, so visitors to the old address see "page not found" again. Check with the user before deleting.',
+    'Deletes a redirect, so visitors to the old address see "page not found" again, or follow a redirect from the site\'s code with the same old address. A delete that would send visitors round in a loop is refused. Check with the user before deleting.',
   'mcp.param.redirectFrom': 'The old address, such as /old-about. A full web address is accepted; only its path is used.',
-  'mcp.param.redirectTo': 'Where visitors go: a path such as /about, or { "document": groupId } to follow a page or entry.',
+  'mcp.param.redirectTo':
+    'Where visitors go: a path such as /about, a full address on another site starting with https://, or { "document": groupId } to follow a page or entry.',
   'mcp.param.redirectStatus': '301 (moved for good, the default) or 302 (moved for now).',
   'mcp.param.redirectNote': 'A note for the editors about why the redirect exists.',
   'mcp.param.redirectId': 'The id of the redirect, from list_redirects.',

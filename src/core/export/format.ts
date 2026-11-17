@@ -2,7 +2,7 @@ import { z } from 'zod'
 import type { DocumentData, DocumentKind, RedirectSource, RevisionSource } from '../types.js'
 
 export const EXPORT_FORMAT = 'inlay-export'
-export const EXPORT_FORMAT_VERSION = 1
+export const EXPORT_FORMAT_VERSION = 2
 
 export interface Manifest {
   format: typeof EXPORT_FORMAT
@@ -67,7 +67,7 @@ export type ContentRecord = DocumentRecord | RevisionRecord | PublishEventRecord
 export interface RedirectRecord {
   id: number
   from: string
-  to: { path: string } | { group: string }
+  to: { path: string } | { group: string } | { url: string }
   status: 301 | 302
   source: RedirectSource
   note: string | null
@@ -186,7 +186,7 @@ export const redirectsSchema = z.array(
   z.object({
     id: z.number().int(),
     from: z.string(),
-    to: z.union([z.object({ path: z.string() }), z.object({ group: z.string() })]),
+    to: z.union([z.object({ path: z.string() }), z.object({ group: z.string() }), z.object({ url: z.string() })]),
     status: z.union([z.literal(301), z.literal(302)]),
     source: z.enum(['manual', 'auto', 'import']),
     note: nullableString,

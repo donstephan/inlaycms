@@ -29,6 +29,7 @@ export {
   type SingletonDef,
   type SingletonPath,
   type SiteDefinition,
+  type RedirectDef,
   type SiteInput,
   type SlotDef,
   type TemplateDef,

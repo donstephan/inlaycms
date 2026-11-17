@@ -8,6 +8,7 @@ import { readOnlyCore, type Core } from '../../core/core.js'
 import { InlayError } from '../../core/errors.js'
 import { DEFAULT_MAX_BYTES, DEFAULT_UPLOAD_TYPES } from '../../core/media/detect.js'
 import { t } from '../../core/messages/index.js'
+import { externalTarget } from '../../core/redirects/rule.js'
 import type { SiteDefinition } from '../../core/registry/define.js'
 import { buildRegistry, type Registry } from '../../core/registry/registry.js'
 import type { Entry, QueryOptions, QueryResult } from '../../core/registry/render.js'
@@ -27,6 +28,7 @@ import { createInlayMcpHandler } from '../mcp/server.js'
 import { sendWebResponse, toWebRequest } from '../web.js'
 import { cacheControl, etagMatches, PageCache, response, type CachedResponse, type CdnOptions } from './cache.js'
 import { createRenderContext } from './context.js'
+import { registerSiteHeaders, siteHeaders } from './headers.js'
 import { startBackupSchedule, type BackupSchedule } from './backup-schedule.js'
 import { isLockedRequest, registerSiteLockGate, registerUnlockRoute } from './lock.js'
 import { registerMediaRoutes } from './media-routes.js'
@@ -332,8 +334,13 @@ function registerSiteRoutes(
       if (hit) return send(request, reply, hit, true)
       const generation = cache?.generation ?? 0
       const match = await core.resolvePath(path, { state })
-      if (match.kind === 'redirect' && match.location.startsWith('/') && !match.location.startsWith('//')) {
-        return reply.redirect(`${match.location}${search}`, match.status)
+      if (match.kind === 'redirect') {
+        if (match.external === true && externalTarget(match.location) === match.location) {
+          return reply.redirect(match.location, match.status)
+        }
+        if (match.external !== true && match.location.startsWith('/') && !match.location.startsWith('//')) {
+          return reply.redirect(`${match.location}${search}`, match.status)
+        }
       }
       if (match.kind === 'page') {
         const html = await renderPage(core, match.document, { state, page: pageNumber, baseUrl, ...banner })
@@ -486,9 +493,10 @@ const plugin: FastifyPluginAsync<InlayOptions> = async (app, opts) => {
     }
   }
   const core = opts.readOnly ? readOnlyCore(booted.core) : booted.core
-  for (const warning of report.warnings) app.log.warn({ document: warning.document }, warning.message)
+  for (const warning of report.warnings) app.log.warn('document' in warning ? { document: warning.document } : { redirect: warning.redirect }, warning.message)
   for (const warning of report.shipped.warnings ?? []) app.log.warn(warning.message)
   const now = opts.now ?? (() => new Date())
+  registerSiteHeaders(app, siteHeaders(baseUrl, registry.site.headers))
   const lockOptions = { db, service: auth, secret, baseUrl, now, publicPaths }
   registerSiteLockGate(app, { ...lockOptions, ...(opts.preview === 'forced' && opts.release && { release: opts.release.id }) })
   registerUnlockRoute(app, { ...lockOptions, rateLimit: opts.rateLimit !== false })

@@ -5,8 +5,18 @@ import { fieldMeta } from '../fields/define.js'
 import { defOf, unwrap } from '../fields/zod-internals.js'
 import type { MessageId } from '../messages/index.js'
 import { isReserved, normalizePath, routeRegExp, singletonPath, withLocale } from '../site/paths.js'
+import { paramNames, ruleIndex, type RuleIndex } from '../redirects/collapse.js'
+import { cleanPath, defaultLocalePrefix, externalTarget, redirectFrom } from '../redirects/rule.js'
+import type { MatchRule } from '../types.js'
 import { KEY_PATTERN, type ShippedDocument } from './content.js'
 import type { BlockDef, SiteDefinition, TemplateDef, TypeDef } from './define.js'
+
+/** A redirect rule from the site's code: `from` in its stored form, `to` a decoded path or an `href`. */
+export interface CodeRule {
+  from: string
+  to: string
+  status: 301 | 302
+}
 
 export interface Registry {
   site: SiteDefinition
@@ -19,6 +29,12 @@ export interface Registry {
   templates: ReadonlyMap<string, TemplateDef>
   /** Shipped documents by type. */
   content: ReadonlyMap<string, readonly ShippedDocument[]>
+  /** The site's code redirects, checked, in definition order. */
+  redirects: readonly CodeRule[]
+  /** The code redirects indexed for matching. */
+  redirectIndex: RuleIndex<MatchRule>
+  /** The paths of the GET code routes. */
+  getRoutePaths: ReadonlySet<string>
   /** Throws `InlayError('not_found')` for an unknown type. */
   getType(name: string): TypeDef
 }
@@ -26,6 +42,20 @@ export interface Registry {
 const LOCALE = /^[a-z]{2,3}(-[A-Za-z0-9]+)*$/
 const NAME = /^[a-z][A-Za-z0-9_]*$/
 const SECRET = /^[A-Z][A-Z0-9_]*$/
+/** An HTTP header name (RFC 9110's token). */
+const HEADER_NAME = /^[!#$%&'*+.^_`|~0-9A-Za-z-]+$/
+/** Headers Inlay sets on its own responses, which a site's `headers` can't replace. */
+const OWN_HEADERS = new Set([
+  'cache-control',
+  'connection',
+  'content-length',
+  'content-type',
+  'etag',
+  'location',
+  'set-cookie',
+  'transfer-encoding',
+  'vary',
+])
 
 function fail(messageId: MessageId, params: Record<string, string | number>): never {
   throw new InlayError('definition', messageId, params)
@@ -122,6 +152,15 @@ function checkSettings(site: SiteDefinition, types: ReadonlyMap<string, TypeDef>
     if (typeof name !== 'string' || !SECRET.test(name) || secrets.has(name)) fail('definition.secretName', { name: String(name) })
     secrets.add(name)
   }
+  const headers = new Set<string>()
+  for (const [name, value] of Object.entries(site.headers)) {
+    const lower = name.toLowerCase()
+    if (!HEADER_NAME.test(name) || OWN_HEADERS.has(lower) || headers.has(lower)) fail('definition.headerName', { name })
+    if (value !== false && (typeof value !== 'string' || /[\u0000-\u001f\u007f]/.test(value))) {
+      fail('definition.headerValue', { name })
+    }
+    headers.add(lower)
+  }
   const migrations = new Set<string>()
   for (const { name } of site.migrations) {
     if (typeof name !== 'string' || name.trim() === '' || migrations.has(name)) fail('definition.migrationName', { name: String(name) })
@@ -162,6 +201,39 @@ function checkRoutes(registry: Registry): void {
     if (seen.has(key)) fail('definition.routeDuplicate', { method, path })
     seen.add(key)
   }
+}
+
+function checkRedirects(site: SiteDefinition, getPaths: ReadonlySet<string>): CodeRule[] {
+  const rules: CodeRule[] = []
+  const seen = new Set<string>()
+  for (const def of site.redirects) {
+    const shown = typeof def?.from === 'string' ? def.from : String(def?.from)
+    const from = typeof def?.from === 'string' ? redirectFrom({ defaultLocale: site.defaultLocale }, def.from) : null
+    if (from === null) fail('definition.redirectFrom', { from: shown })
+    const status = def.status ?? 301
+    if (status !== 301 && status !== 302) fail('definition.redirectStatus', { from, status: String(status) })
+    const bad = () => fail('definition.redirectTo', { from, to: String(def.to) })
+    if (typeof def.to !== 'string') bad()
+    const names = paramNames(from)
+    let to: string
+    if (def.to.startsWith('/')) {
+      const path = cleanPath(def.to)
+      if (path === null || defaultLocalePrefix(site, path) !== null) bad()
+      to = path!
+      for (const name of paramNames(to)) if (!names.includes(name)) fail('definition.redirectParam', { from, name })
+    } else {
+      const href = externalTarget(def.to)
+      if (href === null) bad()
+      to = href!
+      const [name] = names.length > 0 ? paramNames(new URL(to).pathname) : []
+      if (name !== undefined) fail('definition.redirectUrlParam', { from, name })
+    }
+    if (seen.has(from)) fail('definition.redirectDuplicate', { from })
+    seen.add(from)
+    if (getPaths.has(from)) fail('definition.redirectRoute', { from })
+    rules.push({ from, to, status })
+  }
+  return rules
 }
 
 /** Checks a site definition and indexes its types. Throws `InlayError('definition')` naming the offender. */
@@ -249,6 +321,8 @@ export function buildRegistry(site: SiteDefinition): Registry {
     content.set(shipped.type, shipped.documents)
   }
 
+  const getRoutePaths = new Set(site.routes.filter((r) => r.method === 'GET').map((r) => r.path))
+  const redirects = checkRedirects(site, getRoutePaths)
   const registry: Registry = {
     site,
     locales: [...site.locales],
@@ -257,6 +331,9 @@ export function buildRegistry(site: SiteDefinition): Registry {
     blocks,
     templates,
     content,
+    redirects,
+    redirectIndex: ruleIndex(redirects.map((r): MatchRule => ({ from: r.from, to_path: r.to, to_group_id: null, status: r.status }))),
+    getRoutePaths,
     getType(name) {
       const type = types.get(name)
       if (!type) throw new InlayError('not_found', 'error.typeNotFound', { name })

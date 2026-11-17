@@ -111,7 +111,7 @@ it('exports, dry-runs and imports content through the public exports only', asyn
     const archive = path.join(dir, 'export.tar.gz')
     const summary: ExportSummary = await a.core.exportContent(archive, ctx)
     expect(summary.counts.documents).toBeGreaterThan(0)
-    expect(EXPORT_FORMAT_VERSION).toBe(1)
+    expect(EXPORT_FORMAT_VERSION).toBe(2)
 
     const report: ImportReport = await dryRunImport(site, archive)
     expect(report.ok).toBe(true)

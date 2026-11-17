@@ -90,6 +90,7 @@ export {
   type SingletonDef,
   type SingletonPath,
   type SiteDefinition,
+  type RedirectDef,
   type SiteInput,
   type SlotDef,
   type TemplateDef,
@@ -116,6 +117,7 @@ export type { HiddenContent, HiddenDocuments } from './core/content/hidden.js'
 export type {
   Activity,
   Actor,
+  CodeRedirect,
   ContentInput,
   ContentIssue,
   ContentRef,

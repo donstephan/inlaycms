@@ -1,12 +1,13 @@
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify'
 import { InlayError } from '../../../core/errors.js'
 import { t } from '../../../core/messages/index.js'
-import type { Actor, Ctx, Redirect, RedirectInput, RedirectSource } from '../../../core/types.js'
+import type { Actor, CodeRedirect, Ctx, Redirect, RedirectInput, RedirectSource } from '../../../core/types.js'
 import { adminActor, formOf, HTML, noticeOf, notFound, type AdminContext } from '../context.js'
 import { DataTable, readTableQuery } from '../views/data-table.js'
 import { Icon } from '../views/icons.js'
 import { Alert, adminPage, Time } from '../views/layout.js'
 import { Sheet } from '../views/sheet.js'
+import { Badge } from '../views/status.js'
 
 
 const sourceName = (s: RedirectSource): string => t(`admin.redirects.source.${s}`)
@@ -34,6 +35,7 @@ export function registerRedirects(scope: FastifyInstance, ctx: AdminContext): vo
 
   function Target({ redirect, docs }: { redirect: Redirect; docs: Map<string, { documentId: string; title: string }> }) {
     if ('path' in redirect.to) return <code>{redirect.to.path}</code>
+    if ('url' in redirect.to) return <code>{redirect.to.url}</code>
     const doc = docs.get(redirect.to.document)
     return doc === undefined ? (
       <span>{t('admin.redirects.missingPage')}</span>
@@ -44,7 +46,57 @@ export function registerRedirects(scope: FastifyInstance, ctx: AdminContext): vo
     )
   }
 
-  async function list(request: FastifyRequest, reply: FastifyReply, status: number, sheets: { add?: AddForm; import?: ImportForm } = {}): Promise<FastifyReply> {
+  function CodeRules({ rules }: { rules: CodeRedirect[] }) {
+    return (
+      <section id="code-redirects" aria-labelledby="code-redirects-heading" class="flex flex-col gap-3">
+        <h2 id="code-redirects-heading" class="text-lg font-semibold">
+          {t('admin.redirects.code.heading')}
+        </h2>
+        <p class="text-sm text-base-content/70">{t('admin.redirects.code.intro')}</p>
+        <div class="overflow-x-auto">
+          <table class="table">
+            <caption class="sr-only">{t('admin.redirects.code.table')}</caption>
+            <thead>
+              <tr>
+                <th scope="col">{t('admin.redirects.from')}</th>
+                <th scope="col">{t('admin.redirects.to')}</th>
+                <th scope="col">{t('admin.redirects.type')}</th>
+              </tr>
+            </thead>
+            <tbody>
+              {rules.map((r) => (
+                <tr>
+                  <td>
+                    <code>{r.from}</code>
+                  </td>
+                  <td>
+                    <code>{'path' in r.to ? r.to.path : r.to.url}</code>
+                  </td>
+                  <td>
+                    {t(r.status === 301 ? 'admin.redirects.permanent' : 'admin.redirects.temporary')}
+                    {r.overridden && (
+                      <>
+                        {' '}
+                        <Badge tone="outline">{t('admin.redirects.code.overridden')}</Badge>
+                      </>
+                    )}
+                    {r.hidden && (
+                      <>
+                        {' '}
+                        <Badge tone="outline">{t('admin.redirects.code.hidden')}</Badge>
+                      </>
+                    )}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </section>
+    )
+  }
+
+  async function list(request: FastifyRequest, reply: FastifyReply, status: number, sheets: { add?: AddForm; import?: ImportForm; deleteError?: string } = {}): Promise<FastifyReply> {
     const form = sheets.add ?? {}
     const imp = sheets.import ?? { csv: '', problems: [] }
     const sheet = (request.query as Record<string, unknown>).sheet
@@ -55,6 +107,7 @@ export function registerRedirects(scope: FastifyInstance, ctx: AdminContext): vo
     const table = readTableQuery(query, { sorts: [], defaultSort: 'from', defaultDir: 'asc' })
     const q = table.q
     const all = await core.listRedirects()
+    const codeRules = core.registry.redirects.length === 0 ? [] : await core.listCodeRedirects()
     const wanted = new Set(all.flatMap((r) => ('document' in r.to ? [r.to.document] : [])))
     if (form.values?.to_document) wanted.add(form.values.to_document)
     const docs = wanted.size === 0 ? new Map() : await core.liveDocuments([...wanted], core.registry.defaultLocale, { state: 'preview' })
@@ -63,7 +116,7 @@ export function registerRedirects(scope: FastifyInstance, ctx: AdminContext): vo
       needle === ''
         ? all
         : all.filter((r) => {
-            const to = 'path' in r.to ? r.to.path : (docs.get(r.to.document)?.title ?? '')
+            const to = 'path' in r.to ? r.to.path : 'url' in r.to ? r.to.url : (docs.get(r.to.document)?.title ?? '')
             return [r.from, to, r.note ?? ''].some((s) => s.toLowerCase().includes(needle))
           })
     const values = form.values ?? {}
@@ -73,6 +126,11 @@ export function registerRedirects(scope: FastifyInstance, ctx: AdminContext): vo
     const error = form.error
     const body = (
       <div class="flex flex-col gap-8">
+        {sheets.deleteError !== undefined && (
+          <Alert kind="error" id="delete-error">
+            {sheets.deleteError}
+          </Alert>
+        )}
         <DataTable
           id="redirects"
           caption={t('admin.redirects.table')}
@@ -100,6 +158,7 @@ export function registerRedirects(scope: FastifyInstance, ctx: AdminContext): vo
           ]}
           rowActions={(r) => [{ label: t('admin.redirects.delete'), icon: 'trash', href: `/admin/redirects/${r.id}/delete`, danger: true, method: 'post' }]}
         />
+        {codeRules.length > 0 && <CodeRules rules={codeRules} />}
         <Sheet
           id="add-redirect"
           title={t('admin.redirects.addHeading')}
@@ -329,6 +388,7 @@ export function registerRedirects(scope: FastifyInstance, ctx: AdminContext): vo
       await core.deleteRedirect(id, asCtx(actor))
     } catch (e) {
       if (e instanceof InlayError && e.code === 'not_found') return notFound(reply, ctx, actor)
+      if (e instanceof InlayError && e.code === 'conflict') return list(request, reply, 409, { deleteError: e.message })
       throw e
     }
     return reply.redirect('/admin/redirects?notice=redirectRemoved', 303)

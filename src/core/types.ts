@@ -201,10 +201,13 @@ export interface LiveDocument {
   data: DocumentData
 }
 
-/** What a request path resolves to. A redirect's `location` is already encoded. */
+/**
+ * What a request path resolves to. A redirect's `location` is already encoded: a site path, or with
+ * `external` the full https URL of a rule's URL target.
+ */
 export type RouteMatch =
   | { kind: 'page'; document: LiveDocument }
-  | { kind: 'redirect'; location: string; status: 301 | 302 }
+  | { kind: 'redirect'; location: string; status: 301 | 302; external?: true }
   /** `loop` lists the `from` of redirect rules that were skipped because they would go round in a loop. */
   | { kind: 'not_found'; locale: string; loop?: string[] }
 
@@ -214,8 +217,11 @@ export type RedirectSource = 'manual' | 'auto' | 'import'
 export interface Redirect {
   id: number
   from: string
-  /** A site path (which may use the `:name` params of `from`), or a document's translation group. */
-  to: { path: string } | { document: string }
+  /**
+   * A site path (which may use the `:name` params of `from`), a document's translation group, or a
+   * full https URL on another site.
+   */
+  to: { path: string } | { document: string } | { url: string }
   status: 301 | 302
   source: RedirectSource
   note: string | null
@@ -226,10 +232,21 @@ export interface Redirect {
 export interface RedirectInput {
   /** A site path, or a full http(s) URL whose origin is dropped. */
   from: string
-  /** A site path, or a document's translation group. */
+  /** A site path, a full `https://` URL on another site, or a document's translation group. */
   to: string | { document: string }
   status?: 301 | 302
   note?: string
+}
+
+/** A redirect rule from the site's code. Read-only: it changes only with a new release. */
+export interface CodeRedirect {
+  from: string
+  to: { path: string } | { url: string }
+  status: 301 | 302
+  /** An admin rule with the same `from` answers first. */
+  overridden: boolean
+  /** A published page answers at the exact `from`, so the rule never fires. */
+  hidden: boolean
 }
 
 export type ThemeColor =

@@ -11,6 +11,7 @@ import { InlayError } from '../errors.js'
 import { fileMediaStore } from '../media/store.js'
 import { t } from '../messages/index.js'
 import { readSiteLock, type SiteLockRow } from '../site-lock/site-lock.js'
+import { targetOf } from '../redirects/rule.js'
 import type { Registry } from '../registry/registry.js'
 import type { DocumentData, RevisionSource } from '../types.js'
 import { inlayVersion } from '../version.js'
@@ -179,7 +180,7 @@ async function readRedirects(db: Kysely<Database>): Promise<RedirectRecord[]> {
   return rows.map((r) => ({
     id: r.id,
     from: r.from_path,
-    to: r.to_group_id !== null ? { group: r.to_group_id } : { path: r.to_path ?? '' },
+    to: r.to_group_id !== null ? { group: r.to_group_id } : targetOf(r.to_path ?? ''),
     status: r.status,
     source: r.source,
     note: r.note,

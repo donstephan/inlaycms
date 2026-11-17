@@ -17,6 +17,7 @@ import type { Ctx } from '../../src/core/types.js'
 import { postSummarySite } from '../fixtures/evolve.js'
 import { site } from '../fixtures/site.js'
 import { articleSite } from '../fixtures/articles.js'
+import { rootSite } from '../fixtures/code-redirects.js'
 import { png, sha256 } from '../fixtures/media.js'
 
 const TeamPage = defineTemplate({
@@ -187,6 +188,11 @@ describe('bootInlay', () => {
     const problems = e.details.problems!
     expect(problems.map((p) => p.code)).toEqual(['shipped_content'])
     expect(problems[0]!.issues!.length).toBeGreaterThan(0)
+  })
+
+  it('boots with code-rule warnings', async () => {
+    const { report } = await boot(rootSite([{ from: '/x', to: '/Y' }, { from: '/y', to: '/x' }]))
+    expect(report.warnings.map((w) => w.code)).toEqual(['redirect_loop', 'redirect_loop'])
   })
 
   it('imports shipped-content files into the media directory', async () => {

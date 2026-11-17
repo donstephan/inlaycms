@@ -190,6 +190,18 @@ describe('importContent', () => {
     expect((await b.core.listRedirects()).map((r) => r.from)).toContain('/50%-off')
   })
 
+  it('round-trips a redirect to another site', async () => {
+    const a = await seedRoundTrip()
+    await a.hidden.createRedirect({ from: '/g2', to: 'https://www.g2.com/x' }, a.owner)
+    const { file } = await exportOf(a.hidden, a.owner)
+    const b = await world({ site: hiddenSite, media: true, backups: true })
+    await b.core.importContent(file, b.owner)
+    expect(await b.core.listRedirects()).toEqual(
+      expect.arrayContaining([expect.objectContaining({ from: '/g2', to: { url: 'https://www.g2.com/x' } })]),
+    )
+    expect(await b.core.resolvePath('/g2')).toMatchObject({ location: 'https://www.g2.com/x', external: true })
+  })
+
   it('replaces the site’s content instead of merging it', async () => {
     const a = await seedRoundTrip()
     const { file } = await exportOf(a.hidden, a.owner)

@@ -9,7 +9,8 @@ import { DEFAULT_UPLOAD_TYPES } from '../../src/core/media/detect.js'
 import { t } from '../../src/core/messages/index.js'
 import { defineContent } from '../../src/core/registry/content.js'
 import { defineCollection, defineSingleton, defineSite, defineTemplate } from '../../src/core/registry/define.js'
-import type { Ctx } from '../../src/core/types.js'
+import type { Ctx, RouteMatch } from '../../src/core/types.js'
+import { fallbackSite } from '../fixtures/code-redirects.js'
 import { pdf, png } from '../fixtures/media.js'
 import { escapeHtml } from '../../src/jsx/html.js'
 import { Testimonial, webSite } from '../fixtures/web.js'
@@ -139,6 +140,47 @@ describe('inlay plugin: pages', () => {
     const res = await a.inject('/old?ref=a')
     expect(res.statusCode).toBe(301)
     expect(res.headers.location).toBe('/about?ref=a')
+  })
+
+  it("sends an https target as Location exactly, without the visitor's query", async () => {
+    const { app: a, core, owner } = await app()
+    const g2 = 'https://www.g2.com/products/realciso/reviews?ref=site'
+    await core.createRedirect({ from: '/g2', to: g2 }, owner)
+    const res = await a.inject('/g2?utm_source=x')
+    expect(res.statusCode).toBe(301)
+    expect(res.headers.location).toBe(g2)
+  })
+
+  it('sends a mixed-case path to its lowercase form, keeping the query string only on the site', async () => {
+    const { app: a } = await app({ site: fallbackSite })
+    const about = await a.inject('/About?ref=x')
+    expect(about.statusCode).toBe(301)
+    expect(about.headers.location).toBe('/about?ref=x')
+    const g2 = await a.inject('/G2?utm_source=x')
+    expect(g2.statusCode).toBe(301)
+    expect(g2.headers.location).toBe('https://www.g2.com/x')
+    const contact = await a.inject('/Contact')
+    expect(contact.statusCode).toBe(301)
+    expect(contact.headers.location).toBe('/contact')
+    const route = await a.inject('/contact')
+    expect(route.statusCode).toBe(200)
+    expect(route.body).toBe('contact')
+  })
+
+  it("never sends an absolute location that isn't a checked external target", async () => {
+    const { app: a } = await app()
+    const matches: RouteMatch[] = [
+      { kind: 'redirect', location: 'https://evil.com/', status: 301 },
+      { kind: 'redirect', location: 'http://evil.com/', status: 301, external: true },
+      { kind: 'redirect', location: 'https://u:p@evil.com/', status: 301, external: true },
+    ]
+    for (const m of matches) {
+      const spy = vi.spyOn(a.inlay.core, 'resolvePath').mockResolvedValue(m)
+      const res = await a.inject('/somewhere')
+      spy.mockRestore()
+      expect(res.statusCode).toBe(404)
+      expect(res.headers.location).toBeUndefined()
+    }
   })
 
   it('serves a 404 and logs a warning for a redirect loop', async () => {

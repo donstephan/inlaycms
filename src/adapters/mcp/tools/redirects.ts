@@ -27,7 +27,7 @@ async function redirectsJson(deps: McpDeps, redirects: Redirect[]) {
   return redirects.map(({ id, from, to, status, source, note }) => ({
     id,
     from,
-    to: 'document' in to ? { document: to.document, title: live.get(to.document)?.title ?? null } : to.path,
+    to: 'document' in to ? { document: to.document, title: live.get(to.document)?.title ?? null } : 'url' in to ? to.url : to.path,
     status,
     source,
     note,
@@ -54,7 +54,21 @@ export function register(server: McpServer, deps: McpDeps, ctx: Ctx): void {
       inputSchema: z.object({}),
       annotations: READ_ONLY,
     },
-    run(async () => ({ redirects: await redirectsJson(deps, await deps.core.listRedirects()) })),
+    run(async () => {
+      const admin = await redirectsJson(deps, await deps.core.listRedirects())
+      const code = (await deps.core.listCodeRedirects()).map(({ from, to, status, overridden, hidden }) => ({
+        id: null,
+        from,
+        to: 'url' in to ? to.url : to.path,
+        status,
+        source: 'code' as const,
+        note: null,
+        readOnly: true,
+        overridden,
+        hidden,
+      }))
+      return { redirects: [...admin, ...code] }
+    }),
   )
   server.registerTool(
     'create_redirect',

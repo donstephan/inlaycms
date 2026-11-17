@@ -81,7 +81,12 @@ export async function checkWithoutDatabase(opts: { site: SiteDefinition; now?: (
     const db = join(dir, 'empty.db')
     await writeFile(db, '')
     const report = await checkDatabase({ ...opts, db })
-    return { ...emptyCheckReport(), ok: report.ok, problems: report.problems, warnings: report.warnings }
+    return {
+      ...emptyCheckReport(),
+      ok: report.ok,
+      problems: report.problems,
+      warnings: report.warnings.filter((w) => w.code !== 'redirect_hidden'),
+    }
   } finally {
     await rm(dir, { recursive: true, force: true })
   }

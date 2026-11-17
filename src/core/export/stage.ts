@@ -136,7 +136,7 @@ export async function stageBundle(
           .values({
             id: r.id,
             from_path: r.from,
-            to_path: 'path' in r.to ? r.to.path : null,
+            to_path: 'path' in r.to ? r.to.path : 'url' in r.to ? r.to.url : null,
             to_group_id: 'group' in r.to ? r.to.group : null,
             status: r.status,
             source: r.source,

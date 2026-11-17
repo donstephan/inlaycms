@@ -1,5 +1,6 @@
 import { collapseTargets, type RuleTarget } from '../../src/core/redirects/collapse.js'
 import { InlayError } from '../../src/core/errors.js'
+import { t } from '../../src/core/messages/index.js'
 import type { IssueCode } from '../../src/core/types.js'
 import { routedSite } from '../fixtures/routes.js'
 import { makeCore } from '../helpers/core.js'
@@ -173,7 +174,7 @@ describe('redirects: rejections', () => {
       code: 'invalid',
       path: ['to'],
     })
-    expect(await issueOf(core.createRedirect({ from: '/x', to: 'https://x.com' }, owner))).toEqual({
+    expect(await issueOf(core.createRedirect({ from: '/x', to: 'mailto:x@x.com' }, owner))).toEqual({
       code: 'invalid',
       path: ['to'],
     })
@@ -283,6 +284,59 @@ describe('redirects: chains through patterns', () => {
   })
 })
 
+describe('redirects: external targets', () => {
+  const G2 = 'https://www.g2.com/products/realciso/reviews'
+
+  it('stores and serves an https target', async () => {
+    const { core, owner } = await world()
+    await core.createRedirect({ from: '/g2', to: G2 }, owner)
+    expect((await core.listRedirects())[0]!.to).toEqual({ url: G2 })
+    expect(await core.resolvePath('/g2')).toEqual({ kind: 'redirect', location: G2, status: 301, external: true })
+  })
+
+  it('refuses other schemes, protocol-relative and credentialed targets', async () => {
+    const { core, owner } = await world()
+    const field = t('label.redirect.to')
+    for (const [to, messageId] of [
+      ['http://example.com/', 'issue.redirectUrl'],
+      ['javascript:alert(1)', 'issue.redirectUrl'],
+      ['ftp://example.com/x', 'issue.redirectUrl'],
+      ['https://user:pw@example.com/', 'issue.redirectUrl'],
+      ['//example.com/x', 'issue.redirectTo'],
+    ] as const) {
+      const p = core.createRedirect({ from: '/x', to }, owner)
+      expect(await issueOf(p)).toEqual({ code: 'invalid', path: ['to'] })
+      const err = (await p.catch((e: unknown) => e)) as InlayError
+      expect(err.details.issues?.[0]?.message, to).toBe(t(messageId, { field, path: to }))
+    }
+  })
+
+  it('refuses :name segments in the URL of a pattern rule', async () => {
+    const { core, owner } = await world()
+    expect(
+      await issueOf(core.createRedirect({ from: '/old/:slug', to: 'https://example.com/:slug' }, owner)),
+    ).toEqual({ code: 'invalid', path: ['to'] })
+  })
+
+  it('never collapses into an external target', async () => {
+    const first = await world()
+    await first.core.createRedirect({ from: '/b', to: G2 }, first.owner)
+    await first.core.createRedirect({ from: '/a', to: '/b' }, first.owner)
+    expect((await first.core.listRedirects()).find((r) => r.from === '/a')!.to).toEqual({ path: '/b' })
+
+    const second = await world()
+    await second.core.createRedirect({ from: '/a', to: '/b' }, second.owner)
+    await second.core.createRedirect({ from: '/b', to: G2 }, second.owner)
+    expect((await second.core.listRedirects()).find((r) => r.from === '/a')!.to).toEqual({ path: '/b' })
+  })
+
+  it('imports URL targets from CSV', async () => {
+    const { core, owner } = await world()
+    expect(await core.importRedirects('from,to\n/g2,https://www.g2.com/x\n', owner)).toEqual({ created: 1, updated: 0 })
+    expect((await core.listRedirects())[0]!.to).toEqual({ url: 'https://www.g2.com/x' })
+  })
+})
+
 describe('redirects: review regressions', () => {
   const list = async (core: Awaited<ReturnType<typeof world>>['core']) =>
     (await core.listRedirects()).map((r) => [r.from, r.to])
@@ -293,6 +347,8 @@ describe('redirects: review regressions', () => {
       ['/old', '/en/old'],
       ['/old', '/en'],
       ['/old/:x', '/en/old/:x'],
+      ['/q', '/EN/q'],
+      ['/old', '/En'],
     ] as const) {
       expect(await issueOf(core.createRedirect({ from, to }, owner))).toEqual({ code: 'invalid', path: ['to'] })
     }
@@ -537,7 +593,7 @@ describe('redirects: runtime loop guard', () => {
     for (const path of ['/blog/old', '/c/blog/old', '/x/y']) await visit(core, path)
   })
 
-  it('skips a loop exposed by deleting a rule (p4)', async () => {
+  it('refuses a delete that would expose a loop, and skips one exposed anyway (p4)', async () => {
     const w = await world()
     const e = await w.core.createRedirect({ from: '/a/b', to: '/somewhere' }, w.owner)
     await create(w, [
@@ -545,7 +601,9 @@ describe('redirects: runtime loop guard', () => {
       ['/z/:y', '/a/:y'],
     ])
     expect(await visit(w.core, '/a/q')).toEqual({ kind: 'not_found', locale: 'en' })
-    await w.core.deleteRedirect(e.id, w.owner)
+    await expect(w.core.deleteRedirect(e.id, w.owner)).rejects.toMatchObject({ code: 'conflict', messageId: 'error.redirectDeleteLoop' })
+    expect((await w.core.listRedirects()).map((r) => r.from)).toContain('/a/b')
+    await w.db.deleteFrom('redirects').where('id', '=', e.id).execute()
     expect(await w.core.resolvePath('/a/q')).toMatchObject({ kind: 'not_found', loop: ['/a/:x', '/z/:y'] })
     for (const path of ['/a/q', '/a/b', '/z/b', '/z/q']) await visit(w.core, path)
   })

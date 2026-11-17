@@ -1,7 +1,7 @@
 import type { Registry } from '../registry/registry.js'
-import { splitLocale, withLocale } from '../site/paths.js'
+import { lowercaseFallback, splitLocale, withLocale } from '../site/paths.js'
 
-export type RuleTarget = { path: string } | { document: string }
+export type RuleTarget = { path: string } | { document: string } | { url: string }
 
 const PARAM = /^:([A-Za-z_][A-Za-z0-9_]*)$/
 
@@ -137,6 +137,24 @@ export function* ruleCandidates<R>(registry: Registry, index: RuleIndex<R>, path
   }
 }
 
+/** Rule indexes in the order a request tries them: admin rules (7a), then the site's code rules (7b). */
+export type RuleSets<R> = readonly [admin: RuleIndex<R>, code: RuleIndex<R>]
+
+export type Hop<R> = { candidate: RuleCandidate<R> } | { fallback: string }
+
+/**
+ * What answers a request for `path` after pages: each rule that could fire, admin rules then code
+ * rules, each in `ruleCandidates` order, and last the lowercase fallback when `path` has one.
+ * Every walker follows this.
+ */
+export function* nextHops<R>(registry: Registry, sets: RuleSets<R>, path: string): Generator<Hop<R>> {
+  for (const index of sets) {
+    for (const candidate of ruleCandidates(registry, index, path)) yield { candidate }
+  }
+  const fallback = lowercaseFallback(path)
+  if (fallback !== null) yield { fallback }
+}
+
 /** Whether a path's first segment is a site locale code, so it already names its locale. */
 export function hasLocalePrefix(registry: Registry, path: string): boolean {
   return registry.locales.includes(path.split('/')[1] ?? '')
@@ -159,7 +177,8 @@ export function pathTarget(registry: Registry, locale: string, to: string, candi
 /**
  * Where each of `rules` is stored: an exact path target is followed through exact rules, taking a
  * hop `T → U` of a rule from `F` only when `canFollow(T, U, F)`. It stops at a document, a pattern
- * path, a path with no exact rule, or before coming back to a path already passed (loops are left
+ * path, a path with no exact rule, before a URL (a rule is never stored as going straight to another
+ * site), or before coming back to a path already passed (loops are left
  * for the caller to find). Chains shared between rules whose `from` has the same `scope` are
  * followed once, so `canFollow` may depend on `F` only through its scope.
  */
@@ -183,7 +202,9 @@ export async function collapseTargets(
         break
       }
       const next = exact.get(end.path)?.to
-      if (!next || ('path' in next && seen.has(next.path)) || !(await canFollow(end.path, next, rule.from))) break
+      if (!next || 'url' in next || ('path' in next && seen.has(next.path)) || !(await canFollow(end.path, next, rule.from))) {
+        break
+      }
       seen.add(end.path)
       passed.push(end.path)
       end = next

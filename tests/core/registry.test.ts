@@ -15,6 +15,7 @@ import { defineContent, defineEntries } from '../../src/core/registry/content.js
 import { buildRegistry } from '../../src/core/registry/registry.js'
 import { defineRoute } from '../../src/core/registry/route.js'
 import type { RenderContext } from '../../src/core/registry/render.js'
+import { rootSite } from '../fixtures/code-redirects.js'
 import { BasicPage, Hero, Post, Testimonial, site } from '../fixtures/site.js'
 
 const page = (name: string, extra: Partial<Parameters<typeof defineSingleton>[0]> = {}) =>
@@ -291,7 +292,7 @@ describe('shipped content', () => {
 describe('site settings', () => {
   it('fills defaults', () => {
     const r = buildRegistry(defineSite({ locales: ['en'], defaultLocale: 'en', singletons: [], collections: [], globals: [] }))
-    expect(r.site).toMatchObject({ admin: {}, notFound: null, publicPaths: [], secrets: [], routes: [], migrations: [] })
+    expect(r.site).toMatchObject({ admin: {}, notFound: null, publicPaths: [], secrets: [], headers: {}, routes: [], migrations: [] })
   })
   it('accepts a path-less singleton with a render function as notFound', () =>
     expect(() => buildRegistry(defineSite({ ...site, notFound: 'notFound' }))).not.toThrow())
@@ -314,6 +315,16 @@ describe('site settings', () => {
   it('rejects a duplicate secret name', () => rejects({ ...site, secrets: ['A', 'A'] }, '"A"'))
   it('accepts declared secrets and public paths', () =>
     expect(() => buildRegistry(defineSite({ ...site, secrets: ['HOOK_TOKEN', 'A'], publicPaths: ['/healthz'] }))).not.toThrow())
+  it('rejects a header name that is not a valid token', () => rejects({ ...site, headers: { 'x frame': 'DENY' } }, 'x frame'))
+  it('rejects a header Inlay sets itself', () => rejects({ ...site, headers: { 'Cache-Control': 'no-store' } }, 'Cache-Control'))
+  it('rejects a header listed twice in different case', () =>
+    rejects({ ...site, headers: { 'X-Frame-Options': 'DENY', 'x-frame-options': 'DENY' } }, 'x-frame-options'))
+  it('rejects a header value with a line break', () =>
+    rejects({ ...site, headers: { 'permissions-policy': 'camera=()\r\nset-cookie: a=1' } }, 'permissions-policy'))
+  it('accepts headers, and false to leave a default out', () =>
+    expect(() =>
+      buildRegistry(defineSite({ ...site, headers: { 'Permissions-Policy': 'camera=()', 'strict-transport-security': false } })),
+    ).not.toThrow())
 })
 
 describe('routes', () => {
@@ -381,5 +392,92 @@ describe('routes', () => {
     for (const path of ['contact', '/contact/', '/a//b', '/a/./b', '/a/../b', '/users/:id', '/files/*', '/a?b', '/a#b', '/a%20b', '']) {
       expect(refusal(withRoutes(route(path))), path).toMatchObject({ messageId: 'definition.routePath', params: { path } })
     }
+  })
+})
+
+describe('code redirects', () => {
+  const redirect = (from: string, to = '/about', status?: 301 | 302) => ({ from, to, ...(status ? { status } : {}) })
+  const refusal = (input: Partial<SiteInput>) => {
+    try {
+      buildRegistry(defineSite({ locales: ['en', 'es'], defaultLocale: 'en', ...input }))
+    } catch (e) {
+      return { code: (e as InlayError).code, messageId: (e as InlayError).messageId, params: (e as InlayError).params }
+    }
+    return null
+  }
+  const withRedirects = (...redirects: Array<{ from: string; to: string; status?: 301 | 302 }>) => ({ ...site, redirects })
+
+  it('normalizes code rules and keeps their order', () => {
+    const r = buildRegistry(
+      defineSite(
+        withRedirects(
+          { from: 'https://old.example.com/About-Us/', to: '/about' },
+          { from: '/caf%C3%A9', to: 'HTTPS://Example.com/x', status: 302 },
+          { from: '/blog/:slug', to: '/:slug' },
+        ),
+      ),
+    )
+    expect(r.redirects).toEqual([
+      { from: '/About-Us', to: '/about', status: 301 },
+      { from: '/café', to: 'https://example.com/x', status: 302 },
+      { from: '/blog/:slug', to: '/:slug', status: 301 },
+    ])
+    expect(r.redirectIndex.exact.get('/About-Us')).toEqual({ from: '/About-Us', to_path: '/about', to_group_id: null, status: 301 })
+  })
+
+  it('collects the GET route paths', () => {
+    const post = defineRoute({ method: 'POST', path: '/contact', handler: () => ({}) })
+    const get = defineRoute({ method: 'GET', path: '/echo', handler: () => ({}) })
+    expect([...buildRegistry(defineSite({ ...site, routes: [post, get] })).getRoutePaths]).toEqual(['/echo'])
+  })
+
+  it('accepts a rule a /:slug collection could match', () => {
+    expect(() => buildRegistry(rootSite([{ from: '/old-post', to: '/blog' }]))).not.toThrow()
+  })
+
+  it('refuses malformed rules', () => {
+    const cases: Array<[Parameters<typeof redirect>, string, Record<string, unknown>?]> = [
+      [['/admin/x'], 'definition.redirectFrom', { from: '/admin/x' }],
+      [['/en/x'], 'definition.redirectFrom'],
+      [['/a/:x/:x'], 'definition.redirectFrom'],
+      [[1 as unknown as string], 'definition.redirectFrom'],
+      [['/a', 'about'], 'definition.redirectTo'],
+      [['/a', '/en/about'], 'definition.redirectTo'],
+      [['/a', '/EN/about'], 'definition.redirectTo'],
+      [['/x', '/En'], 'definition.redirectTo'],
+      [['/a', 'http://x.com/'], 'definition.redirectTo'],
+      [['/a', '//evil.com'], 'definition.redirectTo'],
+      [['/a/:x', '/:y'], 'definition.redirectParam', { name: 'y' }],
+      [['/a/:x', 'https://x.com/:x'], 'definition.redirectUrlParam', { from: '/a/:x', name: 'x' }],
+      [['/a', '/b', 307 as 301], 'definition.redirectStatus'],
+    ]
+    for (const [args, messageId, params] of cases) {
+      expect(refusal(withRedirects(redirect(...args))), messageId).toMatchObject({
+        code: 'definition',
+        messageId,
+        ...(params ? { params } : {}),
+      })
+    }
+  })
+
+  it('refuses a from given twice', () => {
+    expect(refusal(withRedirects(redirect('/a', '/b'), redirect('/a/', '/c')))).toMatchObject({
+      messageId: 'definition.redirectDuplicate',
+      params: { from: '/a' },
+    })
+  })
+
+  it('refuses a rule on a GET route\'s path', () => {
+    const route = defineRoute({ method: 'GET', path: '/contact', handler: () => ({}) })
+    expect(refusal({ ...withRedirects(redirect('/contact')), routes: [route] })).toMatchObject({
+      messageId: 'definition.redirectRoute',
+      params: { from: '/contact' },
+    })
+  })
+
+  it('allows a rule on a POST-only route\'s path', () => {
+    const route = defineRoute({ method: 'POST', path: '/contact', handler: () => ({}) })
+    const r = buildRegistry(defineSite({ ...withRedirects(redirect('/contact')), routes: [route] }))
+    expect(r.redirects[0]?.from).toBe('/contact')
   })
 })

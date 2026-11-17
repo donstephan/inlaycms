@@ -6,6 +6,8 @@ import { pathToFileURL } from 'node:url'
 import * as tar from 'tar'
 import { runCli } from '../../src/adapters/cli/main.js'
 import { bootInlay } from '../../src/core/boot.js'
+import { t } from '../../src/core/messages/index.js'
+import { redirectSite } from '../fixtures/code-redirects.js'
 import { site } from '../fixtures/site.js'
 
 const fixture = (name: string) => pathToFileURL(resolve(import.meta.dirname, '../fixtures', name)).href
@@ -68,6 +70,30 @@ describe('inlaycms check', () => {
     const r = await run('check')
     expect(r.code).toBe(0)
     expect(existsSync(join(dir, 'data/missing.db'))).toBe(false)
+  })
+
+  it('passes with a warning when a page hides a code rule', async () => {
+    const owner = { actor: { id: 'u', name: 'Olivia Owner', role: 'owner' as const }, source: 'admin' as const }
+    const { db, core } = await bootInlay({ site: redirectSite, db: join(dir, 'data/redirects.db'), backups: join(dir, 'data/backups') })
+    const body = { type: 'doc', content: [{ type: 'paragraph', content: [{ type: 'text', text: 'x' }] }] }
+    const entry = await core.createEntry('pages', { slug: 'old-post', fields: { title: 'Old post', body } }, owner)
+    await core.publish([entry.id], owner)
+    await db.destroy()
+    await writeConfig(
+      `import { redirectSite } from '${fixture('code-redirects.ts')}'\nexport default { site: redirectSite, db: './data/redirects.db' }\n`,
+    )
+    const r = await run('check')
+    expect(r.code).toBe(0)
+    expect(r.out).toContain(t('report.warning', { message: t('report.redirectHidden', { from: '/old-post' }) }))
+  })
+
+  it('fails a malformed code rule', async () => {
+    await writeConfig(
+      `import { badRedirectSite } from '${fixture('code-redirects.ts')}'\nexport default { site: badRedirectSite, db: './data/inlay.db' }\n`,
+    )
+    const r = await run('check')
+    expect(r.code).toBe(1)
+    expect(r.err).toContain(t('definition.redirectFrom', { from: '/admin/x' }))
   })
 
   it('exits 2 when --db names a file that does not exist', async () => {

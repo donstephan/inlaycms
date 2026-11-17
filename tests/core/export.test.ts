@@ -77,7 +77,7 @@ describe('exportContent', () => {
     )
 
     expect(x.manifest.format).toBe('inlay-export')
-    expect(x.manifest.formatVersion).toBe(1)
+    expect(x.manifest.formatVersion).toBe(2)
     expect(x.manifest.exportedAt).toMatch(/^2026-01-01T/)
     expect(x.manifest.locales).toEqual(['en', 'es'])
     expect(x.manifest.types.map((t) => t.name).sort()).toEqual([...w.core.registry.types.keys()].sort())

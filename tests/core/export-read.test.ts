@@ -86,7 +86,7 @@ describe('readExport', () => {
     await w.core.exportContent(file, w.owner)
 
     const bundle = await readExport(file)
-    expect(bundle.manifest.formatVersion).toBe(1)
+    expect(bundle.manifest.formatVersion).toBe(2)
     expect(bundle.damaged).toEqual([])
     expect(bundle.documents.length).toBe(bundle.manifest.counts.documents)
     expect(bundle.revisions.length).toBe(bundle.manifest.counts.revisions)
@@ -199,9 +199,19 @@ describe('readExport', () => {
     await fails(base().filter((e) => e.path !== 'manifest.json'), 'error.exportInvalid')
     await fails(base({ manifest: { ...manifest, format: 'other' } }), 'error.exportInvalid')
     await fails(base({ manifest: '{' as unknown as object }), 'error.exportInvalid')
-    const err = await fails(base({ manifest: { ...manifest, formatVersion: 2 } }), 'error.exportNewer')
+    const err = await fails(base({ manifest: { ...manifest, formatVersion: 3 } }), 'error.exportNewer')
     expect(err.code).toBe('validation')
-    expect(err.params).toEqual({ version: 2 })
+    expect(err.params).toEqual({ version: 3 })
+  })
+
+  it('accepts a version-2 export whose documents carry fields it doesn\'t know', async () => {
+    const content = nd(
+      doc('d1', { firstPublishedAt: '2026-01-01T00:00:00.000Z' }),
+      doc('d2'),
+    )
+    const bundle = await readExport(await archive(base({ manifest: { ...manifest, formatVersion: 2 }, content })))
+    expect(bundle.documents.map((d) => d.id)).toEqual(['d1', 'd2'])
+    await bundle.close()
   })
 
   it('ignores a schema version on a manifest type from an older export', async () => {
@@ -312,6 +322,14 @@ describe('readExport', () => {
     it('rejects a redirect to another site', async () => {
       expect(await detailOf([redirect(1, '/a', { path: '//evil.example/' })])).toContain('redirects.json, entry 1')
       await detailOf([redirect(1, '/a', { path: 'https://evil.example/' })])
+    })
+
+    it('checks URL targets', async () => {
+      await detailOf([redirect(1, '/a', { url: 'http://example.com/' })])
+      await detailOf([redirect(1, '/a/:x', { url: 'https://example.com/:x' })])
+      const ok = await readExport(await archive(base({ redirects: [redirect(1, '/a', { url: 'https://example.com/x' })] })))
+      expect(ok.redirects[0]?.to).toEqual({ url: 'https://example.com/x' })
+      await ok.close()
     })
 
     it('rejects an old address that is not a site path', async () => {

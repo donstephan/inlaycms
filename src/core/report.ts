@@ -12,11 +12,9 @@ export interface CheckProblem {
 }
 
 /** Something the developer should fix that doesn't stop boot. `message` is written for the developer. */
-export interface CheckWarning {
-  code: 'slug_shadowed'
-  message: string
-  document: { id: string; type: string; locale: string; title: string }
-}
+export type CheckWarning =
+  | { code: 'slug_shadowed'; message: string; document: { id: string; type: string; locale: string; title: string } }
+  | { code: 'redirect_hidden' | 'redirect_loop'; message: string; redirect: { from: string } }
 
 /** What boot or `inlaycms check` did (or would do) to a database. */
 export interface CheckReport {

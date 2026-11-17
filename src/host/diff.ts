@@ -1,5 +1,5 @@
 import { t } from '../core/messages/index.js'
-import { canonicalJson, type ReleaseManifest } from '../core/release/manifest.js'
+import { canonicalJson, type ManifestRedirect, type ReleaseManifest } from '../core/release/manifest.js'
 import type { ReleaseDiff } from './push.js'
 
 type Route = { method: string; path: string }
@@ -22,6 +22,8 @@ export interface StructuralDiff {
    */
   fields: Array<{ type: string; path: string; change: FieldChange }>
   routes: { added: Route[]; removed: Route[] }
+  /** Code redirects by `from`; `changed` holds those whose target or status differs. Absent from a host before 0.3. */
+  redirects?: { added: ManifestRedirect[]; removed: ManifestRedirect[]; changed: Array<{ before: ManifestRedirect; after: ManifestRedirect }> }
   /** Every secret the staged release needs. */
   secrets: string[]
   /** Every migration function of the staged release, in order. */
@@ -277,6 +279,16 @@ export function structuralDiff(current: ReleaseManifest | null, staged: ReleaseM
     }
   }
 
+  const curRedirects = new Map((current?.redirects ?? []).map((r) => [r.from, r]))
+  const stagedRedirects = new Map((staged.redirects ?? []).map((r) => [r.from, r]))
+  const redirects: NonNullable<StructuralDiff['redirects']> = { added: [], removed: [], changed: [] }
+  for (const [from, after] of stagedRedirects) {
+    const before = curRedirects.get(from)
+    if (!before) redirects.added.push(after)
+    else if (before.to !== after.to || before.status !== after.status) redirects.changed.push({ before, after })
+  }
+  for (const [from, before] of curRedirects) if (!stagedRedirects.has(from)) redirects.removed.push(before)
+
   return {
     types: { added: added(curNames, stagedNames), removed: added(stagedNames, curNames), changed },
     slots,
@@ -286,6 +298,7 @@ export function structuralDiff(current: ReleaseManifest | null, staged: ReleaseM
       added: added(current?.routes ?? [], staged.routes, routeKey),
       removed: added(staged.routes, current?.routes ?? [], routeKey),
     },
+    redirects,
     secrets: [...staged.secrets],
     migrations: [...staged.migrations],
     shipped: { stale },
@@ -364,6 +377,11 @@ export function formatDiff(diff: ReleaseDiff): string[] {
   for (const name of s.migrations) lines.push(t('diff.release.migration', { name }))
   for (const r of s.routes.added) lines.push(t('diff.release.routeAdded', r))
   for (const r of s.routes.removed) lines.push(t('diff.release.routeRemoved', r))
+  for (const r of s.redirects?.added ?? []) lines.push(t('diff.release.redirectAdded', { from: r.from, to: r.to, status: r.status }))
+  for (const r of s.redirects?.removed ?? []) lines.push(t('diff.release.redirectRemoved', { from: r.from, to: r.to }))
+  for (const { after } of s.redirects?.changed ?? []) {
+    lines.push(t('diff.release.redirectChanged', { from: after.from, to: after.to, status: after.status }))
+  }
   if (lines.length === 0) lines.push(t('diff.release.nothing'))
   if (s.secrets.length > 0) lines.push(t('diff.release.secrets', { count: s.secrets.length, names: s.secrets.join(', ') }))
   return lines

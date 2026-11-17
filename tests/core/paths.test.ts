@@ -7,6 +7,7 @@ import { defineRoute } from '../../src/core/registry/route.js'
 import { buildRegistry } from '../../src/core/registry/registry.js'
 import {
   encodePath,
+  lowercaseFallback,
   normalizePath,
   singletonPath,
   splitLocale,
@@ -28,6 +29,19 @@ describe('normalizePath', () => {
   it('rejects anything that could leave the site', () => {
     for (const p of ['//evil.com', '/\\evil.com', '/%2F%2Fevil.com', '/a/../b', '/%E0%A4%A', '/a%00b', 'about']) {
       expect(normalizePath(p)).toBeNull()
+    }
+  })
+})
+
+describe('lowercaseFallback', () => {
+  it('lowercases a mixed-case path', () => {
+    expect(lowercaseFallback('/About')).toBe('/about')
+    expect(lowercaseFallback('/Company/Team')).toBe('/company/team')
+    expect(lowercaseFallback('/ES/Acerca')).toBe('/es/acerca')
+  })
+  it('leaves lowercase, file-like and reserved paths alone', () => {
+    for (const p of ['/about', '/', '/Foo.PDF', '/Public/x.css', '/Admin/Users', '/MEDIA/abc']) {
+      expect(lowercaseFallback(p)).toBeNull()
     }
   })
 })

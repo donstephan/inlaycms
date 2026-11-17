@@ -143,6 +143,17 @@ export interface AdminSettings {
   theme?: AdminTheme
 }
 
+/**
+ * A redirect shipped in the site's code. `from` is a path (an old site's full URL is accepted; only its path is
+ * used) that may have `:name` params; `to` is a path using those params, or an absolute `https://` URL.
+ */
+export interface RedirectDef {
+  from: string
+  to: string
+  /** 301 (default) or 302. */
+  status?: 301 | 302
+}
+
 export interface SiteDefinition {
   locales: string[]
   defaultLocale: string
@@ -161,7 +172,14 @@ export interface SiteDefinition {
   publicPaths: string[]
   /** Names of the secrets the host provides, such as `SLACK_WEBHOOK`. */
   secrets: string[]
+  /**
+   * Response headers laid over Inlay's security defaults, by name; `false` leaves a default out. A header a response
+   * sets itself (the admin's CSP, a route's own) wins over both.
+   */
+  headers: Record<string, string | false>
   routes: RouteDef[]
+  /** Redirects shipped with the site's code. */
+  redirects: RedirectDef[]
   migrations: ReleaseMigration[]
 }
 
@@ -178,7 +196,9 @@ export interface SiteInput {
   notFound?: string | null
   publicPaths?: string[]
   secrets?: string[]
+  headers?: Record<string, string | false>
   routes?: RouteDef[]
+  redirects?: RedirectDef[]
   migrations?: ReleaseMigration[]
 }
 
@@ -194,7 +214,9 @@ export function defineSite(def: SiteInput): SiteDefinition {
     notFound: def.notFound ?? null,
     publicPaths: def.publicPaths ?? [],
     secrets: def.secrets ?? [],
+    headers: def.headers ?? {},
     routes: def.routes ?? [],
+    redirects: def.redirects ?? [],
     migrations: def.migrations ?? [],
   }
 }

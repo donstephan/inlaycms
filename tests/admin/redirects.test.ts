@@ -1,6 +1,8 @@
 import type { FastifyInstance } from 'fastify'
+import { t } from '../../src/core/messages/index.js'
 import type { Core } from '../../src/core/core.js'
 import { makeApp } from '../helpers/app.js'
+import { redirectSite, rootSite } from '../fixtures/code-redirects.js'
 import { parseHtml, signIn, type AdminClient } from '../helpers/admin.js'
 
 const textOf = (html: string) => parseHtml(html).body.textContent.replace(/\s+/g, ' ')
@@ -43,6 +45,12 @@ describe('admin redirects', () => {
     expect(text).toContain('The redirect is added.')
     expect(text).toContain('/old')
     expect(text).toContain('/about')
+  })
+
+  it('adds a redirect to an address on another site', async () => {
+    const res = await add({ from: '/g2', to_path: 'https://www.g2.com/x' })
+    expect(res.statusCode).toBe(303)
+    expect(textOf((await eddie.get('/admin/redirects')).body)).toContain('https://www.g2.com/x')
   })
 
   it('adds a redirect to a page, listed by its title', async () => {
@@ -175,5 +183,60 @@ describe('admin redirects', () => {
     const res = await eddie.get('/admin/redirects?sheet=nope')
     expect(res.statusCode).toBe(200)
     expect(parseHtml(res.body).querySelector('[data-sheet-autoopen]')).toBeNull()
+  })
+})
+
+describe('code redirects', () => {
+  const body = { type: 'doc', content: [{ type: 'paragraph', content: [{ type: 'text', text: 'x' }] }] }
+  const rowOf = (page: ReturnType<typeof parseHtml>, from: string) =>
+    [...page.querySelectorAll('#code-redirects tbody tr')].find((tr) => tr.querySelector('td')?.textContent.trim() === from)
+
+  it('lists code rules read-only in their own section', async () => {
+    const { app } = await makeApp({ site: redirectSite, withOwner: true })
+    await app.ready()
+    const eddie = await signIn(app, 'editor@example.com')
+    const page = parseHtml((await eddie.get('/admin/redirects')).body)
+    const section = page.querySelector('#code-redirects')
+    expect(section?.querySelector('h2')?.textContent.trim()).toBe(t('admin.redirects.code.heading'))
+    const text = section?.textContent ?? ''
+    for (const s of ['/old-post', '/blog', 'https://www.g2.com/products/realciso/reviews']) expect(text).toContain(s)
+    expect(rowOf(page, '/old-landing')?.textContent).toContain(t('admin.redirects.temporary'))
+    expect(section?.querySelector('form, button, a[href*="/delete"]')).toBeNull()
+    expect(page.querySelector('#redirects')?.textContent).toContain(t('admin.redirects.empty'))
+    await app.close()
+  })
+
+  it('marks a code rule an admin rule overrides, and one a page hides', async () => {
+    const { app, core, owner } = await makeApp({ site: redirectSite, withOwner: true })
+    await app.ready()
+    const eddie = await signIn(app, 'editor@example.com')
+    await core.createRedirect({ from: '/old-landing', to: '/about' }, owner)
+    const entry = await core.createEntry('pages', { slug: 'old-post', fields: { title: 'Old post', body } }, owner)
+    await core.publish([entry.id], owner)
+    const page = parseHtml((await eddie.get('/admin/redirects')).body)
+    expect(rowOf(page, '/old-landing')?.textContent).toContain(t('admin.redirects.code.overridden'))
+    expect(rowOf(page, '/old-post')?.textContent).toContain(t('admin.redirects.code.hidden'))
+    await app.close()
+  })
+
+  it('has no code section for a site without code rules', async () => {
+    const { app } = await makeApp({ withOwner: true })
+    await app.ready()
+    const eddie = await signIn(app, 'editor@example.com')
+    expect(parseHtml((await eddie.get('/admin/redirects')).body).querySelector('#code-redirects')).toBeNull()
+    await app.close()
+  })
+
+  it('refuses to delete a redirect when that would leave visitors in a loop', async () => {
+    const { app, core, editor } = await makeApp({ site: rootSite([{ from: '/a', to: '/c' }, { from: '/c', to: '/a' }]), withOwner: true })
+    await app.ready()
+    const eddie = await signIn(app, 'editor@example.com')
+    const r = await core.createRedirect({ from: '/a', to: '/b' }, editor)
+    const res = await eddie.post(`/admin/redirects/${r.id}/delete`, {})
+    expect(res.statusCode).toBe(409)
+    const page = parseHtml(res.body)
+    expect(page.querySelector('#delete-error')?.textContent.trim()).toBe(t('error.redirectDeleteLoop', { path: '/a' }))
+    expect((await core.listRedirects()).map((x) => x.from)).toEqual(['/a'])
+    await app.close()
   })
 })

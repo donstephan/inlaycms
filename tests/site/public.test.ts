@@ -60,7 +60,7 @@ describe('/public/*', () => {
     await writeFile(join(dir, 'logo.svg'), '<svg xmlns="http://www.w3.org/2000/svg"><script>alert(1)</script></svg>')
     const { app } = await setup()
     expect((await app.inject('/public/site.css')).headers['x-content-type-options']).toBe('nosniff')
-    expect((await app.inject('/public/site.css')).headers['content-security-policy']).toBeUndefined()
+    expect((await app.inject('/public/site.css')).headers['content-security-policy']).toBe("frame-ancestors 'self'")
     const res = await app.inject('/public/logo.svg')
     expect(res.statusCode).toBe(200)
     expect(res.headers['content-type']).toContain('image/svg+xml')

@@ -64,6 +64,7 @@ describe('structuralDiff', () => {
       locales: { added: [], removed: [] },
       fields: [],
       routes: { added: [], removed: [] },
+      redirects: { added: [], removed: [], changed: [] },
       secrets: [],
       migrations: [],
       shipped: { stale: [] },
@@ -282,6 +283,33 @@ describe('structuralDiff', () => {
     expect(diff.migrations).toEqual(['team-to-people'])
   })
 
+  it('code redirects added, removed and changed, by from', () => {
+    const current = manifest({
+      redirects: [
+        { from: '/a', to: '/b', status: 301 },
+        { from: '/c', to: '/d', status: 301 },
+      ],
+    })
+    const staged = manifest({
+      redirects: [
+        { from: '/a', to: '/b', status: 302 },
+        { from: '/e', to: 'https://x.com/', status: 301 },
+      ],
+    })
+    const diff = structuralDiff(current, staged)
+    expect(diff.redirects).toEqual({
+      added: [{ from: '/e', to: 'https://x.com/', status: 301 }],
+      removed: [{ from: '/c', to: '/d', status: 301 }],
+      changed: [{ before: { from: '/a', to: '/b', status: 301 }, after: { from: '/a', to: '/b', status: 302 } }],
+    })
+    expect(structuralDiff(manifest(), staged).redirects?.added).toHaveLength(2)
+    expect(formatDiff({ structural: diff, content: null })).toEqual([
+      t('diff.release.redirectAdded', { from: '/e', to: 'https://x.com/', status: 301 }),
+      t('diff.release.redirectRemoved', { from: '/c', to: '/d' }),
+      t('diff.release.redirectChanged', { from: '/a', to: '/b', status: 302 }),
+    ])
+  })
+
   it('a shipped document whose content changed but whose edition did not', () => {
     const current = manifest({
       shipped: [
@@ -310,6 +338,7 @@ describe('structuralDiff', () => {
       types: { home: { kind: 'singleton', slots: ['hero'] } },
       locales: ['en', 'fr'],
       routes: [{ method: 'GET', path: '/ping' }],
+      redirects: [{ from: '/x', to: '/y', status: 301 }],
       secrets: ['HOOK'],
       migrations: ['first'],
       shipped: [{ type: 'home', key: 'home', edition: 1, locales: { en: HASH('a') } }],
@@ -320,6 +349,7 @@ describe('structuralDiff', () => {
       locales: { added: ['en', 'fr'], removed: [] },
       fields: [],
       routes: { added: [{ method: 'GET', path: '/ping' }], removed: [] },
+      redirects: { added: [{ from: '/x', to: '/y', status: 301 }], removed: [], changed: [] },
       secrets: ['HOOK'],
       migrations: ['first'],
       shipped: { stale: [] },

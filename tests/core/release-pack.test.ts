@@ -11,12 +11,13 @@ import { openDatabase } from '../../src/core/db/connection.js'
 import { migrateSystem } from '../../src/core/db/migrate.js'
 import { InlayError } from '../../src/core/errors.js'
 import { fingerprint, generateKeyPair, sign } from '../../src/core/release/keys.js'
-import { manifestOfRegistry, satisfies, type ReleaseManifest } from '../../src/core/release/manifest.js'
+import { manifestOfRegistry, manifestSchema, satisfies, type ReleaseManifest } from '../../src/core/release/manifest.js'
 import { packRelease } from '../../src/core/release/pack.js'
 import { INLAY_ENTRIES, loadRelease, openRelease, readRelease } from '../../src/core/release/read.js'
 import { buildRegistry } from '../../src/core/registry/registry.js'
 import { inlayVersion } from '../../src/core/version.js'
 import { loadConfig } from '../../src/config.js'
+import { redirectSite } from '../fixtures/code-redirects.js'
 import { png, sha256 } from '../fixtures/media.js'
 
 const fixtures = resolve(import.meta.dirname, '../fixtures')
@@ -98,10 +99,27 @@ describe('packRelease', () => {
     expect(manifest.types).toEqual({ home: { kind: 'singleton', slots: [] } })
     expect(manifest.routes).toEqual([{ method: 'GET', path: '/ping' }])
     expect(manifest.migrations).toEqual([])
+    expect(manifest.redirects).toEqual([])
     // Files are hashed as the release keeps them, so the hash follows their bytes, not where the site sits.
     const canonical = JSON.stringify({ fields: { picture: { alt: 'A picture', file: image }, title: 'Hello' } })
     expect(manifest.shipped).toEqual([
       { type: 'home', key: 'home', edition: 1, locales: { en: createHash('sha256').update(canonical).digest('hex') } },
+    ])
+  })
+
+  it('reads a manifest without redirects, as releases before 0.3 have', async () => {
+    const { manifest } = await pack()
+    const { redirects: _redirects, ...old } = manifest
+    expect(manifestSchema.parse(old).redirects).toBeUndefined()
+  })
+
+  it("lists the site's code redirects in stored form", () => {
+    const manifest = manifestOfRegistry(buildRegistry(redirectSite), { name: 'x', now: new Date(Date.UTC(2026, 10, 4)) })
+    expect(manifest.redirects).toEqual([
+      { from: '/old-post', to: '/blog', status: 301 },
+      { from: '/g2', to: 'https://www.g2.com/products/realciso/reviews', status: 301 },
+      { from: '/old-landing', to: '/', status: 302 },
+      { from: '/2019/:slug', to: '/blog/:slug', status: 301 },
     ])
   })
 

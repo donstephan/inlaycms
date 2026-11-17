@@ -9,6 +9,7 @@ import { InlayError } from '../errors.js'
 import { t } from '../messages/index.js'
 import { paramNames } from '../redirects/collapse.js'
 import { cleanPath, redirectFrom } from '../redirects/redirects.js'
+import { externalTarget } from '../redirects/rule.js'
 import type { Registry } from '../registry/registry.js'
 import {
   EXPORT_FORMAT,
@@ -224,6 +225,12 @@ function checkRedirects(redirects: RedirectRecord[], documents: DocumentRecord[]
     froms.add(r.from)
     if ('group' in r.to) {
       if (!groups.has(r.to.group)) fail(t('export.unknownGroup', { id: r.to.group }))
+      return
+    }
+    if ('url' in r.to) {
+      if (externalTarget(r.to.url) !== r.to.url || (paramNames(r.from).length > 0 && paramNames(r.to.url).length > 0)) {
+        fail(t('export.redirectTo', { path: r.to.url }))
+      }
       return
     }
     const to = r.to.path

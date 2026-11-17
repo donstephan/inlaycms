@@ -8,7 +8,7 @@ import { t, type MessageId } from '../messages/index.js'
 import { resolveWithoutRules } from '../site/resolve.js'
 import { encodePath, isReserved, normalizePath, splitLocale, withLocale } from '../site/paths.js'
 import type { Registry } from '../registry/registry.js'
-import type { ContentIssue, CoreDeps, Ctx, IssueCode, LiveState, Redirect, RedirectInput, RouteMatch } from '../types.js'
+import type { CodeRedirect, ContentIssue, CoreDeps, Ctx, IssueCode, LiveState, Redirect, RedirectInput, RouteMatch } from '../types.js'
 import { sitePath } from '../site/live.js'
 import {
   collapseTargets,
@@ -16,15 +16,16 @@ import {
   hasLocalePrefix,
   isPattern,
   localize,
+  nextHops,
   paramNames,
   pathTarget,
   patternRegExp,
-  ruleCandidates,
   ruleIndex,
-  type RuleIndex,
+  type RuleSets,
   type RuleTarget,
 } from './collapse.js'
 import { parseCsv } from './csv.js'
+import { cleanPath, defaultLocalePrefix, externalTarget, redirectFrom, targetOf } from './rule.js'
 import { withTransaction } from '../content/dry-run.js'
 
 type Row = Selectable<RedirectsTable>
@@ -37,7 +38,7 @@ const LABELS: Record<Field, MessageId> = {
 }
 
 export function rowTarget(row: Pick<Row, 'to_path' | 'to_group_id'>): RuleTarget {
-  return row.to_group_id !== null ? { document: row.to_group_id } : { path: row.to_path ?? '/' }
+  return row.to_group_id !== null ? { document: row.to_group_id } : targetOf(row.to_path ?? '/')
 }
 
 function toRedirect(row: Row): Redirect {
@@ -58,25 +59,35 @@ export async function listRedirects(deps: CoreDeps): Promise<Redirect[]> {
   return rows.map(toRedirect)
 }
 
-const ORIGIN = /^https?:\/\/[^/?#]*/i
+export { cleanPath, redirectFrom }
 
-/** A clean decoded site path without a query or fragment, or `null`. */
-export function cleanPath(raw: string): string | null {
-  const path = normalizePath(raw)
-  return path === null || path.includes('?') || path.includes('#') ? null : path
+/** The site's code rules, in definition order, each marked when an admin rule or a page answers at its `from` first. */
+export async function listCodeRedirects(deps: CoreDeps): Promise<CodeRedirect[]> {
+  const { registry } = deps
+  const stored = await deps.db.selectFrom('redirects').select('from_path').execute()
+  const overriding = new Set(stored.map((r) => r.from_path))
+  const look = lookup(deps)
+  const out: CodeRedirect[] = []
+  for (const r of registry.redirects) {
+    out.push({
+      from: r.from,
+      to: targetOf(r.to),
+      status: r.status,
+      overridden: overriding.has(r.from),
+      hidden: !isPattern(r.from) && (await isHidden(registry, look, r.from)),
+    })
+  }
+  return out
 }
 
-/**
- * The stored form of a redirect's `from` (a full http(s) URL loses its origin), or `null` if it can't be
- * used. A default-locale prefix can't be used: such a request is sent to the unprefixed path first.
- */
-export function redirectFrom(registry: Registry, raw: string): string | null {
-  const trimmed = raw.trim()
-  const stripped = trimmed.replace(ORIGIN, '')
-  const path = cleanPath(stripped === '' && stripped !== trimmed ? '/' : stripped)
-  if (path === null || isReserved(path) || path.split('/')[1] === registry.defaultLocale) return null
-  const names = paramNames(path)
-  return new Set(names).size === names.length ? path : null
+/** The `from` of each code rule that, with the stored rules, sends visitors round a loop with no stop. */
+export async function codeRedirectLoops(deps: CoreDeps): Promise<string[]> {
+  const rows = await deps.db.selectFrom('redirects').selectAll().orderBy('id').execute()
+  const look = lookup(deps)
+  const code = codeRules(deps.registry)
+  const isStop = async (path: string) => deps.registry.getRoutePaths.has(path) || (await look(path)) !== 'not_found'
+  const looping = await loopingRules(deps.registry, isStop, rows.map(ruleOf), code, code)
+  return code.filter((r) => looping.has(r)).map((r) => r.from)
 }
 
 function isRoutable(deps: CoreDeps, target: { kind: string; type: string }): boolean {
@@ -106,17 +117,35 @@ function lookup(deps: CoreDeps): Lookup {
   }
 }
 
+/** The paths an exact `from` matches at: in every locale when it is unprefixed, else only itself. */
+function firePaths(registry: Registry, from: string): string[] {
+  return splitLocale(registry, from).locale === registry.defaultLocale
+    ? registry.locales.map((l) => withLocale(registry, l, from))
+    : [from]
+}
+
 /** Whether an exact `from` is the path of a published page in any locale it matches in. */
 async function isLivePage(registry: Registry, look: Lookup, from: string): Promise<boolean> {
-  const paths =
-    splitLocale(registry, from).locale === registry.defaultLocale
-      ? registry.locales.map((l) => withLocale(registry, l, from))
-      : [from]
-  for (const p of paths) {
+  for (const p of firePaths(registry, from)) {
     if ((await look(p)) === 'page') return true
   }
   return false
 }
+
+/**
+ * Whether a code rule's exact `from` never fires: a published page answers at `from` itself, and
+ * something answers before any rule at each of its paths in the other locales.
+ */
+async function isHidden(registry: Registry, look: Lookup, from: string): Promise<boolean> {
+  if ((await look(from)) !== 'page') return false
+  for (const p of firePaths(registry, from)) {
+    if ((await look(p)) === 'not_found') return false
+  }
+  return true
+}
+
+/** A `to` that names a URL scheme, so it is checked as an address on another site. */
+const URL_LIKE = /^[a-z][a-z0-9+.-]*:/i
 
 export interface CheckedRule {
   from: string
@@ -128,8 +157,8 @@ export interface CheckedRule {
 /**
  * Checks a rule on its own (not against other rules): the shape of `from`
  * and `to` (neither may start with the default locale, which a request is
- * sent away from first), the status, and that an exact `from` isn't a
- * published page.
+ * sent away from first; a `to` that isn't a path must be an https URL), the
+ * status, and that an exact `from` isn't a published page.
  */
 export async function checkRedirect(
   deps: CoreDeps,
@@ -147,11 +176,18 @@ export async function checkRedirect(
   }
 
   let to: RuleTarget | null = null
-  if (typeof input.to === 'string') {
-    const path = cleanPath(input.to.trim())
-    const locale = deps.registry.defaultLocale
+  if (typeof input.to === 'string' && URL_LIKE.test(input.to.trim())) {
+    const url = externalTarget(input.to)
+    const param = url === null || from === null || !isPattern(from) ? undefined : paramNames(new URL(url).pathname)[0]
+    if (url === null) issue('to', 'invalid', 'issue.redirectUrl', { path: input.to })
+    else if (param !== undefined) issue('to', 'invalid', 'issue.redirectUrlParam', { name: param })
+    else to = { url }
+  } else if (typeof input.to === 'string') {
+    const trimmed = input.to.trim()
+    const path = trimmed.startsWith('/') ? cleanPath(trimmed) : null
+    const locale = path === null ? null : defaultLocalePrefix(deps.registry, path)
     if (path === null) issue('to', 'invalid', 'issue.redirectTo', { path: input.to })
-    else if (path.split('/')[1] === locale) issue('to', 'invalid', 'issue.redirectToDefaultLocale', { path, locale })
+    else if (locale !== null) issue('to', 'invalid', 'issue.redirectToDefaultLocale', { path, locale })
     else {
       const allowed = from === null ? [] : paramNames(from)
       const missing = paramNames(path).find((n) => !allowed.includes(n))
@@ -181,7 +217,9 @@ export async function checkRedirect(
 }
 
 function columns(to: RuleTarget): { to_path: string | null; to_group_id: string | null } {
-  return 'path' in to ? { to_path: to.path, to_group_id: null } : { to_path: null, to_group_id: to.document }
+  if ('path' in to) return { to_path: to.path, to_group_id: null }
+  if ('url' in to) return { to_path: to.url, to_group_id: null }
+  return { to_path: null, to_group_id: to.document }
 }
 
 function invalid(issues: ContentIssue[]): InlayError {
@@ -201,13 +239,19 @@ function ruleOf(row: Row): Rule {
   return { id: row.id, from: row.from_path, to: rowTarget(row) }
 }
 
+/** The site's code rules as walked beside the stored ones. `walk` tells rules apart by identity, so build these once per walk. */
+function codeRules(registry: Registry): Rule[] {
+  return registry.redirects.map((r) => ({ id: null, from: r.from, to: targetOf(r.to) }))
+}
+
 /**
  * Settles a write of `incoming` rules over `rules` (every other rule, in id order, with any incoming
  * rule that updates one in its place and new ones last, as they would be numbered). Each incoming
  * exact path target is collapsed through exact rules, and existing rules whose target is an incoming
- * exact `from` are re-pointed to where that rule goes. Then every changed rule is walked as requests
- * would follow it. Rules are changed in place; `repointed` lists the existing ones that changed and
- * `loops` the `blame` of every incoming rule whose write would make a loop.
+ * exact `from` are re-pointed to where that rule goes, unless it goes to a URL. Only stored rules are
+ * collapsed through, never the site's code rules. Then every changed rule is walked as requests
+ * would follow it, code rules included. Rules are changed in place; `repointed` lists the existing
+ * ones that changed and `loops` the `blame` of every incoming rule whose write would make a loop.
  */
 async function settle(
   deps: CoreDeps,
@@ -218,7 +262,8 @@ async function settle(
   const { registry } = deps
   const others = registry.locales.filter((l) => l !== registry.defaultLocale)
   const before = ruleIndex(rules)
-  const isStop = async (path: string, state: LiveState) => (await look(path, state)) !== 'not_found'
+  const isStop = async (path: string, state: LiveState) =>
+    registry.getRoutePaths.has(path) || (await look(path, state)) !== 'not_found'
 
   /** Whether a request for `path` reaches its exact rule in every locale and state the rule fires in. */
   const reaches = async (path: string): Promise<boolean> => {
@@ -249,7 +294,7 @@ async function settle(
   const repointed: Rule[] = []
   for (const r of incoming) {
     const pointing = byTarget.get(r.from)
-    if (!pointing || isPattern(r.from) || !(await reaches(r.from))) continue
+    if (!pointing || 'url' in r.to || isPattern(r.from) || !(await reaches(r.from))) continue
     for (const p of pointing) {
       if (('path' in r.to && r.to.path === p.from) || !sameHop(registry, p.from, r.from, r.to)) continue
       p.to = r.to
@@ -259,20 +304,36 @@ async function settle(
     }
   }
 
-  const index = ruleIndex(rules)
-  const loops = new Set<number>()
+  const looping = await loopingRules(registry, (p) => isStop(p, 'published'), rules, codeRules(registry), changed)
+  const loops = new Set([...looping].map((r) => blame.get(r)!))
+  return { repointed, loops }
+}
+
+/**
+ * Of `changed`, the rules that send some request they answer round a loop with no stop on it, with
+ * `rules` (the stored rules, in id order) tried before `code` (the site's code rules) as requests try them.
+ */
+async function loopingRules(
+  registry: Registry,
+  isStop: (path: string) => Promise<boolean>,
+  rules: Rule[],
+  code: Rule[],
+  changed: Iterable<Rule>,
+): Promise<Set<Rule>> {
+  const sets: RuleSets<Rule> = [ruleIndex(rules), ruleIndex(code)]
+  const out = new Set<Rule>()
   let starts: Map<string, string[]> | undefined
-  const startsAt = () => (starts ??= startsOf(registry, rules))
+  const startsAt = () => (starts ??= startsOf(registry, [...rules, ...code]))
   for (const rule of changed) {
     for (const start of walkStarts(registry, rule, startsAt)) {
-      const trail = walk(registry, index, rule, start)
-      if (trail && !(await someAsync(trail, (p) => isStop(p, 'published')))) {
-        loops.add(blame.get(rule)!)
+      const trail = walk(registry, sets, rule, start)
+      if (trail && !(await someAsync(trail, isStop))) {
+        out.add(rule)
         break
       }
     }
   }
-  return { repointed, loops }
+  return out
 }
 
 /** What `sameHop` depends on in a rule's `from`: its locale, and whether its first segment is a param. */
@@ -361,22 +422,28 @@ function* walkStarts(registry: Registry, rule: Rule, starts: () => Map<string, s
 }
 
 /**
- * Follows a request for `start` that `rule` answers, matching rules exactly as `resolvePath` does,
- * and gives the paths it passes when it goes round in a loop (or on for more than `MAX_HOPS`), or
+ * Follows a request for `start` that `rule` answers, matching rules exactly as `resolvePath` does
+ * (in `nextHops` order: stored rules, then code rules, then the lowercase fallback), and gives the paths it passes when it goes round in a loop (or on for more than `MAX_HOPS`), or
  * `null`. It is a loop only if none of those paths is a stop, where a page or a path redirect answers
  * before any rule. A rule that would send `start` to itself is a loop. `null` when `rule` doesn't
- * answer `start`. A document target ends the walk.
+ * answer `start`. A document or URL target ends the walk; the fallback goes on to the lowercase path.
  */
-function walk(registry: Registry, index: RuleIndex<Rule>, rule: Rule, start: string): string[] | null {
+function walk(registry: Registry, sets: RuleSets<Rule>, rule: Rule, start: string): string[] | null {
   const trail = [start]
   const seen = new Set(trail)
   let path = start
   for (let hops = 0; ; hops++) {
     const { locale } = splitLocale(registry, path)
     let to: RuleTarget | null = null
-    for (const candidate of ruleCandidates(registry, index, path)) {
+    for (const hop of nextHops(registry, sets, path)) {
+      if ('fallback' in hop) {
+        if (hops === 0) return null
+        to = { path: hop.fallback }
+        break
+      }
+      const { candidate } = hop
       const target = candidate.rule.to
-      to = 'document' in target ? target : { path: pathTarget(registry, locale, target.path, candidate) }
+      to = 'path' in target ? { path: pathTarget(registry, locale, target.path, candidate) } : target
       if ('path' in to && to.path === path) {
         if (hops === 0 && candidate.rule === rule) return trail
         to = null
@@ -385,7 +452,7 @@ function walk(registry: Registry, index: RuleIndex<Rule>, rule: Rule, start: str
       if (hops === 0 && candidate.rule !== rule) return null
       break
     }
-    if (to === null || 'document' in to) return null
+    if (to === null || !('path' in to)) return null
     if (seen.has(to.path) || hops >= MAX_HOPS) return trail
     trail.push(to.path)
     seen.add(to.path)
@@ -435,10 +502,33 @@ export async function createRedirect(deps: CoreDeps, input: RedirectInput, ctx: 
   })
 }
 
+/**
+ * Deleting a rule can uncover a code rule with the same `from`, or let the lowercase fallback answer
+ * there, and either can close a loop. Refuses the delete when some rule loops after it that didn't before.
+ */
 export async function deleteRedirect(deps: CoreDeps, id: number, ctx: Ctx): Promise<void> {
   assertCan(ctx, 'redirects.write')
-  const res = await deps.db.deleteFrom('redirects').where('id', '=', id).executeTakeFirst()
-  if (Number(res.numDeletedRows) === 0) throw new InlayError('not_found', 'error.redirectNotFound')
+  await withTransaction(deps, async (tdeps) => {
+    const before = await tdeps.db.selectFrom('redirects').selectAll().orderBy('id').execute()
+    if (!before.some((r) => r.id === id)) throw new InlayError('not_found', 'error.redirectNotFound')
+    await tdeps.db.deleteFrom('redirects').where('id', '=', id).execute()
+    const after = before.filter((r) => r.id !== id)
+    const looping = await allLooping(tdeps, after)
+    if (looping.size === 0) return
+    const was = await allLooping(tdeps, before)
+    const from = [...looping].find(([key]) => !was.has(key))?.[1]
+    if (from !== undefined) throw new InlayError('conflict', 'error.redirectDeleteLoop', { path: from })
+  })
+}
+
+/** Every rule, stored or code, that loops with `rows` as the stored rules, keyed by its id or, for a code rule, its `from`. */
+async function allLooping(deps: CoreDeps, rows: Row[]): Promise<Map<string, string>> {
+  const look = lookup(deps)
+  const rules = rows.map(ruleOf)
+  const code = codeRules(deps.registry)
+  const isStop = async (path: string) => deps.registry.getRoutePaths.has(path) || (await look(path)) !== 'not_found'
+  const looping = await loopingRules(deps.registry, isStop, rules, code, [...rules, ...code])
+  return new Map([...looping].map((r) => [r.id === null ? `code ${r.from}` : String(r.id), r.from]))
 }
 
 /**

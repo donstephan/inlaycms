@@ -36,7 +36,7 @@ An importer refuses an export as damaged when ids clash: two documents, revision
 | Field | Type | Meaning |
 | --- | --- | --- |
 | `format` | `"inlay-export"` | Always this value. |
-| `formatVersion` | integer | Currently `1`. |
+| `formatVersion` | integer | Currently `2`. |
 | `inlayVersion` | string | The Inlay version that wrote the export. |
 | `exportedAt` | string | ISO 8601 time of the export. |
 | `locales` | string[] | The site's locales. |
@@ -106,9 +106,11 @@ A document's page address comes from its revision `data`: `data.slug` and `data.
 
 ## redirects.json
 
-Each item: `id` (integer), `from` (a site path, which may use `:name` segments), `to` (`{ "path": string }` or `{ "group": string }`), `status` (`301` or `302`), `source` (`manual`, `auto` or `import`), `note` (string or null), `createdById` (string or null), `createdBy` (name), `createdAt`.
+Each item: `id` (integer), `from` (a site path, which may use `:name` segments), `to` (`{ "path": string }`, `{ "group": string }` or `{ "url": string }`), `status` (`301` or `302`), `source` (`manual`, `auto` or `import`), `note` (string or null), `createdById` (string or null), `createdBy` (name), `createdAt`.
 
 `from` and `to.path` follow the rules for creating a redirect. Both are clean site paths: they start with `/`, have no query, fragment, `//`, `.` or `..` segments, and don't start with the manifest's `defaultLocale`. `from` is also not under a reserved path (`/admin`, `/media` and so on) and uses each `:name` once. Every `:name` in `to.path` must appear in `from`.
+
+`to.url` is an absolute `https://` URL with no credentials, in the form the URL parser gives back (`new URL(url).href`). When `from` is a pattern, `to.url` has no `:name` segments. A visitor to a rule with a URL target is sent to that address and their query string is dropped.
 
 ## media.json
 
@@ -122,7 +124,7 @@ Users, sessions, API keys, OAuth clients and account passwords are not exported.
 
 ## Format versions
 
-`formatVersion` is `1`. A reader must refuse an archive whose `formatVersion` is higher than it understands. New optional fields can be added without changing the version, so readers should ignore fields they do not know.
+`formatVersion` is currently `2`. Version 2 added `{ "url" }` targets to `redirects.json`. A reader must refuse an archive whose `formatVersion` is higher than it understands. New optional fields can be added without changing the version, so readers should ignore fields they do not know.
 
 Content from any export can be restored into the current site: it is read against the current site's code (values that fit are used, the rest take defaults), and the dry run reports the documents left with empty required fields (gaps).
 

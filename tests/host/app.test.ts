@@ -24,7 +24,7 @@ import { OWNER_PASSWORD } from '../helpers/app.js'
 const fixtures = resolve(import.meta.dirname, '../fixtures')
 
 /** The fixture release's site with a render function on its home template, so `/` has a page to show. */
-const siteTs = `import { defineRoute, defineSingleton, defineSite, defineTemplate, f, z } from 'inlaycms/site'
+const siteSource = (redirects = '[]') => `import { defineRoute, defineSingleton, defineSite, defineTemplate, f, z } from 'inlaycms/site'
 import { content } from './content.js'
 
 const Home = defineTemplate({
@@ -40,6 +40,7 @@ export const site = defineSite({
   secrets: ['HOOK'],
   routes: [defineRoute({ method: 'GET', path: '/ping', handler: () => ({ json: { ok: true } }) })],
   content,
+  redirects: ${redirects},
 })
 `
 
@@ -53,7 +54,7 @@ beforeAll(async () => {
   await cp(join(fixtures, 'release'), siteDir, { recursive: true })
   await mkdir(join(siteDir, 'assets'))
   await writeFile(join(siteDir, 'assets/pic.png'), await png(20, 10))
-  await writeFile(join(siteDir, 'site.ts'), siteTs)
+  await writeFile(join(siteDir, 'site.ts'), siteSource())
   keys = generateKeyPair()
   file = join(packDir, 'site.tgz')
   await packRelease({ configFile: join(siteDir, 'inlay.config.ts'), privateKey: keys.privateKey, out: file, name: 'test-1' })
@@ -372,6 +373,92 @@ describe('the admin and MCP under the host', () => {
     expect(result.isError).not.toBe(true)
     const block = result.content[0]
     expect(JSON.parse(block?.type === 'text' ? block.text : '').release).toEqual({ name: 'test-1' })
+  })
+})
+
+describe('code redirects follow the live release', () => {
+  let fileA: string
+  let fileB: string
+
+  /** Packs the fixture site with `redirects` in its `defineSite`. */
+  async function packWith(name: string, redirects: string): Promise<string> {
+    const siteDir = join(packDir, `site-${name}`)
+    await cp(join(fixtures, 'release'), siteDir, { recursive: true })
+    await mkdir(join(siteDir, 'assets'))
+    await writeFile(join(siteDir, 'assets/pic.png'), await png(20, 10))
+    await writeFile(join(siteDir, 'site.ts'), siteSource(redirects))
+    const out = join(packDir, `${name}.tgz`)
+    await packRelease({ configFile: join(siteDir, 'inlay.config.ts'), privateKey: keys.privateKey, out, name })
+    return out
+  }
+
+  beforeAll(async () => {
+    fileA = await packWith('redirects-a', "[{ from: '/old', to: '/a' }]")
+    fileB = await packWith('redirects-b', "[{ from: '/old', to: 'https://example.org/b' }]")
+  })
+
+  /** Stores `source` and activates it, or activates the stored release `again` that `source` made before. */
+  async function activate(source: string, again?: string): Promise<{ id: string; loaded: LoadedRelease }> {
+    const db = openDatabase(config.paths.db)
+    try {
+      await migrateSystem(db)
+      const id =
+        again ?? (await storeRelease({ db, releasesDir: config.paths.releases, trustedKeys: [keys.publicKey], now }, source, { pushedBy: null })).id
+      const loaded = await loadRelease(releaseDir(config.paths.releases, id))
+      await activateRelease(
+        {
+          db,
+          loaded,
+          releasesDir: config.paths.releases,
+          backupsDir: config.paths.backups,
+          mediaDir: config.paths.media,
+          secretsEnv: config.secrets,
+          now,
+        },
+        id,
+      )
+      return { id, loaded }
+    } finally {
+      await db.destroy()
+    }
+  }
+
+  async function locationOf(loaded: LoadedRelease): Promise<unknown> {
+    const made = await createSiteApp(config, loaded, { content: 'none', now })
+    try {
+      return (await made.app.inject({ method: 'GET', url: '/old' })).headers.location
+    } finally {
+      await made.app.close()
+    }
+  }
+
+  it('activating a release with other code rules changes what is served, and rolling back restores it', async () => {
+    const a = await activate(fileA)
+    expect(await locationOf(a.loaded)).toBe('/a')
+    const b = await activate(fileB)
+    expect(await locationOf(b.loaded)).toBe('https://example.org/b')
+    const back = await activate(fileA, a.id)
+    expect(await locationOf(back.loaded)).toBe('/a')
+  })
+
+  it("a staged release's preview serves its own code rules", async () => {
+    const a = await activate(fileA)
+    const db = openDatabase(config.paths.db)
+    let stagedId: string
+    try {
+      stagedId = (await storeRelease({ db, releasesDir: config.paths.releases, trustedKeys: [keys.publicKey], now }, fileB, { pushedBy: null })).id
+    } finally {
+      await db.destroy()
+    }
+    const live = await createSiteApp(config, a.loaded, { content: 'none', now })
+    app = live.app
+    const preview = await startPreviewApp(config, stagedId, { now })
+    try {
+      expect((await preview.app.inject({ method: 'GET', url: '/old' })).headers.location).toBe('https://example.org/b')
+      expect((await app.inject({ method: 'GET', url: '/old' })).headers.location).toBe('/a')
+    } finally {
+      await preview.close()
+    }
   })
 })
 

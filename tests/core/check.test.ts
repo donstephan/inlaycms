@@ -7,7 +7,7 @@ import type { Kysely } from 'kysely'
 import { Migrator } from 'kysely/migration'
 import { z } from 'zod'
 import { bootInlay } from '../../src/core/boot.js'
-import { checkDatabase } from '../../src/core/check.js'
+import { checkDatabase, checkWithoutDatabase } from '../../src/core/check.js'
 import { createCore } from '../../src/core/core.js'
 import { openDatabase } from '../../src/core/db/connection.js'
 import { migrateSystem } from '../../src/core/db/migrate.js'
@@ -20,6 +20,7 @@ import { t } from '../../src/core/messages/index.js'
 import { defineContent, defineEntries } from '../../src/core/registry/content.js'
 import { defineCollection, defineSingleton, defineSite, defineTemplate, type SiteDefinition } from '../../src/core/registry/define.js'
 import { articleSite } from '../fixtures/articles.js'
+import { redirectSite, rootSite } from '../fixtures/code-redirects.js'
 import { png } from '../fixtures/media.js'
 import { BasicPage, Post, site } from '../fixtures/site.js'
 import { post, shippedSite } from '../fixtures/shipped.js'
@@ -140,6 +141,55 @@ describe('checkDatabase', () => {
     ])
     expect(formatReport(report)).toContain(t('report.warning', { message: report.warnings[0]!.message }))
     expect((await checkDatabase({ site: rootPosts, db: path })).warnings).toEqual([])
+  })
+
+  const owner = { actor: { id: 'u', name: 'Olivia Owner', role: 'owner' as const }, source: 'admin' as const }
+  const pageBody = { type: 'doc', content: [{ type: 'paragraph', content: [{ type: 'text', text: 'x' }] }] }
+  const loopSite = () => rootSite([{ from: '/x', to: '/Y' }, { from: '/y', to: '/x' }])
+
+  it('warns about a code rule a published page hides, without failing', async () => {
+    const db = openDatabase(path)
+    await migrateSystem(db)
+    const core = createCore({ site: redirectSite, db })
+    await core.applyShippedContent()
+    const entry = await core.createEntry('pages', { slug: 'old-post', fields: { title: 'Old post', body: pageBody } }, owner)
+    await core.publish([entry.id], owner)
+    await db.destroy()
+
+    const report = await checkDatabase({ site: redirectSite, db: path })
+    expect(report.ok).toBe(true)
+    expect(report.problems).toEqual([])
+    expect(report.warnings).toEqual([
+      { code: 'redirect_hidden', message: t('report.redirectHidden', { from: '/old-post' }), redirect: { from: '/old-post' } },
+    ])
+  })
+
+  it('warns about code rules that loop, without failing', async () => {
+    const expected = [
+      { code: 'redirect_loop', message: t('report.redirectLoop', { from: '/x' }), redirect: { from: '/x' } },
+      { code: 'redirect_loop', message: t('report.redirectLoop', { from: '/y' }), redirect: { from: '/y' } },
+    ]
+    const fresh = join(dir, 'fresh.db')
+    await writeFile(fresh, '')
+    const onFile = await checkDatabase({ site: loopSite(), db: fresh })
+    expect(onFile.ok).toBe(true)
+    expect(onFile.warnings).toEqual(expected)
+    const without = await checkWithoutDatabase({ site: loopSite() })
+    expect(without.ok).toBe(true)
+    expect(without.warnings).toEqual(expected)
+  })
+
+  it('checks without a database report no hidden rules', async () => {
+    // `/about` still fires at `/es/about` (the Spanish page lives at `/es/acerca`), so only `/es/acerca` is hidden.
+    const s = rootSite([
+      { from: '/about', to: '/blog' },
+      { from: '/es/acerca', to: '/blog' },
+    ])
+    const { db } = await bootInlay({ site: s, db: path, backups: join(dir, 'backups') })
+    await db.destroy()
+    const onFile = await checkDatabase({ site: s, db: path })
+    expect(onFile.warnings.map((w) => [w.code, 'redirect' in w ? w.redirect.from : null])).toEqual([['redirect_hidden', '/es/acerca']])
+    expect((await checkWithoutDatabase({ site: s })).warnings).toEqual([])
   })
 
   it('checks shipped content at an edition already applied, which boot leaves alone', async () => {

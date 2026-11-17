@@ -38,11 +38,11 @@ import type { SiteDefinition } from './registry/define.js'
 import type { ReleaseMigration } from './registry/migration.js'
 import { buildRegistry, type Registry } from './registry/registry.js'
 import { checkSitePassword, readSiteLock, setSiteLock, setSitePassword, type SiteLockStatus } from './site-lock/site-lock.js'
-import { createRedirect, deleteRedirect, importRedirects, listRedirects } from './redirects/redirects.js'
+import { codeRedirectLoops, createRedirect, deleteRedirect, importRedirects, listCodeRedirects, listRedirects } from './redirects/redirects.js'
 import { liveAlternates, liveDocuments, liveEntries, liveSingleton } from './site/live.js'
 import { resolvePath } from './site/resolve.js'
 import { sitemapEntries, type SitemapEntry } from './site/sitemap.js'
-import type { Activity, ContentInput, CoreDeps, Ctx, DocumentData, DocumentSummary, DocumentView, ContentRef, Usage, DiffEntry, RevisionMeta, UploadLimits, MediaInfo, MediaStatus, LiveDocument, LiveState, RouteMatch, Redirect, RedirectInput } from './types.js'
+import type { Activity, ContentInput, CoreDeps, Ctx, DocumentData, DocumentSummary, DocumentView, ContentRef, Usage, DiffEntry, RevisionMeta, UploadLimits, MediaInfo, MediaStatus, LiveDocument, LiveState, RouteMatch, Redirect, RedirectInput, CodeRedirect } from './types.js'
 
 export type { PatchOp, PublishResult, SaveResult, ShippedItem, ShippedReport }
 
@@ -141,6 +141,10 @@ export interface Core {
   createRedirect(input: RedirectInput, ctx: Ctx): Promise<Redirect>
   deleteRedirect(id: number, ctx: Ctx): Promise<void>
   importRedirects(csv: string, ctx: Ctx): Promise<{ created: number; updated: number }>
+  /** The site's code redirect rules, in definition order, each marked when an admin rule or a page answers first. */
+  listCodeRedirects(): Promise<CodeRedirect[]>
+  /** The `from` of each code rule that, with the stored rules, sends visitors round a loop with no stop. */
+  codeRedirectLoops(): Promise<string[]>
   /** The backups on disk, newest first. Owners only. */
   listBackups(ctx: Ctx): Promise<BackupInfo[]>
   /** Makes a manual backup of the database and media. Owners only. */
@@ -341,6 +345,8 @@ export function createCore(opts: CreateCoreOptions): Core {
     createRedirect: live((input, ctx) => createRedirect(deps, input, ctx)),
     deleteRedirect: live((id, ctx) => deleteRedirect(deps, id, ctx)),
     importRedirects: live((csv, ctx) => importRedirects(deps, csv, ctx)),
+    listCodeRedirects: () => listCodeRedirects(deps),
+    codeRedirectLoops: () => codeRedirectLoops(deps),
     onLiveChange: (listener) => {
       listeners.add(listener)
       return () => {

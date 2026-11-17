@@ -241,7 +241,7 @@ import { afterAll, beforeAll, expect, it } from 'vitest'
 
 let site: TestSite
 beforeAll(async () => {
-  site = await createTestSite({ config: './inlay.config.ts', baseUrl: 'https://realciso.com' })
+  site = await createTestSite({ config: './inlay.config.ts', baseUrl: 'https://example.com' })
 })
 afterAll(() => site.close())
 
@@ -319,7 +319,7 @@ fields: z.object({
 `f.multiSelect(options, { label, min, max })` picks any number of a fixed list of options, such as tags:
 
 ```ts
-tags: f.multiSelect(['hipaa', 'cmmc', 'soc2'] as const, { label: 'Tags', min: 0, max: 3 }),
+tags: f.multiSelect(['green', 'blue', 'red'] as const, { label: 'Tags', min: 0, max: 3 }),
 ```
 
 The value is an array of the options, saved in the options' order without duplicates, and `[]` when nothing is chosen. A draft may hold any number of them; `min` and `max` are checked when it is published. The admin shows one checkbox per option, labelled with the option itself, as `f.select` does. Assistants read and write the array as it is.
@@ -327,7 +327,7 @@ The value is an array of the options, saved in the options' order without duplic
 To list the entries with a tag, filter them in a template:
 
 ```ts
-const faqs = await ctx.query('faqs', { filter: (e) => e.fields.tags.includes('hipaa') })
+const faqs = await ctx.query('faqs', { filter: (e) => e.fields.tags.includes('green') })
 ```
 
 An option you remove from the code drops out of the value when it is read, in the admin, on the site and over MCP, while the other options stay; the next save stores the value without it. Export keeps what is stored, so a backup loses nothing.
@@ -731,7 +731,7 @@ export const site = defineSite({
   redirects: [
     { from: '/about-us', to: '/about' },
     { from: '/blog/:slug', to: '/:slug' },
-    { from: '/g2', to: 'https://www.g2.com/products/realciso/reviews' },
+    { from: '/g2', to: 'https://www.g2.com/products/example/reviews' },
     { from: '/old-landing', to: '/', status: 302 },
   ],
 })

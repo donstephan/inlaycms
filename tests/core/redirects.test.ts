@@ -285,7 +285,7 @@ describe('redirects: chains through patterns', () => {
 })
 
 describe('redirects: external targets', () => {
-  const G2 = 'https://www.g2.com/products/realciso/reviews'
+  const G2 = 'https://www.g2.com/products/example/reviews'
 
   it('stores and serves an https target', async () => {
     const { core, owner } = await world()

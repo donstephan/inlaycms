@@ -68,8 +68,8 @@ describe('f.seoDefaults()', () => {
     const doc = (await core.getDocument(global.id))!
     const save = (titleTemplate: string) =>
       core.saveDraft(global.id, { baseRevisionId: doc.headRev, data: { ...doc.data, fields: { defaults: { titleTemplate } } } }, owner)
-    await expect(save('RealCISO')).rejects.toMatchObject({ code: 'validation' })
-    const error = (await save('RealCISO').catch((e: unknown) => e)) as InlayError
+    await expect(save('Example Site')).rejects.toMatchObject({ code: 'validation' })
+    const error = (await save('Example Site').catch((e: unknown) => e)) as InlayError
     expect(error.details.issues?.map((i) => i.message)).toEqual([
       expect.stringContaining('%s'),
     ])

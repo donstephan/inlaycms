@@ -4,6 +4,16 @@ All notable changes to Inlay are recorded here. The format follows [Keep a Chang
 
 ## [Unreleased]
 
+## [0.4.1] - 2026-11-17
+
+### Changed
+
+- The README's examples use generic placeholder values.
+
+### Fixed
+
+- The admin no longer shifts sideways when moving between short and long pages, or when the menu is taller than the window: space for the page's and the menu's scrollbars is always kept.
+
 ## [0.4.0] - 2026-11-17
 
 ### Added
@@ -63,7 +73,8 @@ All notable changes to Inlay are recorded here. The format follows [Keep a Chang
 
 First release.
 
-[Unreleased]: https://github.com/donstephan/inlaycms/compare/v0.4.0...HEAD
+[Unreleased]: https://github.com/donstephan/inlaycms/compare/v0.4.1...HEAD
+[0.4.1]: https://github.com/donstephan/inlaycms/compare/v0.4.0...v0.4.1
 [0.4.0]: https://github.com/donstephan/inlaycms/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/donstephan/inlaycms/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/donstephan/inlaycms/compare/abf587e...v0.2.0

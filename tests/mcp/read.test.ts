@@ -22,7 +22,7 @@ const HelpHome = { ...Home, slots: { ...Home.slots, hero: { block: HelpHero } } 
 const TaggedTestimonial = {
   ...Testimonial,
   fields: Testimonial.fields.extend({
-    tags: f.multiSelect(['hipaa', 'cmmc', 'soc2'], { label: 'Tags', min: 0, max: 3 }).optional(),
+    tags: f.multiSelect(['green', 'blue', 'red'], { label: 'Tags', min: 0, max: 3 }).optional(),
   }),
 } as unknown as TemplateDef
 const site: SiteDefinition = {
@@ -274,17 +274,17 @@ describe('a multi-select', () => {
   it('reads and lists a multi-select', async () => {
     const created = await core.createEntry(
       'testimonials',
-      { fields: { quote: 'Great.', author: 'Maria', tags: ['soc2', 'hipaa'] } },
+      { fields: { quote: 'Great.', author: 'Maria', tags: ['red', 'green'] } },
       owner,
     )
     const { isError, json } = await mcp.call('get_document', { id: created.id })
     expect(isError).toBe(false)
-    expect(json.content.fields.tags).toEqual(['hipaa', 'soc2'])
+    expect(json.content.fields.tags).toEqual(['green', 'red'])
 
     const described = await mcp.call('describe_type', { type: 'testimonials' })
     expect(described.json.schema.properties.fields.properties.tags).toEqual({
       type: 'array',
-      items: { enum: ['hipaa', 'cmmc', 'soc2'] },
+      items: { enum: ['green', 'blue', 'red'] },
       uniqueItems: true,
       minItems: 0,
       maxItems: 3,

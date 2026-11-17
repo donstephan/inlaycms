@@ -260,47 +260,47 @@ describe('readData with a multi-select', () => {
       collections: [defineCollection({ name: 'faqs', label: 'FAQs', template: Faq })],
     })
   }
-  const before = faqSite(['hipaa', 'cmmc', 'retired'])
-  const now = faqSite(['hipaa', 'cmmc'])
+  const before = faqSite(['green', 'blue', 'retired'])
+  const now = faqSite(['green', 'blue'])
   const faqs = buildRegistry(now)
 
   it('drops a retired option on read and keeps the rest', () => {
-    const { data, gaps } = readData(faqs, 'faqs', { fields: { title: 'A', tags: ['hipaa', 'retired'] }, slots: {} })
-    expect(data.fields.tags).toEqual(['hipaa'])
+    const { data, gaps } = readData(faqs, 'faqs', { fields: { title: 'A', tags: ['green', 'retired'] }, slots: {} })
+    expect(data.fields.tags).toEqual(['green'])
     expect(gaps).toEqual([])
     // A value that isn't a string is dropped the same way, and the rest is put in order.
-    expect(readData(faqs, 'faqs', { fields: { title: 'A', tags: ['cmmc', 7, 'hipaa', 'cmmc'] }, slots: {} }).data.fields.tags).toEqual([
-      'hipaa',
-      'cmmc',
+    expect(readData(faqs, 'faqs', { fields: { title: 'A', tags: ['blue', 7, 'green', 'blue'] }, slots: {} }).data.fields.tags).toEqual([
+      'green',
+      'blue',
     ])
   })
 
   it('the next save drops a retired option', async () => {
     const { core, db, owner } = await makeCore({ site: before })
-    const created = await core.createEntry('faqs', { fields: { title: 'A', tags: ['retired', 'hipaa'] } }, owner)
+    const created = await core.createEntry('faqs', { fields: { title: 'A', tags: ['retired', 'green'] } }, owner)
     const raw = async (revisionId: number) =>
       JSON.parse((await db.selectFrom('revisions').select('data').where('id', '=', revisionId).executeTakeFirstOrThrow()).data)
-    expect((await raw(created.headRev)).fields.tags).toEqual(['hipaa', 'retired'])
+    expect((await raw(created.headRev)).fields.tags).toEqual(['green', 'retired'])
 
     const next = createCore({ site: now, db })
     const doc = (await next.getDocument(created.id))!
-    expect(doc.data.fields.tags).toEqual(['hipaa'])
+    expect(doc.data.fields.tags).toEqual(['green'])
     const data = structuredClone(doc.data)
     data.fields.title = 'B'
     const saved = await next.saveDraft(created.id, { baseRevisionId: doc.headRev, data }, owner)
     expect(saved.changed).toBe(true)
-    expect((await raw(saved.document.headRev)).fields.tags).toEqual(['hipaa'])
+    expect((await raw(saved.document.headRev)).fields.tags).toEqual(['green'])
   })
 
   it('reads a value that is not a list as a gap when required and as absent when optional', () => {
-    const raw = { fields: { title: 'A', tags: 'hipaa', topics: 'hipaa' }, slots: {} }
+    const raw = { fields: { title: 'A', tags: 'green', topics: 'green' }, slots: {} }
     expect(() => readData(faqs, 'faqs', raw)).not.toThrow()
     const { data, gaps } = readData(faqs, 'faqs', raw)
     expect(data.fields.tags).toBeUndefined()
     expect(Object.hasOwn(data.fields, 'topics')).toBe(false)
     expect(gaps).toEqual([['fields', 'tags']])
     expect(readData(faqs, 'faqs', raw, { fill: true }).data.fields.tags).toEqual([])
-    for (const stored of [null, 42, { hipaa: true }]) {
+    for (const stored of [null, 42, { green: true }]) {
       const read = readData(faqs, 'faqs', { fields: { title: 'A', tags: stored, topics: stored }, slots: {} })
       expect(read.gaps).toEqual([['fields', 'tags']])
       expect(Object.hasOwn(read.data.fields, 'topics')).toBe(false)

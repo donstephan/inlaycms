@@ -122,7 +122,7 @@ describe('packRelease', () => {
     const manifest = manifestOfRegistry(buildRegistry(redirectSite), { name: 'x', now: new Date(Date.UTC(2026, 10, 4)) })
     expect(manifest.redirects).toEqual([
       { from: '/old-post', to: '/blog', status: 301 },
-      { from: '/g2', to: 'https://www.g2.com/products/realciso/reviews', status: 301 },
+      { from: '/g2', to: 'https://www.g2.com/products/example/reviews', status: 301 },
       { from: '/old-landing', to: '/', status: 302 },
       { from: '/2019/:slug', to: '/blog/:slug', status: 301 },
     ])

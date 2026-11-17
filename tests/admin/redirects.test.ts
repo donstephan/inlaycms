@@ -199,7 +199,7 @@ describe('code redirects', () => {
     const section = page.querySelector('#code-redirects')
     expect(section?.querySelector('h2')?.textContent.trim()).toBe(t('admin.redirects.code.heading'))
     const text = section?.textContent ?? ''
-    for (const s of ['/old-post', '/blog', 'https://www.g2.com/products/realciso/reviews']) expect(text).toContain(s)
+    for (const s of ['/old-post', '/blog', 'https://www.g2.com/products/example/reviews']) expect(text).toContain(s)
     expect(rowOf(page, '/old-landing')?.textContent).toContain(t('admin.redirects.temporary'))
     expect(section?.querySelector('form, button, a[href*="/delete"]')).toBeNull()
     expect(page.querySelector('#redirects')?.textContent).toContain(t('admin.redirects.empty'))

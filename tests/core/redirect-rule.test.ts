@@ -2,7 +2,7 @@ import { externalTarget, targetOf } from '../../src/core/redirects/rule.js'
 
 describe('externalTarget', () => {
   it('returns a usable https URL', () => {
-    expect(externalTarget('https://www.g2.com/products/realciso/reviews')).toBe('https://www.g2.com/products/realciso/reviews')
+    expect(externalTarget('https://www.g2.com/products/example/reviews')).toBe('https://www.g2.com/products/example/reviews')
     expect(externalTarget('https://example.com/a?b=1#c')).toBe('https://example.com/a?b=1#c')
   })
 

@@ -19,7 +19,7 @@ export function rootSite(redirects: RedirectDef[] = []): SiteDefinition {
 
 export const redirectSite = rootSite([
   { from: '/old-post', to: '/blog' },
-  { from: '/g2', to: 'https://www.g2.com/products/realciso/reviews' },
+  { from: '/g2', to: 'https://www.g2.com/products/example/reviews' },
   { from: '/old-landing', to: '/', status: 302 },
   { from: '/2019/:slug', to: '/blog/:slug' },
 ])

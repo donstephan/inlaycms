@@ -6,6 +6,17 @@
 @source "../../src/core/fields/widgets.tsx";
 @source ".";
 
+/* Always reserve both scrollbars' space, so the layout doesn't jump between short and long pages, or when the menu
+   is taller than the window. Without this the page's scrollbar moves the top bar and the menu column changes width. */
+html {
+  scrollbar-gutter: stable;
+}
+@media (width >= 64rem) {
+  .drawer-side {
+    scrollbar-gutter: stable;
+  }
+}
+
 /* Editor workspace. `client/admin` sets `data-view` (the Edit/Preview tabs) and `.no-preview` (Hide preview). */
 @media (width < 64rem) {
   #workspace[data-view="edit"] #preview-pane {

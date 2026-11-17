@@ -87,7 +87,7 @@ describe('code redirects in the tools', () => {
     expect(json.redirects).toContainEqual({
       id: null,
       from: '/g2',
-      to: 'https://www.g2.com/products/realciso/reviews',
+      to: 'https://www.g2.com/products/example/reviews',
       status: 301,
       source: 'code',
       note: null,

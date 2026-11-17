@@ -183,16 +183,16 @@ describe('exportContent', () => {
           }),
         ],
       })
-    const w = await makeCore({ site: faqSite(['hipaa', 'cmmc', 'retired']), media: true })
-    const created = await w.core.createEntry('faqs', { fields: { title: 'A', tags: ['retired', 'hipaa'] } }, w.owner)
-    const now = createCore({ site: faqSite(['hipaa', 'cmmc']), db: w.db, media: w.mediaDir! })
-    expect((await now.getDocument(created.id))!.data.fields.tags).toEqual(['hipaa'])
+    const w = await makeCore({ site: faqSite(['green', 'blue', 'retired']), media: true })
+    const created = await w.core.createEntry('faqs', { fields: { title: 'A', tags: ['retired', 'green'] } }, w.owner)
+    const now = createCore({ site: faqSite(['green', 'blue']), db: w.db, media: w.mediaDir! })
+    expect((await now.getDocument(created.id))!.data.fields.tags).toEqual(['green'])
 
     const target = join(await temp(), 'out.tar.gz')
     await now.exportContent(target, w.owner)
     const x = await unpack(target)
     const revision = x.content.find((c) => c.record === 'revision' && c.documentId === created.id)
-    expect(revision?.record === 'revision' && revision.data.fields.tags).toEqual(['hipaa', 'retired'])
+    expect(revision?.record === 'revision' && revision.data.fields.tags).toEqual(['green', 'retired'])
   })
 
   it('refuses editors and writes nothing', async () => {

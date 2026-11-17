@@ -145,7 +145,7 @@ describe('inlay plugin: pages', () => {
 
   it("sends an https target as Location exactly, without the visitor's query", async () => {
     const { app: a, core, owner } = await app()
-    const g2 = 'https://www.g2.com/products/realciso/reviews?ref=site'
+    const g2 = 'https://www.g2.com/products/example/reviews?ref=site'
     await core.createRedirect({ from: '/g2', to: g2 }, owner)
     const res = await a.inject('/g2?utm_source=x')
     expect(res.statusCode).toBe(301)

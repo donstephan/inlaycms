@@ -63,7 +63,7 @@ describe('code redirects at request time', () => {
     const { core } = await world()
     expect(await core.resolvePath('/g2')).toEqual({
       kind: 'redirect',
-      location: 'https://www.g2.com/products/realciso/reviews',
+      location: 'https://www.g2.com/products/example/reviews',
       status: 301,
       external: true,
     })
@@ -139,7 +139,7 @@ describe('listCodeRedirects', () => {
     const flags = { overridden: false, hidden: false }
     expect(await core.listCodeRedirects()).toEqual([
       { from: '/old-post', to: { path: '/blog' }, status: 301, ...flags },
-      { from: '/g2', to: { url: 'https://www.g2.com/products/realciso/reviews' }, status: 301, ...flags },
+      { from: '/g2', to: { url: 'https://www.g2.com/products/example/reviews' }, status: 301, ...flags },
       { from: '/old-landing', to: { path: '/' }, status: 302, ...flags },
       { from: '/2019/:slug', to: { path: '/blog/:slug' }, status: 301, ...flags },
     ])

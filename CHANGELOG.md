@@ -4,6 +4,8 @@ All notable changes to Inlay are recorded here. The format follows [Keep a Chang
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-11-17
+
 ### Added
 
 - Inline code in rich text and inline text: backticks in Markdown, `<code>` in HTML, a Code button in the admin editor. It can go inside a link and in table cells, but not in bold or italic text. On by default; a field that lists its `features` gets it only by listing `'code'`.
@@ -61,7 +63,8 @@ All notable changes to Inlay are recorded here. The format follows [Keep a Chang
 
 First release.
 
-[Unreleased]: https://github.com/donstephan/inlaycms/compare/v0.3.0...HEAD
+[Unreleased]: https://github.com/donstephan/inlaycms/compare/v0.4.0...HEAD
+[0.4.0]: https://github.com/donstephan/inlaycms/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/donstephan/inlaycms/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/donstephan/inlaycms/compare/abf587e...v0.2.0
 [0.1.0]: https://github.com/donstephan/inlaycms/tree/abf587e

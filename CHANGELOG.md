@@ -7,6 +7,7 @@ All notable changes to Inlay are recorded here. The format follows [Keep a Chang
 ### Changed
 
 - **Breaking:** public pages now send a strict Content-Security-Policy (`default-src 'self'` and more) instead of only `frame-ancestors 'self'`. An inline `<script>` in a template is now blocked unless it is written with `ctx.script`, and a font, image, frame or other source outside the site must be declared in `defineSite({ csp })`. A site that sets its own `content-security-policy` header keeps it as it is. The release diff shows changes to what a site may load.
+- A `.md` file a site imports is now checked when the site loads: `inlaycms dev`, `check` and `pack` refuse it, naming the file and line, for raw HTML or anything else rich text can't hold, and for an image that isn't a file in the site's folder of a known image type (remote, starting with `/`, SVG, missing, or another kind of picture than its extension says). An image outside the site's folder was refused before, but only when shipped content was applied.
 - `inlaycms serve` uses less memory: the supervising process loads only what it needs (about 55 MB instead of 190 MB), and activating a release stops the open previews before it starts the new release, so a swap no longer runs a preview, the old release and the new one at once.
 
 ### Added
@@ -21,6 +22,9 @@ All notable changes to Inlay are recorded here. The format follows [Keep a Chang
 - A `highlight` option on `ctx.richText` to highlight code blocks with a highlighter of the site's choosing.
 - A `headingIds` option on `ctx.richText` that gives headings ids to link to, and `richTextHeadings` to list a rich-text value's headings for an on-page contents list.
 - Documentation site at https://donstephan.github.io/inlaycms/; the README now holds the pitch and a quickstart.
+- `ctx.markdown(text)` renders an imported `.md` file straight from a template, with no database step: images beside the file are packed into the release and served at `/media/files/`, `inlay:key` links point at live pages, and it takes the same options as `ctx.richText`. `markdownHeadings(text)` lists its headings for a contents list.
+- Designed pages: a page whose template has no fields and no slots (its words are written into the template) shows "designed in code" in its editor and in the Pages list instead of an empty form, and assistants are told the same, with their edits refused.
+- Images imported in site code: `import hero from './hero.jpg'` and `ctx.image(hero, { alt })` give an image with `src`, `srcset`, width and height, served in several sizes at `/media/files/` and shipped in the release. The file must be inside the site's folder and a `.png`, `.jpg`, `.jpeg`, `.gif`, `.webp` or `.avif`, never SVG; it is refused when the site loads otherwise. `alt` also overrides a library image's alt text. Images in `ctx.markdown` now get a `srcset`, width and height too.
 
 ## [0.4.1] - 2026-11-17
 

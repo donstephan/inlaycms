@@ -3,6 +3,7 @@ import { normalizeContent } from '../../../core/content/schema.js'
 import { validateContent } from '../../../core/content/validate.js'
 import { InlayError } from '../../../core/errors.js'
 import { t } from '../../../core/messages/index.js'
+import { designedInCode } from '../../../core/registry/designed.js'
 import type { Actor, ContentInput, ContentIssue, DocumentData, DocumentSummary, DocumentView, LiveDocument } from '../../../core/types.js'
 import type { Renderable } from '../../../jsx/html.js'
 import { loadAgentRefs } from '../../mcp/agent-refs.js'
@@ -386,11 +387,17 @@ export async function editorPage(ctx: AdminContext, actor: Actor, doc: DocumentV
                 </div>
               </Alert>
             )}
-            <DocumentFields
-              ctx={formCtx}
-              data={state.data}
-              {...(def.kind === 'collection' && { entry: { customPaths: def.customPaths } })}
-            />
+            {def.kind !== 'collection' && designedInCode(def.template) ? (
+              <div role="note" class="alert alert-info">
+                {t('admin.editor.designedInCode')}
+              </div>
+            ) : (
+              <DocumentFields
+                ctx={formCtx}
+                data={state.data}
+                {...(def.kind === 'collection' && { entry: { customPaths: def.customPaths } })}
+              />
+            )}
           </form>
         </div>
         {pane && <PreviewPane id={doc.id} live={pane} />}

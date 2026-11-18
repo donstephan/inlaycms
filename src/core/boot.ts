@@ -32,7 +32,7 @@ export interface BootOptions {
   /** A loaded release's shipped files, by source as written in the site. */
   shippedFiles?: ReadonlyMap<string, string>
   /** As `shippedFiles`, only the images `.md` files the site imports name. */
-  markdownFiles?: ReadonlyMap<string, string>
+  codeFiles?: ReadonlyMap<string, string>
 }
 
 export interface BootResult {
@@ -161,7 +161,7 @@ export async function bootInlay(opts: BootOptions): Promise<BootResult> {
       ...(opts.uploads && { uploads: opts.uploads }),
       ...(opts.now && { now: opts.now }),
       ...(opts.shippedFiles && { shippedFiles: opts.shippedFiles }),
-      ...(opts.markdownFiles && { markdownFiles: opts.markdownFiles }),
+      ...(opts.codeFiles && { codeFiles: opts.codeFiles }),
     })
     const auth = opts.auth ? createAuthService({ db, ...opts.auth }) : null
     const systemMigrations = await pendingSystemMigrations(db)

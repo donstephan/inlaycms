@@ -2,6 +2,7 @@ import type { FastifyInstance } from 'fastify'
 import { InlayError } from '../../../core/errors.js'
 import { t } from '../../../core/messages/index.js'
 import type { GlobalDef, SingletonDef } from '../../../core/registry/define.js'
+import { designedInCode } from '../../../core/registry/designed.js'
 import { singletonPath, withLocale } from '../../../core/site/paths.js'
 import type { Actor, Ctx, DocumentSummary, LiveDocument } from '../../../core/types.js'
 import type { Renderable } from '../../../jsx/html.js'
@@ -130,6 +131,11 @@ export function registerLists(scope: FastifyInstance, ctx: AdminContext): void {
                   row.def.label
                 )}
                 {hasGap(row) && <GapBadge />}
+                {designedInCode(row.def.template) && (
+                  <Badge tone="neutral" class="ml-2">
+                    {t('admin.list.designedInCode')}
+                  </Badge>
+                )}
                 {row.def.help !== undefined && (
                   <div class="truncate text-xs font-normal text-base-content/60" title={row.def.help}>
                     {row.def.help}

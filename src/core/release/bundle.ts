@@ -1,14 +1,26 @@
-import { randomBytes } from 'node:crypto'
+import { createHash, randomBytes } from 'node:crypto'
 import { existsSync, readFileSync, realpathSync } from 'node:fs'
 import { readFile } from 'node:fs/promises'
 import { builtinModules } from 'node:module'
 import { dirname, extname, isAbsolute, join, relative, resolve } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
-import { build, transform, type BuildOptions, type Loader, type OnLoadResult, type Plugin } from 'esbuild'
+import {
+  build,
+  transform,
+  type BuildOptions,
+  type Loader,
+  type OnLoadResult,
+  type OnResolveArgs,
+  type OnResolveResult,
+  type Plugin,
+  type PluginBuild,
+} from 'esbuild'
+import sharp, { type Metadata } from 'sharp'
 import { imageTarget, realInsideSync } from '../content/shipped-images.js'
 import { InlayError } from '../errors.js'
 import { detectType } from '../media/detect.js'
 import { t, type MessageId } from '../messages/index.js'
+import type { CodeImage } from '../registry/code-image.js'
 import { markdownImages } from '../richtext/markdown.js'
 import { isMediaTarget, MARKDOWN_IMAGE_TYPES, parseMarkdownText } from '../richtext/markdown-text.js'
 import { rewriteImageTargets } from './markdown-file.js'
@@ -206,6 +218,84 @@ async function loadMarkdown(file: string, base: string, images?: Set<string>): P
   return { contents: result.text, loader: 'text' }
 }
 
+/** The files an image import may name, and an SVG, which the loader refuses with a message of its own. */
+const IMAGE_FILTER = new RegExp(`\\.(${[...Object.keys(MARKDOWN_IMAGE_TYPES), '.svg'].map((e) => e.slice(1)).join('|')})$`, 'i')
+
+/** The `pluginData` of a plugin's own `b.resolve` call, so no plugin callback resolves its own lookup again. */
+const RESOLVING = Symbol('resolving')
+
+/** What an image import resolved through `imageResolver` carries to its loader: the file that imports it. */
+interface ImageImport {
+  importer: string
+}
+
+/**
+ * An `onResolve` callback for image imports that resolves them as esbuild would, and remembers the importing file
+ * so `loadImage` can name it. Anything it can't resolve is left to the other callbacks and esbuild's own error.
+ */
+function imageResolver(b: PluginBuild): (args: OnResolveArgs) => Promise<OnResolveResult | undefined> {
+  return async (args) => {
+    if (args.kind === 'entry-point' || args.pluginData === RESOLVING) return undefined
+    const found = await b.resolve(fileUrlPath(args.path)?.path ?? args.path, {
+      kind: args.kind,
+      importer: args.importer,
+      resolveDir: args.resolveDir,
+      pluginData: RESOLVING,
+    })
+    if (found.errors.length > 0 || found.external || found.namespace !== 'file') return undefined
+    const pluginData: ImageImport = { importer: args.importer }
+    return { path: found.path, pluginData }
+  }
+}
+
+/**
+ * An image file at `file`, imported by `importer`, as a JSON module whose default export is its `CodeImage`, measured
+ * here so render never reads it. Refuses an image whose real path isn't inside the site's folder `base` with
+ * `error.imageImportOutside`, an SVG (by its name or its bytes) with `error.imageImportSvg`, bytes that aren't
+ * the picture its extension names with `error.imageImportMismatch`, and a picture sharp can't measure with
+ * `error.imageImportUnreadable`. `images` is given the `source` of an image that passes.
+ */
+async function loadImage(file: string, base: string, importer: string | undefined, images?: Set<string>): Promise<OnLoadResult> {
+  const params = { file: shownPath(base, importer ?? file), image: relative(realpathSync(base), file) }
+  const refuse = (id: MessageId): OnLoadResult => ({ errors: [{ text: t(id, params) }] })
+  const real = realInsideSync(file, pathToFileURL(base).href + '/')
+  if (real === null) return refuse('error.imageImportOutside')
+  const ext = extname(file).toLowerCase()
+  if (ext === '.svg') return refuse('error.imageImportSvg')
+  const bytes = await readFile(real)
+  const mime = detectType(bytes, file)
+  if (mime === 'image/svg+xml') return refuse('error.imageImportSvg')
+  const expected = MARKDOWN_IMAGE_TYPES[ext]
+  if (expected === undefined || mime !== expected) return refuse('error.imageImportMismatch')
+  let meta: Metadata
+  try {
+    meta = await sharp(bytes).metadata()
+  } catch {
+    return refuse('error.imageImportUnreadable')
+  }
+  if (!meta.width || !meta.height) return refuse('error.imageImportUnreadable')
+  const turned = meta.orientation !== undefined && meta.orientation >= 5 && meta.orientation <= 8
+  const image: CodeImage = {
+    kind: 'codeImage',
+    source: pathToFileURL(file).href,
+    sha: createHash('sha256').update(bytes).digest('hex'),
+    ext,
+    mime,
+    width: turned ? meta.height : meta.width,
+    height: turned ? meta.width : meta.height,
+  }
+  images?.add(image.source)
+  return { contents: JSON.stringify(image), loader: 'json' }
+}
+
+/** The `onLoad` callback for image imports, for the site's folder `base`; `images` collects their sources. */
+function imageLoader(base: string, images?: Set<string>): Parameters<PluginBuild['onLoad']>[1] {
+  return (args) => {
+    if (args.namespace !== 'file') return undefined
+    return loadImage(args.path, base, (args.pluginData as ImageImport | undefined)?.importer, images)
+  }
+}
+
 /** The esbuild options `bundleSite` and `bundleConfig` share. */
 function buildOptions(configFile: string, outFile: string, plugin: Plugin): BuildOptions {
   return {
@@ -235,12 +325,12 @@ export async function bundleConfig(configFile: string, outFile: string): Promise
   // The running copy's own folder (`src/` or `dist/`): a file in it is imported, never bundled as a second copy.
   const inlayDir = dirname(INLAY_ENTRIES.inlaycms ?? '')
   const base = dirname(resolve(configFile))
-  const resolving = Symbol('resolving')
   const plugin: Plugin = {
     name: 'inlay-config',
     setup(b) {
+      b.onResolve({ filter: IMAGE_FILTER }, imageResolver(b))
       b.onResolve({ filter: /.*/ }, async (args) => {
-        if (args.kind === 'entry-point' || args.pluginData === resolving) return undefined
+        if (args.kind === 'entry-point' || args.pluginData === RESOLVING) return undefined
         const running = INLAY_ENTRIES[args.path]
         if (running !== undefined) return { path: pathToFileURL(running).href, external: true }
         const url = fileUrlPath(args.path)
@@ -248,7 +338,7 @@ export async function bundleConfig(configFile: string, outFile: string): Promise
           kind: args.kind,
           importer: args.importer,
           resolveDir: args.resolveDir,
-          pluginData: resolving,
+          pluginData: RESOLVING,
         })
         if (found.errors.length > 0) return url
         const rel = relative(inlayDir, found.path)
@@ -261,6 +351,7 @@ export async function bundleConfig(configFile: string, outFile: string): Promise
         return withOwnUrl(await readFile(args.path, 'utf8'), args.path, loader, await tsconfigFor(dirname(args.path)))
       })
       b.onLoad({ filter: /\.md$/ }, (args) => (args.namespace === 'file' ? loadMarkdown(args.path, base) : undefined))
+      b.onLoad({ filter: IMAGE_FILTER }, imageLoader(base))
     },
   }
   try {
@@ -278,9 +369,10 @@ export async function bundleConfig(configFile: string, outFile: string): Promise
  * any other import left outside the bundle (`inlaycms` itself included) with `error.packImport`, and site code
  * (not installed packages) that reaches for the server with `error.packForbidden`; other build failures are
  * `error.packBundle`. These checks catch mistakes: the release's signature is what makes it trusted. Returns the
- * imports left in the bundle, and the `file:` URLs of the images named by its `.md` files.
+ * imports left in the bundle, and the `file:` URLs of the images site code names: those its `.md` files name, and
+ * those it imports.
  */
-export async function bundleSite(configFile: string, outFile: string): Promise<{ imports: string[]; markdownImages: string[] }> {
+export async function bundleSite(configFile: string, outFile: string): Promise<{ imports: string[]; codeImages: string[] }> {
   const images = new Set<string>()
   const base = dirname(resolve(configFile))
   const shown = (file: string) => shownPath(base, file)
@@ -290,6 +382,7 @@ export async function bundleSite(configFile: string, outFile: string): Promise<{
   const guard: Plugin = {
     name: 'inlay-release',
     setup(b) {
+      b.onResolve({ filter: IMAGE_FILTER }, imageResolver(b))
       b.onResolve({ filter: /.*/ }, (args) => {
         if (args.kind === 'entry-point') return undefined
         if (isBuiltin(args.path) || (isInlay(args.path) && !RELEASE_IMPORTS.includes(args.path))) {
@@ -312,6 +405,7 @@ export async function bundleSite(configFile: string, outFile: string): Promise<{
         return withOwnUrl(text, args.path, loader, await tsconfigFor(dirname(args.path)))
       })
       b.onLoad({ filter: /\.md$/ }, (args) => (args.namespace === 'file' ? loadMarkdown(args.path, base, images) : undefined))
+      b.onLoad({ filter: IMAGE_FILTER }, imageLoader(base, images))
     },
   }
   let result
@@ -334,5 +428,5 @@ export async function bundleSite(configFile: string, outFile: string): Promise<{
       throw new InlayError('release', 'error.packImport', { file: shown(resolve(configFile)), specifier })
     }
   }
-  return { imports: [...imports], markdownImages: [...images].sort() }
+  return { imports: [...imports], codeImages: [...images].sort() }
 }

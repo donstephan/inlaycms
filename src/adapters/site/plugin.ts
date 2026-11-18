@@ -35,7 +35,7 @@ import { registerSiteHeaders, siteHeaders } from './headers.js'
 import { createSiteIntegrations, type SiteIntegrations } from './integrations.js'
 import { startBackupSchedule, type BackupSchedule } from './backup-schedule.js'
 import { isLockedRequest, registerSiteLockGate, registerUnlockRoute } from './lock.js'
-import { markdownFilesFor, registerMarkdownFileRoutes } from './markdown-files.js'
+import { codeFilesFor, registerCodeFileRoutes } from './code-files.js'
 import { registerMediaRoutes } from './media-routes.js'
 import { registerPublicRoutes } from './public.js'
 import { previewLink, readPreview, registerPreviewRoutes } from './preview.js'
@@ -84,7 +84,7 @@ export interface InlayOptions {
   /** A loaded release's shipped files, by source as written in the site. */
   shippedFiles?: ReadonlyMap<string, string>
   /** As `shippedFiles`, only the images `.md` files the site imports name. */
-  markdownFiles?: ReadonlyMap<string, string>
+  codeFiles?: ReadonlyMap<string, string>
   /**
    * Nothing can be changed: every write through the core is refused with `error.previewReadOnly`, and the admin and
    * `/api/auth` answer their write requests (other than logging in and out) with 403. Boot still applies shipped
@@ -488,7 +488,7 @@ const plugin: FastifyPluginAsync<InlayOptions> = async (app, opts) => {
     ...(opts.now && { now: opts.now }),
     ...(opts.content && { content: opts.content }),
     ...(opts.shippedFiles && { shippedFiles: opts.shippedFiles }),
-    ...(opts.markdownFiles && { markdownFiles: opts.markdownFiles }),
+    ...(opts.codeFiles && { codeFiles: opts.codeFiles }),
     auth: { secret, baseUrl, ...(opts.rateLimit !== undefined && { rateLimit: opts.rateLimit }) },
   })
   const { db, report, auth } = booted
@@ -589,6 +589,7 @@ const plugin: FastifyPluginAsync<InlayOptions> = async (app, opts) => {
     release: opts.release ?? null,
     ...(opts.readOnly && { readOnly: true }),
     ...(opts.releasesDir !== undefined && { releasesDir: opts.releasesDir }),
+    mediaDir: opts.media ?? next('media'),
     ...(opts.trustedKeys && { trustedKeys: opts.trustedKeys }),
     ...(opts.adminHost && { host: opts.adminHost }),
   })
@@ -613,7 +614,7 @@ const plugin: FastifyPluginAsync<InlayOptions> = async (app, opts) => {
     },
   })
   registerMediaRoutes(app, core)
-  registerMarkdownFileRoutes(app, markdownFilesFor(core))
+  registerCodeFileRoutes(app, codeFilesFor(core), core)
   if (opts.publicDir !== undefined) registerPublicRoutes(app, { dir: opts.publicDir, maxAge: opts.publicMaxAge ?? 3600 })
   registerReleaseRoutes(app, { core, registry, baseUrl, assets: siteAssets, integrations: siteIntegrations, secrets: opts.secrets ?? {}, fetch: opts.fetch ?? ((input, init) => globalThis.fetch(input, init)), log: app.log, preview: opts.preview === 'forced' })
   registerPreviewRoutes(app, { secret, baseUrl, now })

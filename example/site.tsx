@@ -10,6 +10,7 @@ import {
   z,
 } from 'inlaycms/site'
 import type { RenderContext, Renderable } from 'inlaycms/site'
+import homeHero from './assets/hero.jpg'
 import colophon from './pages/colophon.md'
 import { content } from './content.js'
 import { visitCounter } from './integrations.js'
@@ -158,15 +159,27 @@ const Home = defineTemplate({
     features: { block: Features },
     testimonials: { block: Testimonials, optional: true },
   },
-  render: ({ slots }, ctx) => (
-    <Layout ctx={ctx}>
-      <main>
-        {slots.hero}
-        {slots.features}
-        {slots.testimonials}
-      </main>
-    </Layout>
-  ),
+  render: ({ slots }, ctx) => {
+    const banner = ctx.image(homeHero, { alt: '' })
+    return (
+      <Layout ctx={ctx}>
+        <main>
+          <img
+            class="home-banner"
+            src={banner.src(1280)}
+            srcset={banner.srcset()}
+            sizes="100vw"
+            alt={banner.alt}
+            width={banner.width}
+            height={banner.height}
+          />
+          {slots.hero}
+          {slots.features}
+          {slots.testimonials}
+        </main>
+      </Layout>
+    )
+  },
 })
 
 function ContactForm({ ctx }: { ctx: RenderContext }) {

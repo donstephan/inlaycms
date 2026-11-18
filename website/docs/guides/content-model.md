@@ -42,3 +42,73 @@ const faqs = await ctx.query('faqs', { filter: (e) => e.fields.tags.includes('gr
 
 An option you remove from the code drops out of the value when it is read, in the admin, on the site and over MCP, while the other options stay; the next save stores the value without it. Export keeps what is stored, so a backup loses nothing.
 
+
+## Designed pages
+
+Some pages are designed around their exact words: a home page whose headline has to fit on two lines, or a landing page with three columns of equal length. Letting the owner edit that text would break the design, so write the words straight into the template and give it no fields and no slots:
+
+```tsx
+const copy = {
+  en: { headline: 'Websites for small businesses', lead: 'Designed, built and looked after by one studio.' },
+  es: { headline: 'Webs para pequeños negocios', lead: 'Diseñadas, hechas y cuidadas por un solo estudio.' },
+}
+
+const Home = defineTemplate({
+  name: 'home',
+  fields: z.object({}),
+  render: (_props, ctx) => {
+    const text = copy[ctx.locale as keyof typeof copy] ?? copy.en
+    return (
+      <main>
+        <h1>{text.headline}</h1>
+        <p>{text.lead}</p>
+      </main>
+    )
+  },
+})
+```
+
+Make it a singleton, and ship its document once so the page exists and is published, in each language the site has:
+
+```ts
+defineContent('home', { edition: 1, content: { en: { fields: {} }, es: { fields: {} } } })
+```
+
+From then on, changing the words is a change to the code: there is no edition to bump, and a release (or a restart of `inlaycms dev`) shows it. The owner still sees the page in the admin, can link to it and publish or unpublish it, but its editor says the page is designed in code and that the developer changes it, and the Pages list marks it **Designed in code**. Assistants are told the same, and their edits to it are refused with that message.
+
+For long text such as an "about this site" page, keep it in a `.md` file and render it with [`ctx.markdown`](/docs/guides/shipped-content#rendering-a-markdown-file-from-a-template). If the owner should change one part of a designed page, such as an announcement line, put that part in a global the template reads, and leave the rest in code.
+
+### Images in a designed page
+
+Import an image into the template and show it with `ctx.image`. The file must be inside the site's folder, and end in `.png`, `.jpg`, `.jpeg`, `.gif`, `.webp` or `.avif`:
+
+```tsx
+import hero from './hero.jpg'
+
+render: (_props, ctx) => {
+  const img = ctx.image(hero, { alt: 'The studio at dusk' })
+  return (
+    <img
+      src={img.src(1280)}
+      srcset={img.srcset()}
+      sizes="100vw"
+      alt={img.alt}
+      width={img.width}
+      height={img.height}
+    />
+  )
+}
+```
+
+`ctx.image` returns the same kind of image as for a media library image: `url`, `src(width, format?)`, `srcset(format?)`, `width`, `height`, `alt` and `mime`. Variants are made at 320 to 2560 pixels wide, as WebP unless you ask for another format, and are served at `/media/files/`. The width and height let the browser keep room for the image before it loads. `alt` also replaces the alt text of a library image, if you pass one.
+
+For a different crop on phones, import two images and use a `<picture>`:
+
+```tsx
+<picture>
+  <source media="(max-width: 600px)" srcset={narrow.srcset()} sizes="100vw" />
+  <img src={wide.src(1280)} srcset={wide.srcset()} sizes="100vw" alt={wide.alt} width={wide.width} height={wide.height} />
+</picture>
+```
+
+The import is checked when the site loads, and `inlaycms dev`, `check` and `pack` refuse it if the file is outside the site's folder, is an SVG, or isn't the kind of picture its extension says. `pack` ships the file in the release.

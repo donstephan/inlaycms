@@ -33,7 +33,7 @@ import { basename } from 'node:path'
 import type { Database } from './db/schema.js'
 import { DEFAULT_MAX_BYTES, DEFAULT_UPLOAD_TYPES } from './media/detect.js'
 import { addMedia, deleteMedia, getMedia, listMedia, lookupMedia, mediaFile, mediaStats, setMediaAlt } from './media/library.js'
-import { mediaVariant, type VariantFormat } from './media/variants.js'
+import { codeImageVariant, mediaVariant, type VariantFormat } from './media/variants.js'
 import { fileMediaStore } from './media/store.js'
 import type { SiteDefinition } from './registry/define.js'
 import type { ReleaseMigration } from './registry/migration.js'
@@ -51,7 +51,7 @@ export type { PatchOp, PublishResult, SaveResult, ShippedItem, ShippedReport }
 export interface Core {
   registry: Registry
   /** A loaded release's images that `.md` files the site imports name, by source: what `/media/files/` serves. */
-  readonly markdownFiles?: ReadonlyMap<string, string>
+  readonly codeFiles?: ReadonlyMap<string, string>
   getDocument(id: string, opts?: { state?: 'head' | 'published' }): Promise<DocumentView | null>
   findSingleton(type: string, locale?: string): Promise<DocumentSummary | null>
   findTranslation(groupId: string, locale: string): Promise<DocumentSummary | null>
@@ -124,6 +124,8 @@ export interface Core {
   deleteMedia(id: string, ctx: Ctx): Promise<void>
   mediaFile(id: string): Promise<{ path: string; mime: string; filename: string; size: number }>
   mediaVariant(id: string, opts: { width: number; format: VariantFormat }): Promise<{ path: string; mime: string }>
+  /** A resized variant of an image site code names, cached under `code-<sha>`. */
+  codeImageVariant(file: { sha: string; path: string }, opts: { width: number; format: VariantFormat }): Promise<{ path: string; mime: string }>
   /** Re-creates missing refs of visible documents; returns how many documents it synced. */
   repairRefs(): Promise<number>
   /** Entries whose slug gives them a page another path hides; editors can't save them until it changes. */
@@ -190,7 +192,7 @@ export interface CreateCoreOptions {
   /** A loaded release's shipped files, by source as written in the site. */
   shippedFiles?: ReadonlyMap<string, string>
   /** As `shippedFiles`, only the images `.md` files the site imports name. */
-  markdownFiles?: ReadonlyMap<string, string>
+  codeFiles?: ReadonlyMap<string, string>
 }
 
 /** Builds the registry and binds the core functions. Does not migrate the database. */
@@ -232,7 +234,7 @@ export function createCore(opts: CreateCoreOptions): Core {
 
   return {
     registry,
-    ...(opts.markdownFiles !== undefined && { markdownFiles: opts.markdownFiles }),
+    ...(opts.codeFiles !== undefined && { codeFiles: opts.codeFiles }),
     getDocument: (id, o) => getDocument(deps, id, o),
     findSingleton: (type, locale) => findSingleton(deps, type, locale),
     findTranslation: (groupId, locale) => findTranslation(deps, groupId, locale),
@@ -279,6 +281,7 @@ export function createCore(opts: CreateCoreOptions): Core {
     deleteMedia: live((id, ctx) => deleteMedia(deps, id, ctx)),
     mediaFile: (id) => mediaFile(deps, id),
     mediaVariant: (id, o) => mediaVariant(deps, id, o),
+    codeImageVariant: (file, o) => codeImageVariant(deps, file, o),
     repairRefs: () => repairRefs(deps),
     shadowedEntries: () => shadowedEntries(deps),
     liveDocuments: (groupIds, locale, o) => liveDocuments(deps, groupIds, locale, o),

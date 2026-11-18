@@ -26,6 +26,20 @@ import { png } from '../fixtures/media.js'
 
 const fixtures = resolve(import.meta.dirname, '../fixtures')
 
+/** Lets a test make the sweep of cached code image variants fail; store.ts gets it through the mock. */
+const sweepHook = vi.hoisted(() => ({ fail: false }))
+vi.mock('../../src/core/media/store.js', async (importOriginal) => {
+  const real = await importOriginal<typeof import('../../src/core/media/store.js')>()
+  const sweepCodeVariants: typeof real.sweepCodeVariants = async (mediaDir, keep) => {
+    if (sweepHook.fail) throw new Error('sweep failed')
+    return real.sweepCodeVariants(mediaDir, keep)
+  }
+  return { ...real, sweepCodeVariants }
+})
+afterEach(() => {
+  sweepHook.fail = false
+})
+
 async function rejection(p: Promise<unknown>): Promise<InlayError> {
   try {
     await p
@@ -146,6 +160,55 @@ describe('deleteRelease', () => {
     await deleteRelease(deps(), row.id)
     expect(await readdir(releasesDir)).toEqual([])
     expect((await getRelease(db, row.id))?.state).toBe('deleted')
+  })
+
+  describe('sweeping code image variants', () => {
+    const shaA = 'a'.repeat(64)
+    const shaB = 'b'.repeat(64)
+    let mediaDir: string
+
+    async function storeWithImages(shas: string[]) {
+      const row = await storeRelease(deps(), file, { pushedBy: null })
+      const mf = join(releaseDir(releasesDir, row.id), 'manifest.json')
+      const m = JSON.parse(await readFile(mf, 'utf8')) as ReleaseManifest
+      m.content = shas.map((sha) => ({ source: `${sha}.png`, path: `content/${sha}.png`, code: true as const }))
+      await writeFile(mf, JSON.stringify(m))
+      return row
+    }
+
+    beforeEach(async () => {
+      mediaDir = join(dir, 'media')
+      for (const id of [`code-${shaA}`, `code-${shaB}`, 'library-id']) {
+        await mkdir(join(mediaDir, 'cache', id), { recursive: true })
+        await writeFile(join(mediaDir, 'cache', id, '640.webp'), 'x')
+      }
+    })
+
+    it('deleting a release removes variants only it named', async () => {
+      const kept = await storeWithImages([shaB])
+      const gone = await storeWithImages([shaA, shaB])
+      await deleteRelease({ db, releasesDir, mediaDir }, gone.id)
+      expect(existsSync(join(mediaDir, 'cache', `code-${shaA}`))).toBe(false)
+      expect(existsSync(join(mediaDir, 'cache', `code-${shaB}`))).toBe(true)
+      expect(existsSync(join(mediaDir, 'cache', 'library-id'))).toBe(true)
+      expect((await getRelease(db, kept.id))?.state).toBe('staged')
+    })
+
+    it('a sweep that fails still leaves the release deleted', async () => {
+      const gone = await storeWithImages([shaA])
+      sweepHook.fail = true
+      await deleteRelease({ db, releasesDir, mediaDir }, gone.id)
+      expect(await readdir(releasesDir)).toEqual([])
+      expect((await getRelease(db, gone.id))?.state).toBe('deleted')
+      expect(existsSync(join(mediaDir, 'cache', `code-${shaA}`))).toBe(true)
+    })
+
+    it('without mediaDir nothing is swept', async () => {
+      await storeWithImages([shaB])
+      const gone = await storeWithImages([shaA])
+      await deleteRelease({ db, releasesDir }, gone.id)
+      expect(existsSync(join(mediaDir, 'cache', `code-${shaA}`))).toBe(true)
+    })
   })
 
   it('refuses an unknown release', async () => {

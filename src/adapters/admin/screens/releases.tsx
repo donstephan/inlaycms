@@ -479,7 +479,7 @@ function releaseRoutes(scope: FastifyInstance, ctx: AdminContext, db: Kysely<Dat
     if (row === null) return notFound(reply, ctx, actor)
     if (row.state === 'deleted') return releasePage(request, reply, row, 409, t('admin.releases.alreadyDeleted', { name: row.name }))
     try {
-      await deleteRelease({ db, releasesDir }, row.id)
+      await deleteRelease({ db, releasesDir, ...(ctx.mediaDir !== undefined && { mediaDir: ctx.mediaDir }) }, row.id)
     } catch (e) {
       if (e instanceof InlayError && e.messageId === 'error.releaseCurrent') return releasePage(request, reply, row, 409, e.message)
       throw e

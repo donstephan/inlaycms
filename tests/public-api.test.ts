@@ -25,6 +25,7 @@ import {
   type AdminTheme,
   type AdminWidget,
   type AuthInfo,
+  type CodeImage,
   type Ctx,
   type ExportSummary,
   type CustomTheme,
@@ -354,9 +355,19 @@ it('inlaycms/site exports what a site needs and nothing of the host', async () =
   for (const name of ['defineContent', 'defineEntries', 'defineRoute', 'defineMigration', 'defineConfig', 'f', 'z', 'richTextHeadings', 'markdownHeadings', 'plainText', 'js']) {
     expect(siteApi, name).toHaveProperty(name)
   }
-  for (const name of ['inlay', 'createCore', 'openDatabase', 'migrateSystem', 'packRelease', 'readRelease', 'sign', 'bootInlay', 'createTestSite']) {
+  for (const name of ['inlay', 'createCore', 'openDatabase', 'migrateSystem', 'packRelease', 'readRelease', 'sign', 'bootInlay', 'createTestSite', 'isCodeImage']) {
     expect(siteApi, name).not.toHaveProperty(name)
   }
+  const image: CodeImage & import('../src/site.js').CodeImage = {
+    kind: 'codeImage',
+    source: 'file:///site/hero.jpg',
+    sha: 'a'.repeat(64),
+    ext: '.jpg',
+    mime: 'image/jpeg',
+    width: 40,
+    height: 30,
+  }
+  expect(image.kind).toBe('codeImage')
 })
 
 it('inlaycms/testing exports createTestSite and nothing else', async () => {

@@ -1,5 +1,6 @@
 import { randomBytes } from 'node:crypto'
 import { Readable } from 'node:stream'
+import { existsSync } from 'node:fs'
 import { cp, mkdir, mkdtemp, readdir, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
@@ -478,6 +479,20 @@ describe('the other release routes', () => {
     expect(current.statusCode).toBe(409)
     expect(current.json()).toMatchObject({ error: { code: 'release' } })
     expect((await app!.inject({ method: 'DELETE', url: '/_inlay/releases/nope', headers: auth() })).statusCode).toBe(404)
+  })
+
+  it('deleting a release clears cached code-image variants no remaining release names', async () => {
+    const { loaded } = await activated()
+    await start(loaded)
+    const pushed = (await push(changed)).json<{ release: ReleaseRow }>().release
+    const unused = join(config.paths.media, 'cache', `code-${'a'.repeat(64)}`)
+    const library = join(config.paths.media, 'cache', 'b'.repeat(64))
+    await mkdir(unused, { recursive: true })
+    await mkdir(library, { recursive: true })
+    const res = await app!.inject({ method: 'DELETE', url: `/_inlay/releases/${pushed.id}`, headers: auth() })
+    expect(res.statusCode).toBe(204)
+    expect(existsSync(unused)).toBe(false)
+    expect(existsSync(library)).toBe(true)
   })
 })
 

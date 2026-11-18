@@ -28,6 +28,7 @@ export type {
   ResolvedImage,
   ResolvedLink,
 } from './core/registry/render.js'
+export type { CodeImage } from './core/registry/code-image.js'
 export { bootInlay, type BootOptions, type BootResult } from './core/boot.js'
 export { createBackup, listBackups, type BackupInfo, type BackupReason } from './core/backup/backup.js'
 export { restoreBackup, type RestoreBackupResult } from './core/backup/restore.js'

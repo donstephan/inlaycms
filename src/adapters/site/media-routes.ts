@@ -6,7 +6,8 @@ import { isRasterImage } from '../../core/media/detect.js'
 import type { VariantFormat } from '../../core/media/variants.js'
 import { t } from '../../core/messages/index.js'
 
-const VARIANT = /^([1-9][0-9]{0,4})\.(webp|avif|jpeg|png)$/
+/** A variant's file name: `<width>.<format>`. */
+export const VARIANT = /^([1-9][0-9]{0,4})\.(webp|avif|jpeg|png)$/
 
 /** RFC 5987 `ext-value` encoding for `filename*`. */
 function encodeFilename(name: string): string {

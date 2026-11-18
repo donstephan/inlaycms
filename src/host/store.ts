@@ -1,10 +1,11 @@
 import { createHash, randomUUID } from 'node:crypto'
 import { createReadStream, existsSync } from 'node:fs'
-import { copyFile, mkdir, rm } from 'node:fs/promises'
-import { join } from 'node:path'
+import { copyFile, mkdir, readFile, rm } from 'node:fs/promises'
+import { extname, join } from 'node:path'
 import { sql, type Kysely, type Selectable } from 'kysely'
 import type { Database, ReleasesTable } from '../core/db/schema.js'
 import { InlayError } from '../core/errors.js'
+import { sweepCodeVariants } from '../core/media/store.js'
 import { readCurrentPointer, releaseDir, type CurrentPointer } from '../core/release/pointer.js'
 import { loadRelease, openRelease, type LoadedRelease } from '../core/release/read.js'
 
@@ -95,7 +96,10 @@ export async function currentRelease(db: Kysely<Database>): Promise<ReleaseRow |
 }
 
 /** Marks a release that isn't current as deleted and removes its file and folder. The row stays as history. */
-export async function deleteRelease(deps: { db: Kysely<Database>; releasesDir: string }, id: string): Promise<void> {
+export async function deleteRelease(
+  deps: { db: Kysely<Database>; releasesDir: string; mediaDir?: string },
+  id: string,
+): Promise<void> {
   const result = await deps.db
     .updateTable('releases')
     .set({ state: 'deleted' })
@@ -110,6 +114,33 @@ export async function deleteRelease(deps: { db: Kysely<Database>; releasesDir: s
   const row = await getRelease(deps.db, id)
   if (row) await rm(join(deps.releasesDir, row.file), { force: true })
   await rm(releaseDir(deps.releasesDir, id), { recursive: true, force: true })
+  if (deps.mediaDir === undefined) return
+  try {
+    await sweepUnusedCodeVariants(deps.db, deps.releasesDir, deps.mediaDir)
+  } catch {
+    // Best effort: the release is gone either way, and the next delete sweeps again.
+  }
+}
+
+/** Removes the cached variants of code images that no remaining release names. */
+async function sweepUnusedCodeVariants(db: Kysely<Database>, releasesDir: string, mediaDir: string): Promise<void> {
+  const keep = new Set<string>()
+  for (const row of await listReleases(db)) {
+    if (row.state === 'deleted') continue
+    try {
+      const manifest = JSON.parse(await readFile(join(releaseDir(releasesDir, row.id), 'manifest.json'), 'utf8')) as {
+        content?: Array<{ path?: unknown; code?: unknown }>
+      }
+      for (const entry of manifest.content ?? []) {
+        if (entry.code !== true || typeof entry.path !== 'string') continue
+        const name = entry.path.slice(entry.path.lastIndexOf('/') + 1)
+        keep.add(name.slice(0, name.length - extname(name).length))
+      }
+    } catch {
+      continue
+    }
+  }
+  await sweepCodeVariants(mediaDir, keep)
 }
 
 /**

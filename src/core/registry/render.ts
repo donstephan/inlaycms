@@ -4,12 +4,13 @@ import type { VariantFormat } from '../media/variants.js'
 import type { RichTextRenderOptions } from '../richtext/html.js'
 import type { RichTextDoc } from '../richtext/schema.js'
 import type { FileValue, ImageValue, LinkValue } from '../types.js'
+import type { CodeImage } from './code-image.js'
 import type { JsCode } from './js.js'
 import type { CollectionDef, GlobalDef, TemplateDef } from './define.js'
 
 export interface ResolvedImage {
   id: string
-  /** The original: `/media/<id>`. */
+  /** The original: `/media/<id>`, or `/media/files/<sha><ext>` for an imported image. */
   url: string
   alt: string
   width: number | null
@@ -126,8 +127,18 @@ export interface RenderContext {
   /** A `<script>` for the page, to put in the template's output; inline code is allowed by the page's CSP by its hash. */
   script: ScriptApi
   alternates: Array<{ locale: string; path: string; fallback: boolean }>
-  /** Alt is the value's, then the media's default, then `''`. `null` when the media is missing. */
-  image(v: ImageValue | null | undefined): ResolvedImage | null
+  /**
+   * An image the site imports (`import hero from './hero.jpg'`), served from the site with its variants. Alt is
+   * `opts.alt`, then `''`.
+   */
+  image(v: CodeImage, opts?: { alt?: string }): ResolvedImage
+  /**
+   * A media library image. Alt is `opts.alt` when given (even `''`), then the value's, then the media's default, then
+   * `''`. `null` when the media is missing.
+   */
+  image(v: ImageValue | null | undefined, opts?: { alt?: string }): ResolvedImage | null
+  /** Either kind of image, when the value may be one or the other or missing. */
+  image(v: CodeImage | ImageValue | null | undefined, opts?: { alt?: string }): ResolvedImage | null
   file(v: FileValue | null | undefined): ResolvedFile | null
   /** `null` when the target document isn't live. Text is the value's, then the target's title, then the URL. */
   link(v: LinkValue | null | undefined): ResolvedLink | null

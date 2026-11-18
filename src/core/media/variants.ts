@@ -1,3 +1,5 @@
+import { access } from 'node:fs/promises'
+import { basename } from 'node:path'
 import sharp from 'sharp'
 import { InlayError } from '../errors.js'
 import type { CoreDeps } from '../types.js'
@@ -60,6 +62,59 @@ export async function mediaVariant(
       await store.putVariant(id, width, format, bytes)
       return path
     }).finally(() => jobs.delete(key))
+    pending.set(key, job)
+  }
+  await job
+  return { path, mime }
+}
+
+const SHA = /^[0-9a-f]{64}$/
+
+/**
+ * A resized variant of an image site code names (an import or a Markdown image), made from the file at `file.path`
+ * and cached in the media store under `code-<sha>`. The caller vouches for the file; there is no media-library lookup.
+ */
+export async function codeImageVariant(
+  deps: CoreDeps,
+  file: { sha: string; path: string },
+  opts: { width: number; format: VariantFormat },
+): Promise<{ path: string; mime: string }> {
+  const store = deps.media
+  if (!store) throw new InlayError('invalid_operation', 'error.mediaNotConfigured')
+  const { width, format } = opts
+  if (!(IMAGE_WIDTHS as readonly number[]).includes(width) || !Object.hasOwn(MIME, format)) throw notFound()
+  if (!SHA.test(file.sha)) throw notFound()
+
+  const id = `code-${file.sha}`
+  const path = store.variantPath(id, width, format)
+  const mime = MIME[format]
+  if (await store.hasVariant(id, width, format)) return { path, mime }
+
+  let pending = inFlight.get(store)
+  if (!pending) inFlight.set(store, (pending = new Map()))
+  const key = `${id}/${width}.${format}`
+  let job = pending.get(key)
+  if (!job) {
+    const jobs = pending
+    job = (async () => {
+      try {
+        await access(file.path)
+      } catch {
+        throw notFound()
+      }
+      let bytes: Buffer
+      try {
+        bytes = await sharp(file.path)
+          .rotate()
+          .resize({ width, withoutEnlargement: true })
+          .toFormat(format)
+          .toBuffer()
+      } catch {
+        throw new InlayError('invalid_operation', 'error.mediaUnreadable', { filename: basename(file.path) })
+      }
+      await store.putVariant(id, width, format, bytes)
+      return path
+    })().finally(() => jobs.delete(key))
     pending.set(key, job)
   }
   await job

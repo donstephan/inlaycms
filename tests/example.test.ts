@@ -49,6 +49,16 @@ describe('example site', () => {
     expect(body).toMatch(/<img[^>]*srcset=/)
   })
 
+  it('shows an image imported in code, with variants that serve', async () => {
+    const body = (await get('/')).body
+    const banner = body.match(/<img[^>]*class="home-banner"[^>]*>/)?.[0] ?? ''
+    const srcset = banner.match(/srcset="([^"]+)"/)?.[1] ?? ''
+    expect(srcset).toContain('/media/files/')
+    expect(banner).toContain('alt=""')
+    const first = srcset.split(',')[0]?.trim().split(' ')[0] ?? ''
+    expect([first, (await get(first)).statusCode]).toEqual([first, 200])
+  })
+
   it('serves a post written in a .md file, with its table and image', async () => {
     const res = await get('/blog/tables-and-images')
     expect(res.statusCode).toBe(200)

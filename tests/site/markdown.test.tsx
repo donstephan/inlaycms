@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import type { FastifyInstance } from 'fastify'
+import sharp from 'sharp'
 import { loadConfig } from '../../src/config.js'
 import type { Core } from '../../src/core/core.js'
 import { generateKeyPair } from '../../src/core/release/keys.js'
@@ -26,10 +27,16 @@ let scratch: string
 let site: TestSite | undefined
 const apps: FastifyInstance[] = []
 let src: string
+let variant: string
+let size: { width: number; height: number }
 
 beforeEach(async () => {
   scratch = await realpath(await mkdtemp(join(tmpdir(), 'inlay-markdown-')))
-  src = `/media/files/${sha256(await readFile(join(fixture, 'pic.png')))}.png`
+  const bytes = await readFile(join(fixture, 'pic.png'))
+  src = `/media/files/${sha256(bytes)}.png`
+  variant = `/media/files/${sha256(bytes)}/320.webp`
+  const meta = await sharp(bytes).metadata()
+  size = { width: meta.width!, height: meta.height! }
 })
 afterEach(async () => {
   await site?.close()
@@ -52,7 +59,8 @@ async function boot(source: SiteSource): Promise<{ app: FastifyInstance; core: C
   return booted
 }
 
-const img = () => `<img src="${src}" alt="Pic" loading="lazy">`
+const img = () =>
+  `<img src="${variant}" srcset="${variant} 320w" alt="Pic" width="${size.width}" height="${size.height}" loading="lazy">`
 
 describe('ctx.markdown', () => {
   it('renders an imported .md with its image served from the site folder', async () => {
@@ -66,6 +74,9 @@ describe('ctx.markdown', () => {
     const image = await site.fetch(src)
     expect(image.status).toBe(200)
     expect(image.headers.get('content-type')).toBe('image/png')
+    const resized = await site.fetch(variant)
+    expect(resized.status).toBe(200)
+    expect(resized.headers.get('content-type')).toBe('image/webp')
   })
 
   it('heading ids match markdownHeadings', async () => {
@@ -98,7 +109,7 @@ describe('ctx.markdown', () => {
     const loaded = await readRelease(out, { dir: releaseDir, trustedKeys: [keys.publicKey] })
     await rm(copy, { recursive: true, force: true })
 
-    const source = { site: loaded.site, publicDir: loaded.publicDir, shippedFiles: loaded.shippedFiles, markdownFiles: loaded.markdownFiles }
+    const source = { site: loaded.site, publicDir: loaded.publicDir, shippedFiles: loaded.shippedFiles, codeFiles: loaded.codeFiles }
     const fresh = await boot(source)
     const image = await fresh.app.inject({ url: src })
     expect(image.statusCode).toBe(200)
@@ -120,7 +131,7 @@ describe('ctx.markdown', () => {
     const loaded = await readRelease(out, { dir: releaseDir, trustedKeys: [keys.publicKey] })
     await rm(copy, { recursive: true, force: true })
 
-    const { app, core } = await boot({ site: loaded.site, publicDir: loaded.publicDir, shippedFiles: loaded.shippedFiles, markdownFiles: loaded.markdownFiles })
+    const { app, core } = await boot({ site: loaded.site, publicDir: loaded.publicDir, shippedFiles: loaded.shippedFiles, codeFiles: loaded.codeFiles })
     const sha = sha256(await readFile(join(fixture, 'pic.png')))
     const [note] = await core.listEntries('note')
     const doc = await core.getDocument(note!.id, { state: 'published' })

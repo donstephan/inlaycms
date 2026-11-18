@@ -1,4 +1,5 @@
 /// <reference path="./markdown-modules.ts" preserve="true" />
+/// <reference path="./image-modules.ts" preserve="true" />
 /**
  * What a site's code imports (`inlaycms/site`): the definitions and the types
  * templates, routes and migrations use, and nothing that reaches the server.
@@ -96,6 +97,7 @@ export type {
 export function plainText(doc: RichTextDoc | null | undefined): string {
   return doc ? richTextText(doc) : ''
 }
+export type { CodeImage } from './core/registry/code-image.js'
 export { js, JsCode } from './core/registry/js.js'
 export { richTextHeadings, type RichTextHeading } from './core/richtext/headings.js'
 export { markdownHeadings } from './core/richtext/markdown-text.js'

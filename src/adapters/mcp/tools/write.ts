@@ -9,6 +9,7 @@ import { contentIssue, mergeIssues, validateContent } from '../../../core/conten
 import { InlayError } from '../../../core/errors.js'
 import { defOf, unwrap, type Schema } from '../../../core/fields/zod-internals.js'
 import { t } from '../../../core/messages/index.js'
+import { designedInCode } from '../../../core/registry/designed.js'
 import type { Registry } from '../../../core/registry/registry.js'
 import type { ContentIssue, Ctx, DocumentData, DocumentSummary, PathSegment } from '../../../core/types.js'
 import { previewLink } from '../../site/preview.js'
@@ -194,6 +195,8 @@ function toOps(
  */
 async function updateDocument(deps: McpDeps, args: z.infer<typeof updateDocumentInput>, ctx: Ctx) {
   const doc = await documentOf(deps, args.id)
+  const def = deps.core.registry.getType(doc.type)
+  if (def.kind !== 'collection' && designedInCode(def.template)) throw new InlayError('invalid_operation', 'mcp.designedInCode')
   const { ops, issues } = toOps(deps, doc.type, args.changes)
   issues.push(...(await groupIdIssues(deps, doc.type, opsAsData(ops))))
   if (issues.length > 0) throw validation(mergeIssues(issues, patchProblems(deps.core.registry, doc.type, doc.data, ops)))

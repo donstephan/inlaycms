@@ -53,6 +53,8 @@ export interface AdminRouteOptions {
   /** The site's database and the folder releases are kept in: with both, owners get the Releases screen. */
   db?: Kysely<Database>
   releasesDir?: string
+  /** The media folder, so deleting a release can sweep the variants of code images no release names any more. */
+  mediaDir?: string
   /** The public keys an uploaded release must be signed with, when there is no `host` to check it. */
   trustedKeys?: readonly string[]
 }

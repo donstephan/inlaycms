@@ -485,7 +485,7 @@ export function registerPushRoutes(
       if ((await pusher(request, reply, service)) === null) return reply
       const { id } = request.params
       try {
-        await deleteRelease({ db, releasesDir }, id)
+        await deleteRelease({ db, releasesDir, mediaDir: opts.config.paths.media }, id)
       } catch (e) {
         return sendError(request, reply, e)
       }

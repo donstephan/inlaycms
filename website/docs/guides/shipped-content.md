@@ -72,7 +72,7 @@ defineRoute({
 render: async (_props, ctx) => <main>{await ctx.markdown(colophon, { headingIds: true })}</main>
 ```
 
-Images beside the file are served from the release, at `/media/files/`. `inlay:key/<type>/<key>` links work too: they become links to the live page, and a page that doesn't exist or isn't published is shown as plain text.
+Images beside the file are served from the release, at `/media/files/`, with a `srcset`, width and height so the browser picks a size that fits and keeps room for them. `inlay:key/<type>/<key>` links work too: they become links to the live page, and a page that doesn't exist or isn't published is shown as plain text.
 
 Name each image by its path from the file, as above, or as `inlay:media/<id>` for an image already in the media library. Each picture file must end in `.png`, `.jpg`, `.jpeg`, `.gif`, `.webp` or `.avif`, and hold that kind of picture. SVG files are refused.
 

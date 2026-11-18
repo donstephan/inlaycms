@@ -6,12 +6,12 @@ import { join, resolve } from 'node:path'
 import { createRequire } from 'node:module'
 import { pathToFileURL } from 'node:url'
 import * as tar from 'tar'
-import { markdownFilesFor } from '../../src/adapters/site/markdown-files.js'
+import { codeFilesFor } from '../../src/adapters/site/code-files.js'
 import { createCore } from '../../src/core/core.js'
 import { openDatabase } from '../../src/core/db/connection.js'
 import { migrateSystem } from '../../src/core/db/migrate.js'
 import { InlayError } from '../../src/core/errors.js'
-import { bundleSite } from '../../src/core/release/bundle.js'
+import { bundleConfig, bundleSite } from '../../src/core/release/bundle.js'
 import { fingerprint, generateKeyPair, sign } from '../../src/core/release/keys.js'
 import { contentPath, manifestOfRegistry, manifestSchema, satisfies, type ReleaseManifest } from '../../src/core/release/manifest.js'
 import { packRelease } from '../../src/core/release/pack.js'
@@ -556,7 +556,7 @@ describe('packRelease', () => {
       const { manifest } = await pack()
       const source = pathToFileURL(join(siteDir, 'posts/pic.png')).href
       const path = contentPath('pic.png', beside)
-      expect(manifest.content).toContainEqual({ source, path, markdown: true })
+      expect(manifest.content).toContainEqual({ source, path, code: true })
       expect(manifest.files).toHaveProperty([path])
     })
 
@@ -575,9 +575,9 @@ describe('packRelease', () => {
 
       const loaded = await readRelease(out, { dir: releaseDir, trustedKeys: [keys.publicKey] })
       expect([...loaded.shippedFiles.keys()]).toEqual(expect.arrayContaining([shippedOnly, mdImage]))
-      expect([...loaded.markdownFiles.keys()]).toEqual([mdImage])
-      const core = createCore({ site: loaded.site, db: openDatabase(':memory:'), markdownFiles: loaded.markdownFiles })
-      const files = markdownFilesFor(core)
+      expect([...loaded.codeFiles.keys()]).toEqual([mdImage])
+      const core = createCore({ site: loaded.site, db: openDatabase(':memory:'), codeFiles: loaded.codeFiles })
+      const files = codeFilesFor(core)
       expect(files.get(`${sha256(own)}.png`)).toBeDefined()
       expect(files.get(`${sha256(pic)}.png`)).toBeUndefined()
     })
@@ -646,6 +646,96 @@ describe('packRelease', () => {
       const bundling = await rejection(bundleSite(join(siteDir, 'inlay.config.ts'), join(dir, 'site.js')))
       expect(bundling.messageId).toBe('error.packBundle')
       expect(bundling.message).toContain(text)
+    })
+  })
+
+  describe('image imports', () => {
+    /** Writes `extra.ts` with `code` and has the site's config import it. */
+    const writeExtra = async (code: string) => {
+      await writeFile(join(siteDir, 'extra.ts'), code)
+      const config = await readFile(join(siteDir, 'inlay.config.ts'), 'utf8')
+      await writeFile(join(siteDir, 'inlay.config.ts'), "import './extra.js'\n" + config)
+    }
+    /** Bundles `extra.ts`, importing `path`, on its own, and gives back the image it exports. */
+    const imported = async (path: string) => {
+      await writeFile(join(siteDir, 'extra.ts'), `import hero from '${path}'\nexport const image = hero\n`)
+      const outFile = join(dir, 'extra.mjs')
+      await bundleConfig(join(siteDir, 'extra.ts'), outFile)
+      return ((await import(pathToFileURL(outFile).href)) as { image: unknown }).image
+    }
+    const refused = async (path: string) => {
+      await writeExtra(`import hero from '${path}'\nexport const image = hero\n`)
+      return (await rejection(loadConfig(join(siteDir, 'inlay.config.ts')))).message
+    }
+
+    it('loads an imported image as a CodeImage', async () => {
+      expect(await imported('./assets/pic.png')).toEqual({
+        kind: 'codeImage',
+        source: pathToFileURL(join(siteDir, 'assets/pic.png')).href,
+        sha: sha256(pic),
+        ext: '.png',
+        mime: 'image/png',
+        width: 20,
+        height: 10,
+      })
+    })
+
+    it('gives a rotated JPEG its displayed size', async () => {
+      const tall = await jpeg(30, 10, { orientation: 6 })
+      await writeFile(join(siteDir, 'assets/tall.jpg'), tall)
+      expect(await imported('./assets/tall.jpg')).toMatchObject({ ext: '.jpg', mime: 'image/jpeg', sha: sha256(tall), width: 10, height: 30 })
+    })
+
+    it('packs an imported image flagged code', async () => {
+      await writeExtra("import hero from './assets/pic.png'\nexport const image = hero\n")
+      const { manifest } = await pack()
+      const source = pathToFileURL(join(siteDir, 'assets/pic.png')).href
+      expect(manifest.content.filter((c) => c.source === source)).toEqual([{ source, path: contentPath('pic.png', pic), code: true }])
+    })
+
+    it('loads and packs an image whose name ends in capitals with a lowercase extension', async () => {
+      const photo = await jpeg(12, 6)
+      await writeFile(join(siteDir, 'assets/Photo.JPG'), photo)
+      expect(await imported('./assets/Photo.JPG')).toMatchObject({ ext: '.jpg', mime: 'image/jpeg', sha: sha256(photo), width: 12, height: 6 })
+      await writeExtra("import hero from './assets/Photo.JPG'\nexport const image = hero\n")
+      const { manifest } = await pack()
+      const source = pathToFileURL(join(siteDir, 'assets/Photo.JPG')).href
+      expect(manifest.content.filter((c) => c.source === source)).toEqual([{ source, path: `content/${sha256(photo)}.jpg`, code: true }])
+    })
+
+    it('refuses an image outside the site folder', async () => {
+      await writeFile(join(dir, 'outside.png'), await png(5, 5))
+      expect(await refused('../outside.png')).toContain(t('error.imageImportOutside', { file: 'extra.ts', image: '../outside.png' }))
+    })
+
+    it('refuses an SVG', async () => {
+      await writeFile(join(siteDir, 'assets/logo.svg'), '<svg xmlns="http://www.w3.org/2000/svg"></svg>')
+      expect(await refused('./assets/logo.svg')).toContain(t('error.imageImportSvg', { file: 'extra.ts', image: 'assets/logo.svg' }))
+    })
+
+    it('refuses an SVG when packing, too', async () => {
+      await writeFile(join(siteDir, 'assets/logo.svg'), '<svg xmlns="http://www.w3.org/2000/svg"></svg>')
+      await writeExtra("import hero from './assets/logo.svg'\nexport const image = hero\n")
+      const message = t('error.imageImportSvg', { file: 'extra.ts', image: 'assets/logo.svg' })
+      const bundling = await rejection(bundleSite(join(siteDir, 'inlay.config.ts'), join(dir, 'site.js')))
+      expect(bundling.code).toBe('release')
+      expect(bundling.message).toContain(message)
+      expect((await rejection(pack())).message).toContain(message)
+      expect(existsSync(out)).toBe(false)
+    })
+
+    it("refuses a picture that can't be read, such as one cut short", async () => {
+      await writeFile(join(siteDir, 'assets/cut.png'), (await png(40, 20)).subarray(0, 20))
+      expect(await refused('./assets/cut.png')).toContain(t('error.imageImportUnreadable', { file: 'extra.ts', image: 'assets/cut.png' }))
+    })
+
+    it('refuses bytes that are not the picture its extension names', async () => {
+      await writeFile(join(siteDir, 'assets/fake.jpg'), await png(4, 4))
+      expect(await refused('./assets/fake.jpg')).toContain(t('error.imageImportMismatch', { file: 'extra.ts', image: 'assets/fake.jpg' }))
+    })
+
+    it('refuses a missing image', async () => {
+      expect(await refused('./assets/nope.png')).toContain('nope.png')
     })
   })
 })

@@ -31,7 +31,7 @@ export interface SiteSource {
   /** Each shipped file's source as the site names it, to the file to read. */
   shippedFiles?: ReadonlyMap<string, string>
   /** As `shippedFiles`, only the images `.md` files the site imports name. */
-  markdownFiles?: ReadonlyMap<string, string>
+  codeFiles?: ReadonlyMap<string, string>
 }
 
 /** The source of a site run from its code (`inlaycms dev` and `inlaycms/testing`): its `public/` folder, if it has one. */
@@ -133,7 +133,7 @@ export async function createSiteApp(
       ...(opts.fetch && { fetch: opts.fetch }),
       content: opts.content,
       ...(source?.shippedFiles && { shippedFiles: source.shippedFiles }),
-      ...(source?.markdownFiles && { markdownFiles: source.markdownFiles }),
+      ...(source?.codeFiles && { codeFiles: source.codeFiles }),
       ...(opts.now && { now: opts.now }),
       ...(opts.host && { host: opts.host }),
       ...(opts.readOnly && { readOnly: true }),

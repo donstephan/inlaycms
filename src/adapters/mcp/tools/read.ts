@@ -5,6 +5,7 @@ import { agentTypeSchema } from '../../../core/agent/schema.js'
 import { docLabels } from '../../../core/content/schema.js'
 import { InlayError } from '../../../core/errors.js'
 import { t } from '../../../core/messages/index.js'
+import { designedInCode } from '../../../core/registry/designed.js'
 import type { Registry } from '../../../core/registry/registry.js'
 import { singletonPath, withLocale } from '../../../core/site/paths.js'
 import type { Ctx, DocumentSummary, DocumentView } from '../../../core/types.js'
@@ -78,11 +79,24 @@ async function describeSite(deps: McpDeps) {
       const path = singletonPath(def, locale, defaultLocale)
       if (path !== null) urls[locale] = pageUrl(baseUrl, withLocale(registry, locale, path))
     }
-    singletons.push({ type: def.name, label: def.label, help: def.help ?? null, urls, documents: await documents(def.name) })
+    singletons.push({
+      type: def.name,
+      label: def.label,
+      help: def.help ?? null,
+      ...(designedInCode(def.template) && { designedInCode: true }),
+      urls,
+      documents: await documents(def.name),
+    })
   }
   const globals = []
   for (const def of site.globals) {
-    globals.push({ type: def.name, label: def.label, help: def.help ?? null, documents: await documents(def.name) })
+    globals.push({
+      type: def.name,
+      label: def.label,
+      help: def.help ?? null,
+      ...(designedInCode(def.template) && { designedInCode: true }),
+      documents: await documents(def.name),
+    })
   }
   const collections = []
   for (const def of site.collections) {
@@ -120,6 +134,7 @@ async function describeType(deps: McpDeps, type: string) {
     label: def.label,
     help: def.help ?? null,
     ...(def.kind === 'collection' && { titleField: def.titleField }),
+    ...(def.kind !== 'collection' && designedInCode(def.template) && { designedInCode: true, note: t('mcp.designedInCode') }),
     slots: Object.entries(def.template.slots).map(([key, slot]) => ({
       key,
       label: slot.label ?? slot.block.label,

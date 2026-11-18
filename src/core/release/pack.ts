@@ -62,11 +62,11 @@ export async function packRelease(opts: {
     const bundled = await bundleSite(file, join(tmp, 'site.js'))
 
     const content: ReleaseManifest['content'] = []
-    const markdownImages = new Set(bundled.markdownImages)
+    const codeImages = new Set(bundled.codeImages)
     const sources = shippedFiles(registry)
     const known = new Set(sources.map((s) => s.source))
     const siteDir = pathToFileURL(dir).href + '/'
-    for (const source of bundled.markdownImages) {
+    for (const source of bundled.codeImages) {
       if (known.has(source)) continue
       const path = fileURLToPath(source)
       sources.push({ source, path, read: realInsideSync(path, siteDir) ?? path })
@@ -81,7 +81,7 @@ export async function packRelease(opts: {
       }
       const target = contentPath(path, bytes)
       await writeFile(join(tmp, target), bytes)
-      content.push({ source, path: target, ...(markdownImages.has(source) && { markdown: true as const }) })
+      content.push({ source, path: target, ...(codeImages.has(source) && { code: true as const }) })
     }
 
     const publicDir = join(dir, 'public')

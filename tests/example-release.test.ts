@@ -38,6 +38,7 @@ describe('the example site as a release', () => {
 
     const hero = pathToFileURL(join(example, 'assets/hero.jpg')).href
     const shipped = loaded.manifest.content.find((c) => c.source === hero)
+    expect(shipped?.code).toBe(true)
     expect(shipped?.path).toMatch(/^content\/[0-9a-f]{64}\.jpg$/)
     expect(loaded.shippedFiles.get(hero)).toBe(join(releaseDir, shipped!.path))
     expect(existsSync(join(releaseDir, shipped!.path))).toBe(true)

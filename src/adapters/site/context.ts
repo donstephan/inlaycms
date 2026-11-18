@@ -6,6 +6,7 @@ import type { Core } from '../../core/core.js'
 import { InlayError } from '../../core/errors.js'
 import { isRasterImage } from '../../core/media/detect.js'
 import { IMAGE_WIDTHS, type VariantFormat } from '../../core/media/variants.js'
+import { isCodeImage, type CodeImage } from '../../core/registry/code-image.js'
 import type { CollectionDef, GlobalDef, TemplateDef } from '../../core/registry/define.js'
 import type {
   Entry,
@@ -35,7 +36,7 @@ import type {
 } from '../../core/types.js'
 import { publicAssets, type PublicAssets } from './assets.js'
 import { createHeadCollector, type CollectedHead } from './head.js'
-import { markdownFilesFor, type MarkdownFile, type MarkdownFiles } from './markdown-files.js'
+import { codeFilesFor, type CodeFile, type CodeFiles } from './code-files.js'
 import { createScriptCollector } from './scripts.js'
 import { escapeHtml, raw, type SafeHtml } from '../../jsx/html.js'
 
@@ -47,7 +48,7 @@ export interface RenderContextOptions {
   alternates: RenderContext['alternates']
   assets?: PublicAssets
   /** Where `markdown` finds its image files; the core's shared index by default. */
-  markdownFiles?: MarkdownFiles
+  codeFiles?: CodeFiles
 }
 
 export type PreloadingRenderContext = RenderContext & {
@@ -69,23 +70,33 @@ const nonEmpty = (s: string | null | undefined): s is string => typeof s === 'st
 const mediaUrl = (id: string) => `/media/${id}`
 const missing = (v: unknown) => v === undefined || v === null
 
-function resolveImage(media: MediaInfo, alt: string | undefined): ResolvedImage {
-  const url = mediaUrl(media.id)
-  const raster = isRasterImage(media.mime)
-  const variant = (width: number, format: VariantFormat) => `${url}/${width}.${format}`
+/** An image `resolveImage` can size: its original at `url`, its variants at `<variants>/<width>.<format>`. */
+interface ImageSource {
+  id: string
+  url: string
+  variants: string
+  mime: string
+  width: number | null
+  height: number | null
+}
+
+function resolveImage(image: ImageSource, alt: string): ResolvedImage {
+  const { url } = image
+  const raster = isRasterImage(image.mime)
+  const variant = (width: number, format: VariantFormat) => `${image.variants}/${width}.${format}`
   const widths = (): number[] => {
     const all: number[] = [...IMAGE_WIDTHS]
-    if (media.width === null) return all
-    const fitting = all.filter((w) => w <= media.width!)
+    if (image.width === null) return all
+    const fitting = all.filter((w) => w <= image.width!)
     return fitting.length > 0 ? fitting : all.slice(0, 1)
   }
   return {
-    id: media.id,
+    id: image.id,
     url,
-    alt: nonEmpty(alt) ? alt : nonEmpty(media.defaultAlt) ? media.defaultAlt : '',
-    width: media.width,
-    height: media.height,
-    mime: media.mime,
+    alt,
+    width: image.width,
+    height: image.height,
+    mime: image.mime,
     src(width, format = 'webp') {
       if (!raster) return url
       const w = IMAGE_WIDTHS.find((x) => x >= width) ?? IMAGE_WIDTHS[IMAGE_WIDTHS.length - 1]!
@@ -98,6 +109,32 @@ function resolveImage(media: MediaInfo, alt: string | undefined): ResolvedImage 
         .join(', ')
     },
   }
+}
+
+function mediaSource(media: MediaInfo): ImageSource {
+  const url = mediaUrl(media.id)
+  return { id: media.id, url, variants: url, mime: media.mime, width: media.width, height: media.height }
+}
+
+/** Alt is the value's, then the media's default, then `''`. */
+const mediaAlt = (media: MediaInfo, alt: string | undefined): string =>
+  nonEmpty(alt) ? alt : nonEmpty(media.defaultAlt) ? media.defaultAlt : ''
+
+function codeSource(file: { sha: string; ext: string; mime: string; width: number | null; height: number | null }): ImageSource {
+  return {
+    id: file.sha,
+    url: `/media/files/${file.sha}${file.ext.toLowerCase()}`,
+    variants: `/media/files/${file.sha}`,
+    mime: file.mime,
+    width: file.width,
+    height: file.height,
+  }
+}
+
+/** A rich text image: `src` at `RICH_TEXT_SRC_WIDTH`, or the original's width when narrower. */
+function richTextImage(img: ResolvedImage) {
+  const width = Math.min(img.width ?? RICH_TEXT_SRC_WIDTH, RICH_TEXT_SRC_WIDTH)
+  return { src: img.src(width), srcset: img.srcset(), alt: img.alt, width: img.width, height: img.height }
 }
 
 function toEntry<F>(doc: LiveDocument): Entry<F> {
@@ -155,7 +192,7 @@ export function createRenderContext(core: Core, opts: RenderContextOptions): Pre
   const { locale, state } = opts
   const preview = state === 'preview'
   const assets = opts.assets ?? publicAssets(null)
-  const markdownFiles = opts.markdownFiles ?? markdownFilesFor(core)
+  const codeFiles = opts.codeFiles ?? codeFilesFor(core)
   const media = new Map<string, MediaInfo | null>()
   const docs = new Map<string, LiveDocument | null>()
   const collections = new Map<string, Promise<LiveDocument[]>>()
@@ -216,9 +253,20 @@ export function createRenderContext(core: Core, opts: RenderContextOptions): Pre
     await loadRefs(found.map((r) => r.ref))
   }
 
-  function image(v: ImageValue | null | undefined): ResolvedImage | null {
+  function image(v: CodeImage, opts?: { alt?: string }): ResolvedImage
+  function image(v: ImageValue | null | undefined, opts?: { alt?: string }): ResolvedImage | null
+  function image(v: CodeImage | ImageValue | null | undefined, opts?: { alt?: string }): ResolvedImage | null
+  function image(v: CodeImage | ImageValue | null | undefined, opts?: { alt?: string }): ResolvedImage | null {
+    if (isCodeImage(v)) {
+      codeFiles.register(v)
+      return resolveImage(codeSource(v), opts?.alt ?? '')
+    }
+    if (typeof v === 'string' || (typeof v === 'object' && v !== null && (v as { kind?: unknown }).kind === 'codeImage')) {
+      throw new InlayError('definition', 'error.imageNotImported')
+    }
     const info = v ? media.get(v.media) : undefined
-    return info ? resolveImage(info, v!.alt) : null
+    if (!info) return null
+    return resolveImage(mediaSource(info), opts?.alt ?? mediaAlt(info, v!.alt))
   }
 
   function file(v: FileValue | null | undefined): ResolvedFile | null {
@@ -246,10 +294,7 @@ export function createRenderContext(core: Core, opts: RenderContextOptions): Pre
     link: (groupId) => documentHref(groupId)?.href ?? null,
     image: (id, alt) => {
       const info = media.get(id)
-      if (!info) return null
-      const img = resolveImage(info, alt)
-      const width = Math.min(img.width ?? RICH_TEXT_SRC_WIDTH, RICH_TEXT_SRC_WIDTH)
-      return { src: img.src(width), srcset: img.srcset(), alt: img.alt, width: img.width, height: img.height }
+      return info ? richTextImage(resolveImage(mediaSource(info), mediaAlt(info, alt))) : null
     },
   }
 
@@ -264,12 +309,12 @@ export function createRenderContext(core: Core, opts: RenderContextOptions): Pre
     text = text.replace(KEY_HREF, (_href, type: string, key: string | undefined) => {
       return `](inlay:document/${groups.get(`${type}/${key ?? type}`) ?? NO_DOCUMENT}`
     })
-    const found = new Map<string, MarkdownFile>()
+    const found = new Map<string, CodeFile>()
     const unusable: Array<{ src: string; line: number }> = []
     await Promise.all(
       markdownImages(text).map(async ({ src, line }) => {
         if (isMediaTarget(src)) return
-        const file = /^file:/i.test(src) ? await markdownFiles.lookup(src) : null
+        const file = /^file:/i.test(src) ? await codeFiles.lookup(src) : null
         if (file) found.set(src, file)
         else unusable.push({ src, line })
       }),
@@ -288,7 +333,7 @@ export function createRenderContext(core: Core, opts: RenderContextOptions): Pre
       image: (id, alt) => {
         const file = files.get(id)
         if (!file) return resolver.image(id, alt)
-        return { src: file.url, srcset: '', alt: alt ?? '', width: null, height: null }
+        return richTextImage(resolveImage(codeSource(file), alt ?? ''))
       },
     }
     return raw(richTextToHtml(parsed.doc, markdownResolver, renderOpts))

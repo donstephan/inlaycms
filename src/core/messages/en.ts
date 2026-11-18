@@ -402,6 +402,14 @@ export const en = {
     "{file}, line {line}: the name of the image {src} doesn't end in one of {extensions}. Rename the file so its name ends in the one for its kind of picture.",
   'error.markdownImageMismatch':
     "{file}, line {line}: the name of the image {src} ends in {ext}, but the file holds another kind of picture. Rename the file so its name ends in the one for its kind of picture.",
+  'error.imageImportOutside': "{file} imports the image {image}, which isn't inside the site folder, so a release can't include it.",
+  'error.imageImportSvg': "{file} imports the image {image}, an SVG file, which Inlay doesn't resize or show as an image. Save it as a PNG or WebP picture instead.",
+  'error.imageImportMismatch':
+    "{file} imports the image {image}, whose name ends in one kind of picture but whose file holds another. Rename the file so its name ends in the one for its kind of picture.",
+  'error.imageImportUnreadable':
+    "{file} imports the image {image}, which can't be read as a picture: the file may be damaged or cut short. Save it again from your image editor.",
+  'error.imageNotImported':
+    "ctx.image was given a value that isn't an image imported through Inlay. Import the picture in the site's own code (import hero from './hero.jpg'), which Inlay bundles, and pass what the import gives.",
   'error.markdownRender': "This page's Markdown couldn't be shown. {problem}",
   'error.markdownRenderImage':
     "This page's Markdown couldn't be shown. Line {line}: the image {src} can't be used. Use an image from the media library, or put the Markdown in a .md file the site imports and name the picture by its path from there.",
@@ -1135,6 +1143,7 @@ export const en = {
   'admin.gaps.intro': "A site update requires information that some published content doesn't have yet.",
   'admin.gaps.summary': '{label}: {count} published {count|item needs|items need} attention',
   'admin.gaps.badge': 'Needs attention',
+  'admin.list.designedInCode': 'Designed in code',
   'admin.gaps.editor':
     'This is live with {count} required {count|field|fields} left empty: {labels}. Fill {count|it|them} in and publish again.',
   'admin.activity.today': 'Today',
@@ -1278,6 +1287,8 @@ export const en = {
   'admin.history.backToEditor': 'Back to the page',
   'admin.editor.unpublish': 'Unpublish',
   'admin.editor.unsaved': 'Your changes are not saved yet. Choose Save when you are done.',
+  'admin.editor.designedInCode':
+    "This page is designed in code: its words and layout are part of the site's design, so there is nothing to edit here. To change them, ask your developer.",
   'admin.editor.problems': 'Your changes are not saved yet. Fix the problems marked below, then save again.',
   'admin.editor.badBase':
     "This form is out of date, so your changes weren't saved. Copy anything you typed that you want to keep, then open the page again.",
@@ -1515,6 +1526,8 @@ export const en = {
   'mcp.change.required': "{field} is required, so it can't be removed. Give it a new value instead.",
   'mcp.change.neither': 'This change has no value. Give a value to set the field, or remove: true to remove it.',
   'mcp.tool.update_document.title': 'Change a page or entry',
+  'mcp.designedInCode':
+    "This page is designed in code: its words and layout are written into the site's template, so it has nothing to edit. Tell the person to ask their developer to change it.",
   'mcp.tool.update_document.description':
     "Changes fields of one page, entry or global in one language, saved as a draft that visitors don't see until it is published. Give its document id and the revisionId you got from get_document as baseRevisionId. Each change sets the value at a dotted path (such as slots.hero.data.headline or fields.faq.0.question), in the same form get_document returns, or removes an optional field with remove: true. If anything is wrong, nothing is saved. Returns the new revisionId, the changes in plain words, and a preview link to give the user.",
   'mcp.tool.create_entry.title': 'Add an entry',

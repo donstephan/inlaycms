@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto'
-import { access, mkdir, rename, rm, writeFile } from 'node:fs/promises'
+import { access, mkdir, readdir, rename, rm, writeFile } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
 
 export interface MediaStore {
@@ -31,6 +31,21 @@ async function writeAtomic(dir: string, target: string, bytes: Uint8Array): Prom
   } catch (err) {
     await rm(tmp, { force: true })
     throw err
+  }
+}
+
+/** Removes the cached variants of code images (`cache/code-<sha>`) whose sha isn't in `keep`. Other cache folders stay. */
+export async function sweepCodeVariants(mediaDir: string, keep: ReadonlySet<string>): Promise<void> {
+  const cache = join(mediaDir, 'cache')
+  let names: string[]
+  try {
+    names = await readdir(cache)
+  } catch {
+    return
+  }
+  for (const name of names) {
+    if (!name.startsWith('code-') || keep.has(name.slice('code-'.length))) continue
+    await rm(join(cache, name), { recursive: true, force: true })
   }
 }
 

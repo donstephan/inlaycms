@@ -21,7 +21,7 @@ export interface LoadedRelease {
   /** Each shipped file's source as the site names it, to the release's copy. */
   shippedFiles: Map<string, string>
   /** As `shippedFiles`, only the images `.md` files the site imports name: what `/media/files/` serves. */
-  markdownFiles: Map<string, string>
+  codeFiles: Map<string, string>
   publicDir: string | null
 }
 
@@ -275,7 +275,7 @@ export async function loadRelease(
     site,
     dir,
     shippedFiles: new Map(manifest.content.map((c) => [c.source, join(dir, c.path)])),
-    markdownFiles: new Map(manifest.content.filter((c) => c.markdown === true).map((c) => [c.source, join(dir, c.path)])),
+    codeFiles: new Map(manifest.content.filter((c) => c.code === true).map((c) => [c.source, join(dir, c.path)])),
     publicDir: existsSync(join(dir, 'public')) ? join(dir, 'public') : null,
   }
 }

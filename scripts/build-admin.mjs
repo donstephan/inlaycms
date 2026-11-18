@@ -18,6 +18,17 @@ const options = {
   logLevel: 'info',
 }
 
+const consent = {
+  absWorkingDir: root,
+  stdin: { contents: "import { install } from './client/site/consent.ts'\ninstall(window)", resolveDir: root, sourcefile: 'consent-entry.ts', loader: 'ts' },
+  outfile: 'assets/site/consent.js',
+  bundle: true,
+  format: 'iife',
+  minify: true,
+  target: 'es2022',
+  logLevel: 'info',
+}
+
 const tailwind = ['node_modules/.bin/tailwindcss', '-i', 'client/admin/admin.css', '-o', 'assets/admin/admin.css', '--minify']
 
 function runTailwind(extra = []) {
@@ -32,15 +43,19 @@ function runTailwind(extra = []) {
 if (watch) {
   const ctx = await context(options)
   await ctx.watch()
+  const consentCtx = await context(consent)
+  await consentCtx.watch()
   const child = await runTailwind(['--watch'])
   const stop = async () => {
     child.kill()
     await ctx.dispose()
+    await consentCtx.dispose()
     process.exit(0)
   }
   process.on('SIGINT', stop)
   process.on('SIGTERM', stop)
 } else {
   await build(options)
+  await build(consent)
   await runTailwind()
 }

@@ -160,7 +160,7 @@ describe('shipped content with media and rich text', () => {
   })
 
   it('reports Markdown the field cannot hold with its line', async () => {
-    const { core } = await makeCore({ site: teamSite({ photo: { file: photoPath }, intro: '```\ncode\n```' }), media: true })
+    const { core } = await makeCore({ site: teamSite({ photo: { file: photoPath }, intro: '---' }), media: true })
     const e = await rejection(core.applyShippedContent())
     expect(e.code).toBe('shipped_content')
     const issues = e.details.issues as Array<{ labels: string[]; message: string }>

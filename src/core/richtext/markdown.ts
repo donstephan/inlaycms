@@ -5,6 +5,7 @@ import { MarkdownParser, MarkdownSerializerState, type MarkdownSerializer } from
 import { z } from 'zod'
 import { t, type MessageId } from '../messages/index.js'
 import {
+  CODE_LANGUAGE,
   DEFAULT_RICH_TEXT,
   isRichTextHref,
   parseRichText,
@@ -664,6 +665,23 @@ const nodes: Record<string, Serializer> = {
     renderTextblock(state, node, true)
     state.closeBlock(node)
   },
+  codeBlock(state, node) {
+    // Written line by line as it is: escaping, or the stand-ins `renderTextblock` places, would change the code.
+    const code = node.textContent
+    let longest = 0
+    for (const run of code.match(/`+/g) ?? []) longest = Math.max(longest, run.length)
+    const fence = '`'.repeat(Math.max(3, longest + 1))
+    const language: unknown = node.attrs.language
+    state.write(fence + (typeof language === 'string' ? language : ''))
+    state.ensureNewLine()
+    for (const line of code.split('\n')) {
+      state.write()
+      state.append(line)
+      state.append('\n')
+    }
+    state.write(fence)
+    state.closeBlock(node)
+  },
   image(state, node) {
     const alt = typeof node.attrs.alt === 'string' ? oneLine(node.attrs.alt) : ''
     state.write('![')
@@ -862,6 +880,7 @@ const parser = new MarkdownParser(richTextSchema, tokenizer, {
   bullet_list: { block: 'bulletList' },
   ordered_list: { block: 'orderedList', getAttrs: (tok) => ({ start: Number(tok.attrGet('start') ?? 1) }) },
   heading: { block: 'heading', getAttrs: (tok) => ({ level: Number(tok.tag.slice(1)) }) },
+  fence: { block: 'codeBlock', noCloseToken: true, getAttrs: (tok) => ({ language: tok.info.trim() || null }) },
   image: {
     node: 'image',
     getAttrs: (tok) => ({
@@ -924,8 +943,6 @@ const TOKEN_FEATURE: Readonly<Record<string, RichTextFeature>> = {
 }
 
 const TOKEN_UNSUPPORTED: Readonly<Record<string, FeatureName>> = {
-  code_block: 'codeBlock',
-  fence: 'codeBlock',
   hr: 'rule',
 }
 
@@ -997,6 +1014,18 @@ const isSafeHref = (href: string) =>
 
 const isLibraryImage = (src: string) => src.startsWith(MEDIA_PREFIX) && HEX64.test(src.slice(MEDIA_PREFIX.length))
 
+/**
+ * True if a fence token ends with a closing fence. A closed fence spans its content lines plus the opening and
+ * closing lines; one left open runs to the end of the document or its container and spans one line fewer.
+ * The content's last line lacks its `\n` only at the end of the input.
+ */
+function fenceClosed(tok: Token): boolean {
+  if (!tok.map) return true
+  const content = tok.content
+  const lines = content === '' ? 0 : (content.match(/\n/g) ?? []).length + (content.endsWith('\n') ? 0 : 1)
+  return tok.map[1] - tok.map[0] === lines + 2
+}
+
 /** Every problem in the token stream and `env`, in line order, before anything is built. */
 function findProblems(tokens: Token[], opts: RichTextOptions, env: ParseEnv): RichTextProblem[] {
   const problems: RichTextProblem[] = []
@@ -1007,6 +1036,14 @@ function findProblems(tokens: Token[], opts: RichTextOptions, env: ParseEnv): Ri
   const allowed = (f: RichTextFeature) => opts.features.includes(f)
 
   const check = (tok: Token, line: number, inHeading: boolean, inCell: boolean) => {
+    if (tok.type === 'code_block') return add('unsupported', line, 'richtext.indentedCode', {})
+    if (tok.type === 'fence') {
+      if (!allowed('codeBlock')) return add('not_allowed', line, 'richtext.notAllowed', { feature: feature('codeBlock') })
+      const language = tok.info.trim()
+      if (language !== '' && !CODE_LANGUAGE.test(language)) add('unsupported', line, 'richtext.codeLanguage', { language })
+      if (!fenceClosed(tok)) add('unsupported', line, 'richtext.unclosedCode', {})
+      return
+    }
     const unsupported = TOKEN_UNSUPPORTED[tok.type]
     if (unsupported) return add('unsupported', line, 'richtext.unsupported', { feature: feature(unsupported) })
     if (tok.type === 'heading_open') {

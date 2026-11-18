@@ -104,7 +104,7 @@ describe('update_document', () => {
     const { isError, text, json } = await mcp.call('update_document', {
       id: about.id,
       baseRevisionId: about.headRev,
-      changes: [{ path: 'fields.body', value: 'Intro.\n\n```\ncode\n```\n' }],
+      changes: [{ path: 'fields.body', value: 'Intro.\n\n---\n' }],
     })
     expect(isError).toBe(true)
     expect(json.error.code).toBe('validation')
@@ -279,7 +279,7 @@ describe('create_entry', () => {
   it('refuses bad Markdown and creates nothing', async () => {
     const { isError, text } = await mcp.call('create_entry', {
       collection: 'posts',
-      content: { fields: { title: 'Bad', date: '2026-02-03', body: '```\ncode\n```' } },
+      content: { fields: { title: 'Bad', date: '2026-02-03', body: '---' } },
     })
     expect(isError).toBe(true)
     expect(text).toMatch(/Line 1/)

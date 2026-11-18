@@ -219,7 +219,7 @@ describe('round trip', () => {
 
 describe('fromAgent', () => {
   it('reports Markdown problems with line numbers and the field', () => {
-    const result = fromAgent(web, 'about', ['fields', 'body'], '# Title\n\n```js\nx\n```')
+    const result = fromAgent(web, 'about', ['fields', 'body'], '# Title\n\n---')
     expect(result.ok).toBe(false)
     if (result.ok) return
     const messages = result.issues.map((i) => i.message)
@@ -234,7 +234,7 @@ describe('fromAgent', () => {
   })
 
   it('reports Markdown problems deep in a value, with the full path', () => {
-    const result = fromAgent(web, 'about', ['fields'], { title: 'x', body: '```\ncode\n```' })
+    const result = fromAgent(web, 'about', ['fields'], { title: 'x', body: '---' })
     expect(result.ok).toBe(false)
     if (!result.ok) expect(result.issues[0]!.path).toEqual(['fields', 'body'])
   })

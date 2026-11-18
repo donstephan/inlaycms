@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto'
 import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
@@ -99,5 +100,43 @@ describe('example site', () => {
 
   it('lists the Spanish home page in the sitemap', async () => {
     expect((await get('/sitemap.xml')).body).toContain('/es')
+  })
+
+  describe('integrations', () => {
+    const owner = { actor: { id: 'user-owner', name: 'Olivia Owner', role: 'owner' as const }, source: 'admin' as const }
+
+    it('defines a visit counter integration that waits for analytics consent', () => {
+      const { integrations } = app.inlay.core.registry.site
+      expect(integrations.map((i) => ({ name: i.name, consent: i.consent }))).toEqual([
+        { name: 'visit-counter', consent: 'analytics' },
+      ])
+    })
+
+    it('with it switched on, holds it in a template and loads the consent script and the banner', async () => {
+      const off = (await get('/')).body
+      expect(off).not.toContain('data-inlay-consent')
+      expect(off).not.toContain('/_inlay/consent.js')
+      await app.inlay.core.saveIntegration('visit-counter', { enabled: true, values: { label: 'Visits' } }, owner)
+      const body = (await get('/')).body
+      expect(body).toMatch(/<template data-inlay-consent="analytics">[^]*<script src="\/public\/visits\.js[^"]*" defer><\/script>[^]*<\/template>/)
+      expect(body.match(/<script src="\/_inlay\/consent\.js\?v=[^"]+" defer><\/script>/g)).toHaveLength(1)
+      expect(body.match(/<script[^>]*src="\/public\/consent-banner\.js[^"]*"/g)).toHaveLength(1)
+      await app.inlay.core.saveIntegration('visit-counter', { enabled: false, values: {} }, owner)
+    })
+
+    it('has pages that pass their own policy', async () => {
+      const posts = await app.inlay.query('posts', { limit: 1 })
+      for (const url of ['/', posts.items[0]?.url ?? '', '/contact']) {
+        const res = await get(url)
+        const policy = String(res.headers['content-security-policy'])
+        expect(policy).toContain("default-src 'self'")
+        const scriptSrc = policy.split('; ').find((d) => d.startsWith('script-src ')) ?? ''
+        for (const m of res.body.matchAll(/<script(?![^>]*\bsrc=)([^>]*)>([^]*?)<\/script>/g)) {
+          if (/type="application\/ld\+json"/.test(m[1] ?? '')) continue
+          const hash = `'sha256-${createHash('sha256').update(m[2] ?? '').digest('base64')}'`
+          expect([url, scriptSrc.includes(hash)]).toEqual([url, true])
+        }
+      }
+    })
   })
 })

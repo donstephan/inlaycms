@@ -38,6 +38,7 @@ import { fileMediaStore } from './media/store.js'
 import type { SiteDefinition } from './registry/define.js'
 import type { ReleaseMigration } from './registry/migration.js'
 import { buildRegistry, type Registry } from './registry/registry.js'
+import { activeIntegrations, listIntegrations, saveIntegration, type ActiveIntegration, type IntegrationState } from './integrations/integrations.js'
 import { checkSitePassword, readSiteLock, setSiteLock, setSitePassword, type SiteLockStatus } from './site-lock/site-lock.js'
 import { codeRedirectLoops, createRedirect, deleteRedirect, importRedirects, listCodeRedirects, listRedirects } from './redirects/redirects.js'
 import { liveAlternates, liveDocuments, liveEntries, liveSingleton } from './site/live.js'
@@ -137,6 +138,11 @@ export interface Core {
   siteLock(): Promise<SiteLockStatus>
   setSiteLock(enabled: boolean, ctx: Ctx): Promise<SiteLockStatus>
   setSitePassword(password: string, ctx: Ctx): Promise<SiteLockStatus>
+  /** Every integration the site defines with its saved settings; owners only. */
+  integrations(ctx: Ctx): Promise<IntegrationState[]>
+  saveIntegration(name: string, input: { enabled: boolean; values: Record<string, unknown> }, ctx: Ctx): Promise<void>
+  /** The integrations that are on and whose saved values pass; for rendering, no actor. */
+  activeIntegrations(): Promise<ActiveIntegration[]>
   checkSitePassword(password: string): Promise<boolean>
   listRedirects(): Promise<Redirect[]>
   createRedirect(input: RedirectInput, ctx: Ctx): Promise<Redirect>
@@ -339,6 +345,9 @@ export function createCore(opts: CreateCoreOptions): Core {
     },
     setSiteLock: live((enabled, ctx) => setSiteLock(deps, enabled, ctx)),
     setSitePassword: live((password, ctx) => setSitePassword(deps, password, ctx)),
+    integrations: (ctx) => listIntegrations(deps, ctx),
+    saveIntegration: live((name, input, ctx) => saveIntegration(deps, name, input, ctx)),
+    activeIntegrations: () => activeIntegrations(deps),
     checkSitePassword: (password) => checkSitePassword(deps, password),
     listRedirects: () => listRedirects(deps),
     createRedirect: live((input, ctx) => createRedirect(deps, input, ctx)),
@@ -394,6 +403,7 @@ export function readOnlyCore(core: Core): Core {
     repairRefs: refuse,
     setSiteLock: refuse,
     setSitePassword: refuse,
+    saveIntegration: refuse,
     createRedirect: refuse,
     deleteRedirect: refuse,
     importRedirects: refuse,

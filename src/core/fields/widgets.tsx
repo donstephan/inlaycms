@@ -569,6 +569,10 @@ function toolbarLabels(headings: readonly number[]): Record<string, string> {
     bulletList: t('admin.richtext.bulletList'),
     orderedList: t('admin.richtext.orderedList'),
     blockquote: t('admin.richtext.blockquote'),
+    codeBlock: t('admin.richtext.codeBlock'),
+    codeLanguage: t('admin.richtext.codeLanguage'),
+    codeLanguageHint: t('admin.richtext.codeLanguageHint'),
+    codeLanguageInvalid: t('admin.richtext.codeLanguageInvalid'),
     image: t('admin.richtext.image'),
     hardBreak: t('admin.richtext.hardBreak'),
     table: t('admin.richtext.table'),
@@ -611,7 +615,7 @@ function renderRichText(p: WidgetProps, inline: boolean) {
           aria-label={p.meta.label}
           aria-describedby={p.describedBy}
           aria-invalid={p.invalid ? 'true' : undefined}
-          class={`${inline ? INLINE_TEXT_MOUNT : RICH_TEXT_MOUNT} [&_.ProseMirror]:outline-none [&_.ProseMirror-focused]:ring-2 [&_.ProseMirror-focused]:ring-primary [&_p]:my-2 [&_h2]:my-3 [&_h2]:text-2xl [&_h2]:font-bold [&_h3]:my-3 [&_h3]:text-xl [&_h3]:font-bold [&_h4]:my-2 [&_h4]:text-lg [&_h4]:font-semibold [&_h5]:font-semibold [&_h6]:font-semibold [&_h1]:text-3xl [&_h1]:font-bold [&_ul]:list-disc [&_ul]:pl-6 [&_ol]:list-decimal [&_ol]:pl-6 [&_blockquote]:border-l-4 [&_blockquote]:border-base-300 [&_blockquote]:pl-4 [&_a]:text-primary [&_a]:underline [&_code]:rounded [&_code]:bg-base-200 [&_code]:px-1 [&_code]:font-mono [&_code]:text-[0.9em] [&_table]:my-2 [&_table]:border-collapse [&_th]:border [&_th]:border-base-300 [&_th]:px-2 [&_th]:text-left [&_th]:font-semibold [&_td]:border [&_td]:border-base-300 [&_td]:px-2 [&_img]:inline-block [&_img]:max-h-40 [&_img]:rounded [&_.ProseMirror-selectednode]:outline-2 [&_.ProseMirror-selectednode]:outline-primary`}
+          class={`${inline ? INLINE_TEXT_MOUNT : RICH_TEXT_MOUNT} [&_.ProseMirror]:outline-none [&_.ProseMirror-focused]:ring-2 [&_.ProseMirror-focused]:ring-primary [&_p]:my-2 [&_h2]:my-3 [&_h2]:text-2xl [&_h2]:font-bold [&_h3]:my-3 [&_h3]:text-xl [&_h3]:font-bold [&_h4]:my-2 [&_h4]:text-lg [&_h4]:font-semibold [&_h5]:font-semibold [&_h6]:font-semibold [&_h1]:text-3xl [&_h1]:font-bold [&_ul]:list-disc [&_ul]:pl-6 [&_ol]:list-decimal [&_ol]:pl-6 [&_blockquote]:border-l-4 [&_blockquote]:border-base-300 [&_blockquote]:pl-4 [&_a]:text-primary [&_a]:underline [&_code]:rounded [&_code]:bg-base-200 [&_code]:px-1 [&_code]:font-mono [&_code]:text-[0.9em] [&_pre]:my-2 [&_pre]:overflow-x-auto [&_pre]:whitespace-pre! [&_pre]:rounded [&_pre]:bg-base-200 [&_pre]:p-3 [&_pre]:font-mono [&_pre]:text-[0.9em] [&_pre_code]:rounded-none [&_pre_code]:bg-transparent [&_pre_code]:p-0 [&_pre_code]:text-[1em] [&_table]:my-2 [&_table]:border-collapse [&_th]:border [&_th]:border-base-300 [&_th]:px-2 [&_th]:text-left [&_th]:font-semibold [&_td]:border [&_td]:border-base-300 [&_td]:px-2 [&_img]:inline-block [&_img]:max-h-40 [&_img]:rounded [&_.ProseMirror-selectednode]:outline-2 [&_.ProseMirror-selectednode]:outline-primary`}
         ></div>
         <p data-richtext-error hidden class="mx-3 mb-3 rounded-box bg-warning px-3 py-1 text-sm text-warning-content">
           {t('admin.richtext.unreadable')}

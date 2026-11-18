@@ -18,6 +18,7 @@ import { f } from '../../src/core/fields/builtins.js'
 import { formatReport, type CheckReport } from '../../src/core/report.js'
 import { t } from '../../src/core/messages/index.js'
 import { defineContent, defineEntries } from '../../src/core/registry/content.js'
+import { defineIntegration } from '../../src/core/registry/integration.js'
 import { defineCollection, defineSingleton, defineSite, defineTemplate, type SiteDefinition } from '../../src/core/registry/define.js'
 import { articleSite } from '../fixtures/articles.js'
 import { redirectSite, rootSite } from '../fixtures/code-redirects.js'
@@ -64,10 +65,10 @@ const teamSite = (photo: string): SiteDefinition =>
     ],
   })
 
-/** Takes the database back to before its newest system migration (0007), so a check has it pending. */
+/** Takes the database back to before its newest system migration (0008), so a check has it pending. */
 async function dropLastMigration(db: Kysely<Database>): Promise<void> {
-  await sql`ALTER TABLE documents DROP COLUMN first_published_at`.execute(db)
-  await sql`DELETE FROM kysely_migration WHERE name = '0007_published_at'`.execute(db)
+  await sql`DROP TABLE integrations`.execute(db)
+  await sql`DELETE FROM kysely_migration WHERE name = '0008_integrations'`.execute(db)
 }
 
 describe('checkDatabase', () => {
@@ -244,7 +245,7 @@ describe('checkDatabase', () => {
     await db.destroy()
 
     const report = await checkDatabase({ site, db: path })
-    expect(report.systemMigrations).toEqual(['0002_media', '0003_redirects', '0004_token_cutoffs', '0005_site_lock', '0006_releases', '0007_published_at'])
+    expect(report.systemMigrations).toEqual(['0002_media', '0003_redirects', '0004_token_cutoffs', '0005_site_lock', '0006_releases', '0007_published_at', '0008_integrations'])
     expect(report.ok).toBe(true)
   })
 
@@ -365,5 +366,57 @@ describe('formatReport', () => {
       }),
       t('report.warning', { message: 'Slug taken.' }),
     ])
+  })
+})
+
+describe('integration policy warnings', () => {
+  const base = { locales: ['en'], defaultLocale: 'en' }
+  const integration = (csp: Parameters<typeof defineIntegration>[0]['csp'] = {}) =>
+    defineIntegration({ name: 'gtm', label: 'Tag Manager', csp, head: () => null })
+
+  it('warns about unsafe-inline', async () => {
+    const report = await checkWithoutDatabase({ site: defineSite({ ...base, integrations: [integration({ 'script-src': ["'unsafe-inline'"] })] }) })
+    expect(report.ok).toBe(true)
+    expect(report.warnings.map((w) => w.code)).toEqual(['csp_unsafe_inline'])
+  })
+
+  it('warns about unsafe-eval', async () => {
+    const report = await checkWithoutDatabase({ site: defineSite({ ...base, integrations: [integration({ 'script-src': ["'unsafe-eval'"] })] }) })
+    expect(report.ok).toBe(true)
+    expect(report.warnings.map((w) => w.code)).toEqual(['csp_unsafe_eval'])
+  })
+
+  it.each(['https:', 'http:', 'data:', 'blob:'])('warns about the scheme source %s for scripts', async (scheme) => {
+    const report = await checkWithoutDatabase({ site: defineSite({ ...base, integrations: [integration({ 'script-src': [scheme] })] }) })
+    expect(report.ok).toBe(true)
+    expect(report.warnings).toEqual([
+      { code: 'csp_script_scheme', message: t('report.cspScriptScheme', { owner: t('definition.cspOwnerIntegration', { name: 'gtm' }), source: scheme }) },
+    ])
+  })
+
+  it('does not warn about a scheme source outside script-src, or about an origin', async () => {
+    const report = await checkWithoutDatabase({
+      site: defineSite({ ...base, csp: { 'img-src': ['https:', 'data:'] }, integrations: [integration({ 'script-src': ['https://tags.example'] })] }),
+    })
+    expect(report.warnings).toEqual([])
+  })
+
+  it('names the integration or the site that asks for it', async () => {
+    const report = await checkWithoutDatabase({
+      site: defineSite({ ...base, csp: { 'script-src': ["'unsafe-eval'"] }, integrations: [integration({ 'script-src': ["'unsafe-inline'"] })] }),
+    })
+    expect(report.warnings.map((w) => w.message)).toEqual([
+      t('report.cspUnsafeEval', { owner: t('definition.cspOwnerSite') }),
+      t('report.cspUnsafeInline', { owner: t('definition.cspOwnerIntegration', { name: 'gtm' }) }),
+    ])
+    expect(report.warnings[1]?.message).toMatch(/^The integration "gtm" allows/)
+  })
+
+  it('warns when the site overrides the policy', async () => {
+    const headers = { 'content-security-policy': "default-src 'self'" }
+    const withOne = await checkWithoutDatabase({ site: defineSite({ ...base, headers, integrations: [integration()] }) })
+    expect(withOne.warnings.map((w) => w.code)).toEqual(['csp_overridden'])
+    const none = await checkWithoutDatabase({ site: defineSite({ ...base, headers }) })
+    expect(none.warnings).toEqual([])
   })
 })

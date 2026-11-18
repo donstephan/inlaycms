@@ -22,6 +22,8 @@ export type {
   QueryOptions,
   QueryResult,
   RenderContext,
+  ScriptApi,
+  ScriptInput,
   ResolvedFile,
   ResolvedImage,
   ResolvedLink,
@@ -45,6 +47,9 @@ export { checkDatabase } from './core/check.js'
 export { defineConfig, type InlayConfig, type LoadedConfig } from './config.js'
 export { formatReport, type CheckProblem, type CheckReport } from './core/report.js'
 export { richTextToMarkdown, markdownToRichText, type RichTextProblem } from './core/richtext/markdown.js'
+export { js, JsCode } from './core/registry/js.js'
+export { richTextHeadings, type RichTextHeading } from './core/richtext/headings.js'
+export type { CodeHighlighter, RichTextRenderOptions } from './core/richtext/html.js'
 export type { RichTextDoc, RichTextFeature, RichTextOptions } from './core/richtext/schema.js'
 export { missingMediaLabel } from './core/media/labels.js'
 export { IMAGE_WIDTHS, type VariantFormat } from './core/media/variants.js'
@@ -97,6 +102,15 @@ export {
   type TemplateRenderProps,
   type TypeDef,
 } from './core/registry/define.js'
+export {
+  defineIntegration,
+  type ConsentCategory,
+  type CspDirective,
+  type CspSources,
+  type IntegrationDef,
+  type IntegrationPage,
+  type IntegrationRender,
+} from './core/registry/integration.js'
 export {
   defineRoute,
   type QueryApi,

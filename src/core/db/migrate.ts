@@ -8,6 +8,7 @@ import * as m0004 from './migrations/0004_token_cutoffs.js';
 import * as m0005 from './migrations/0005_site_lock.js';
 import * as m0006 from './migrations/0006_releases.js';
 import * as m0007 from './migrations/0007_published_at.js';
+import * as m0008 from './migrations/0008_integrations.js';
 
 const systemMigrations = {
   '0001_content': m0001,
@@ -17,6 +18,7 @@ const systemMigrations = {
   '0005_site_lock': m0005,
   '0006_releases': m0006,
   '0007_published_at': m0007,
+  '0008_integrations': m0008,
 };
 
 function systemMigrator(db: Kysely<Database>): Migrator {

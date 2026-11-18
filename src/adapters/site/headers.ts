@@ -1,14 +1,13 @@
 import type { FastifyInstance } from 'fastify'
 
 /**
- * What every response gets unless it sets the header itself: no MIME sniffing, no full URLs leaked to other sites,
- * and no framing by other sites. A site can't be given a whole CSP without knowing its templates, so the default
- * one only says who may frame it.
+ * What every response gets unless it sets the header itself: no MIME sniffing and no full URLs leaked to other sites.
+ * The Content-Security-Policy is not among them: it depends on the integrations switched on, so it comes from
+ * `registerSiteHeaders`'s `csp`.
  */
 const DEFAULTS: Readonly<Record<string, string>> = {
   'x-content-type-options': 'nosniff',
   'referrer-policy': 'strict-origin-when-cross-origin',
-  'content-security-policy': "frame-ancestors 'self'",
 }
 
 /** One year, without `includeSubDomains`, so other hosts under the same domain are left alone. */
@@ -22,11 +21,22 @@ export function siteHeaders(baseUrl: string, own: Readonly<Record<string, string
   return Object.fromEntries(Object.entries(headers).filter((entry): entry is [string, string] => entry[1] !== false))
 }
 
-/** Adds `headers` to every response that doesn't set them itself, so the admin's and a route's own headers win. */
-export function registerSiteHeaders(app: FastifyInstance, headers: Readonly<Record<string, string>>): void {
+/**
+ * Adds `headers` to every response that doesn't set them itself, so the admin's and a route's own headers win. Then,
+ * when the response still has no content-security-policy, sets the one `csp` gives, unless that is null.
+ */
+export function registerSiteHeaders(
+  app: FastifyInstance,
+  headers: Readonly<Record<string, string>>,
+  csp?: () => Promise<string | null>,
+): void {
   const entries = Object.entries(headers)
   app.addHook('onSend', async (_request, reply, payload) => {
     for (const [name, value] of entries) if (!reply.hasHeader(name)) reply.header(name, value)
+    if (csp && !reply.hasHeader('content-security-policy')) {
+      const policy = await csp()
+      if (policy !== null) reply.header('content-security-policy', policy)
+    }
     return payload
   })
 }

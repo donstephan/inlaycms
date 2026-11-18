@@ -1,5 +1,6 @@
 import type { Kysely } from 'kysely'
 import type { Database } from '../db/schema.js'
+import { replaceIntegrationRows, type IntegrationRow } from '../integrations/integrations.js'
 import { writeSiteLock, type SiteLockRow } from '../site-lock/site-lock.js'
 
 export interface ReplaceCounts {
@@ -27,6 +28,7 @@ export async function replaceContent(
   live: Kysely<Database>,
   from: Kysely<Database>,
   siteLock?: SiteLockRow,
+  integrations?: { rows: IntegrationRow[]; now: string; by: string | null },
 ): Promise<ReplaceCounts & { removedMedia: string[] }> {
   return live.transaction().execute(async (trx) => {
     const oldMedia = (await trx.selectFrom('media').select('id').execute()).map((m) => m.id)
@@ -42,6 +44,7 @@ export async function replaceContent(
     }
 
     if (siteLock) await writeSiteLock(trx, siteLock)
+    if (integrations) await replaceIntegrationRows(trx, integrations.rows, integrations.now, integrations.by)
 
     const newMedia = new Set((await trx.selectFrom('media').select('id').execute()).map((m) => m.id))
     return {

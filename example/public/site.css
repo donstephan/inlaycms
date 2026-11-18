@@ -10,3 +10,7 @@ blockquote { border-left: 4px solid #f2a65a; margin: 1rem 0; padding-left: 1rem;
 table { border-collapse: collapse; margin: 1rem 0; }
 th, td { border: 1px solid #ddd; padding: 0.4rem 0.8rem; text-align: left; }
 th { background: #f4f4f8; }
+.consent-banner { position: fixed; bottom: 0; left: 0; right: 0; display: flex; align-items: center; gap: 1rem; padding: 0.75rem 1rem; background: #fff; border-top: 1px solid #ddd; }
+.consent-banner[hidden] { display: none; }
+.consent-banner p { margin: 0; flex: 1; }
+.button.secondary { background: #fff; color: #1d4e89; border: 1px solid #1d4e89; }

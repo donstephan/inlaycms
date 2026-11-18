@@ -1,11 +1,23 @@
 import { createHash } from 'node:crypto'
 
-export type CachedResponse = { status: number; body: string; type: string; etag: string }
+export type CachedResponse = {
+  status: number
+  body: string
+  type: string
+  etag: string
+  /** The page's own content-security-policy, with the hashes of its inline scripts. */
+  csp?: string
+}
 
-/** A response with a strong ETag over its status and body, so unchanged pages revalidate with a 304. */
-export function response(status: number, body: string, type: string): CachedResponse {
-  const hash = createHash('sha256').update(`${status}\n`).update(body).digest('hex').slice(0, 32)
-  return { status, body, type, etag: `"${hash}"` }
+/**
+ * A response with a strong ETag over its status, body and `csp`, so unchanged pages revalidate with a 304 and a page
+ * whose policy changed does not.
+ */
+export function response(status: number, body: string, type: string, csp?: string): CachedResponse {
+  const hash = createHash('sha256').update(`${status}\n`)
+  if (csp !== undefined) hash.update(`${csp}\n`)
+  const etag = `"${hash.update(body).digest('hex').slice(0, 32)}"`
+  return { status, body, type, etag, ...(csp !== undefined && { csp }) }
 }
 
 /** True if `header` (an `If-None-Match` value) names `etag`, comparing weakly. */
@@ -48,7 +60,9 @@ export class PageCache {
     this.#changedElsewhere = changedElsewhere
   }
 
+  /** Bumped by every `clear`, including the one a change made elsewhere causes, which reading it notices. */
   get generation(): number {
+    if (this.#changedElsewhere()) this.clear()
     return this.#generation
   }
 

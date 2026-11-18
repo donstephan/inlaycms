@@ -1,5 +1,6 @@
 import type { z } from 'zod'
-import { DATE_CHECK, DATETIME_CHECK, INLINE_TEXT_MAX, NON_BLANK, TITLE_TEMPLATE_CHECK } from '../fields/builtins.js'
+import { labelsAt, toDraftSchema } from '../fields/walk.js'
+import { DATE_CHECK, DATETIME_CHECK, INLINE_TEXT_MAX, NON_BLANK, PATTERN_CHECK, TITLE_TEMPLATE_CHECK } from '../fields/builtins.js'
 import { isRecord } from '../fields/zod-internals.js'
 import { t, type MessageId } from '../messages/index.js'
 import type { Registry } from '../registry/registry.js'
@@ -96,6 +97,10 @@ function mapIssue(issue: ZodIssue, value: unknown): Mapped {
   if (issue.code === 'custom' && issue.params?.check === TITLE_TEMPLATE_CHECK) {
     return { code: 'invalid', messageId: 'issue.titleTemplate', params: {} }
   }
+  if (issue.code === 'custom' && issue.params?.check === PATTERN_CHECK) {
+    const hint = typeof issue.params.hint === 'string' && issue.params.hint ? ` ${issue.params.hint}` : ''
+    return { code: 'invalid', messageId: 'issue.pattern', params: { hint } }
+  }
   if (issue.code === 'invalid_type') {
     const messageId = EXPECTED[issue.expected]
     if (messageId) return { code: 'invalid', messageId, params: {} }
@@ -144,6 +149,28 @@ export function validateContent(
   const issues = result.error.issues.map((issue) => {
     const path = issue.path.filter((s): s is PathSegment => typeof s !== 'symbol')
     const labels = docLabels(registry, type, path) ?? path.map(String)
+    const { code, messageId, params } = mapIssue(issue, valueAt(input, path))
+    return contentIssue(path, labels, code, messageId, params)
+  })
+  return { ok: false, issues }
+}
+
+/**
+ * Validates a bare field object (`data` keyed by field) at `level`: `'draft'`
+ * is lenient, `'strict'` holds every field to its full rules. Blank values
+ * count as absent. Issue paths are the field keys.
+ */
+export function validateValues(
+  schema: z.ZodObject,
+  data: Record<string, unknown>,
+  level: Level,
+): ValidationResult {
+  const input = withoutBlanks(data)
+  const result = (level === 'draft' ? toDraftSchema(schema) : schema).safeParse(input)
+  if (result.success) return { ok: true, data: result.data as DocumentData }
+  const issues = result.error.issues.map((issue) => {
+    const path = issue.path.filter((s): s is PathSegment => typeof s !== 'symbol')
+    const labels = labelsAt(schema, path) ?? path.map(String)
     const { code, messageId, params } = mapIssue(issue, valueAt(input, path))
     return contentIssue(path, labels, code, messageId, params)
   })

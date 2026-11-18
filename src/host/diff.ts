@@ -1,5 +1,5 @@
 import { t } from '../core/messages/index.js'
-import { canonicalJson, type ManifestRedirect, type ReleaseManifest } from '../core/release/manifest.js'
+import { canonicalJson, type ManifestCsp, type ManifestIntegration, type ManifestRedirect, type ReleaseManifest } from '../core/release/manifest.js'
 import type { ReleaseDiff } from './push.js'
 
 type Route = { method: string; path: string; sitemap?: true }
@@ -28,6 +28,10 @@ export interface StructuralDiff {
   routes: { added: Route[]; removed: Route[]; sitemap: { added: Route[]; removed: Route[] } }
   /** Code redirects by `from`; `changed` holds those whose target or status differs. Absent from a host before 0.3. */
   redirects?: { added: ManifestRedirect[]; removed: ManifestRedirect[]; changed: Array<{ before: ManifestRedirect; after: ManifestRedirect }> }
+  /** Integrations by name; `changed` when the label, consent category or sources differ. Absent from an older host. */
+  integrations?: { added: string[]; removed: string[]; changed: string[] }
+  /** What the site may newly load and no longer may, as `<directive> <source>`, over the site's sources and every integration's. */
+  csp?: { added: string[]; removed: string[] }
   /** Every secret the staged release needs. */
   secrets: string[]
   /** Every migration function of the staged release, in order. */
@@ -293,6 +297,19 @@ export function structuralDiff(current: ReleaseManifest | null, staged: ReleaseM
   }
   for (const [from, before] of curRedirects) if (!stagedRedirects.has(from)) redirects.removed.push(before)
 
+  const curIntegrations = new Map((current?.integrations ?? []).map((i) => [i.name, i]))
+  const stagedIntegrations = new Map((staged.integrations ?? []).map((i) => [i.name, i]))
+  const integrations: NonNullable<StructuralDiff['integrations']> = { added: [], removed: [], changed: [] }
+  for (const [name, after] of stagedIntegrations) {
+    const before = curIntegrations.get(name)
+    if (!before) integrations.added.push(name)
+    else if (canonicalJson(before) !== canonicalJson(after)) integrations.changed.push(name)
+  }
+  for (const name of curIntegrations.keys()) if (!stagedIntegrations.has(name)) integrations.removed.push(name)
+
+  const curCsp = cspSources(current)
+  const stagedCsp = cspSources(staged)
+
   const listed = new Set((current?.routes ?? []).filter((r) => r.sitemap === true).map(routeKey))
   return {
     types: { added: added(curNames, stagedNames), removed: added(stagedNames, curNames), changed },
@@ -308,10 +325,23 @@ export function structuralDiff(current: ReleaseManifest | null, staged: ReleaseM
       },
     },
     redirects,
+    integrations,
+    csp: { added: added(curCsp, stagedCsp), removed: added(stagedCsp, curCsp) },
     secrets: [...staged.secrets],
     migrations: [...staged.migrations],
     shipped: { stale },
   }
+}
+
+/** Every `<directive> <source>` a manifest lets the site load, its own and its integrations'. */
+function cspSources(m: { integrations?: ManifestIntegration[]; csp?: ManifestCsp } | null): string[] {
+  const out = new Set<string>()
+  const add = (csp: ManifestCsp | undefined) => {
+    for (const [directive, sources] of Object.entries(csp ?? {})) for (const source of sources) out.add(`${directive} ${source}`)
+  }
+  add(m?.csp)
+  for (const i of m?.integrations ?? []) add(i.csp)
+  return [...out]
 }
 
 /** How a line names a shipped document: a singleton by its type, an entry as `type/key`. */
@@ -393,6 +423,11 @@ export function formatDiff(diff: ReleaseDiff): string[] {
   for (const { after } of s.redirects?.changed ?? []) {
     lines.push(t('diff.release.redirectChanged', { from: after.from, to: after.to, status: after.status }))
   }
+  for (const name of s.integrations?.added ?? []) lines.push(t('diff.release.integrationAdded', { name }))
+  for (const name of s.integrations?.removed ?? []) lines.push(t('diff.release.integrationRemoved', { name }))
+  for (const name of s.integrations?.changed ?? []) lines.push(t('diff.release.integrationChanged', { name }))
+  for (const source of s.csp?.added ?? []) lines.push(t('diff.release.cspAdded', { source }))
+  for (const source of s.csp?.removed ?? []) lines.push(t('diff.release.cspRemoved', { source }))
   if (lines.length === 0) lines.push(t('diff.release.nothing'))
   if (s.secrets.length > 0) lines.push(t('diff.release.secrets', { count: s.secrets.length, names: s.secrets.join(', ') }))
   return lines

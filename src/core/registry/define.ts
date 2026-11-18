@@ -1,6 +1,7 @@
 import type { z } from 'zod'
 import type { Renderable, SafeHtml } from '../../jsx/html.js'
 import type { AdminTheme } from '../types.js'
+import type { CspSources, IntegrationDef } from './integration.js'
 import type { ShippedContent } from './content.js'
 import type { ReleaseMigration } from './migration.js'
 import type { PageInfo, RenderContext } from './render.js'
@@ -197,6 +198,10 @@ export interface SiteDefinition {
    * sets itself (the admin's CSP, a route's own) wins over both.
    */
   headers: Record<string, string | false>
+  /** Third-party scripts the owner can switch on in the admin. */
+  integrations: IntegrationDef[]
+  /** Sources the site's own code needs in the Content-Security-Policy, by directive. */
+  csp: CspSources
   routes: RouteDef[]
   /** Redirects shipped with the site's code. */
   redirects: RedirectDef[]
@@ -220,6 +225,8 @@ export interface SiteInput {
   publicPaths?: string[]
   secrets?: string[]
   headers?: Record<string, string | false>
+  integrations?: IntegrationDef[]
+  csp?: CspSources
   routes?: RouteDef[]
   redirects?: RedirectDef[]
   migrations?: ReleaseMigration[]
@@ -239,6 +246,8 @@ export function defineSite(def: SiteInput): SiteDefinition {
     publicPaths: def.publicPaths ?? [],
     secrets: def.secrets ?? [],
     headers: def.headers ?? {},
+    integrations: def.integrations ?? [],
+    csp: def.csp ?? {},
     routes: def.routes ?? [],
     redirects: def.redirects ?? [],
     migrations: def.migrations ?? [],

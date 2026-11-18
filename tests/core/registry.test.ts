@@ -12,6 +12,7 @@ import {
   type SiteInput,
 } from '../../src/core/registry/define.js'
 import { defineContent, defineEntries } from '../../src/core/registry/content.js'
+import { defineIntegration } from '../../src/core/registry/integration.js'
 import { buildRegistry } from '../../src/core/registry/registry.js'
 import { defineRoute } from '../../src/core/registry/route.js'
 import type { RenderContext } from '../../src/core/registry/render.js'
@@ -592,5 +593,97 @@ describe('seo', () => {
       code: 'definition',
       messageId: 'definition.ogType',
     })
+  })
+})
+
+describe('integrations', () => {
+  const ok = defineIntegration({ name: 'gtm', label: 'Tag Manager', head: () => null })
+  const withIntegrations = (...integrations: ReturnType<typeof defineIntegration>[]) => ({ integrations })
+
+  it('defaults', () => {
+    expect(ok.kind).toBe('integration')
+    expect(ok.preview).toBe(false)
+    expect(ok.csp).toEqual({})
+    const s = defineSite({ locales: ['en'], defaultLocale: 'en' })
+    expect(s.integrations).toEqual([])
+    expect(s.csp).toEqual({})
+  })
+
+  it('accepts a full integration', () => {
+    const full = defineIntegration({
+      name: 'tag-manager',
+      label: 'Tag Manager',
+      fields: z.object({ id: f.text({ label: 'ID' }), on: f.boolean({ label: 'On' }).optional() }),
+      consent: 'marketing',
+      csp: { 'script-src': ['https://www.googletagmanager.com', "'unsafe-inline'"], 'img-src': ['data:', 'https://*.example.com'] },
+      head: () => null,
+    })
+    expect(() => buildRegistry(defineSite({ locales: ['en'], defaultLocale: 'en', integrations: [full], csp: { 'font-src': ['https://fonts.example'] } }))).not.toThrow()
+  })
+
+  it.each(['GTM', 'a b', ''])('rejects the name "%s"', (name) => {
+    rejects(withIntegrations(defineIntegration({ name, label: 'X', head: () => null })), 'name')
+  })
+
+  it('rejects two with one name', () => {
+    rejects(withIntegrations(ok, ok), 'gtm')
+  })
+
+  it('rejects a disallowed field kind', () => {
+    for (const field of [f.richText({ label: 'R' }), f.image({ label: 'I' }), z.object({ a: f.text({ label: 'A' }) })]) {
+      rejects(withIntegrations(defineIntegration({ name: 'gtm', label: 'X', fields: z.object({ field }), head: () => null })), 'gtm')
+    }
+  })
+
+  it('rejects an integration with no render function', () => {
+    rejects(withIntegrations(defineIntegration({ name: 'gtm', label: 'X' })), 'gtm')
+  })
+
+  it('rejects an unknown consent category', () => {
+    rejects(withIntegrations(defineIntegration({ name: 'gtm', label: 'X', consent: 'ads' as never, head: () => null })), 'ads')
+  })
+
+  it('rejects an unknown directive', () => {
+    const csp = { 'default-src': ['https://a.example'] } as never
+    rejects(withIntegrations(defineIntegration({ name: 'gtm', label: 'X', csp, head: () => null })), 'default-src')
+    rejects({ csp }, 'default-src')
+  })
+
+  it.each(['https://a.example; script-src *', 'https://a.example, https://b.example', 'https://a.example/path', 'https://A.example', 'https://a.example/', 'unsafe-inline', '*', ''])(
+    'rejects the source %s',
+    (source) => {
+      rejects(withIntegrations(defineIntegration({ name: 'gtm', label: 'X', csp: { 'script-src': [source] }, head: () => null })), 'script-src')
+      rejects({ csp: { 'img-src': [source] } }, 'img-src')
+    },
+  )
+
+  it('rejects a source list given as a string', () => {
+    const csp = { 'script-src': 'https://a.example' } as never
+    for (const input of [withIntegrations(defineIntegration({ name: 'gtm', label: 'X', csp, head: () => null })), { csp }]) {
+      try {
+        buildRegistry(defineSite({ locales: ['en'], defaultLocale: 'en', ...input }))
+        expect.unreachable()
+      } catch (e) {
+        expect((e as InlayError).messageId).toBe('definition.cspSource')
+        expect((e as InlayError).message).toContain('script-src')
+      }
+    }
+  })
+
+  it('names the integration or the site in a source problem', () => {
+    rejects(withIntegrations(defineIntegration({ name: 'gtm', label: 'X', csp: { 'script-src': ['*'] }, head: () => null })), 'The integration "gtm"')
+    rejects({ csp: { 'script-src': ['*'] } }, 'The site')
+  })
+
+  it('rejects a field keyed enabled', () => {
+    const fields = z.object({ enabled: f.boolean({ label: 'Enabled' }) })
+    try {
+      buildRegistry(defineSite({ locales: ['en'], defaultLocale: 'en', integrations: [defineIntegration({ name: 'gtm', label: 'X', fields, head: () => null })] }))
+      expect.unreachable()
+    } catch (e) {
+      expect((e as InlayError).code).toBe('definition')
+      expect((e as InlayError).messageId).toBe('definition.integrationFieldReserved')
+      expect((e as InlayError).message).toContain('gtm')
+    }
   })
 })

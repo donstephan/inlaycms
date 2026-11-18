@@ -318,14 +318,6 @@ describe('markdownToRichText', () => {
     })
   })
 
-  it('rejects a fenced code block, naming its line', () => {
-    const found = problems('Intro\n\n```\ncode\n```')
-    expect(found).toHaveLength(1)
-    expect(found[0]).toMatchObject({ code: 'unsupported', line: 3 })
-    expect(found[0]?.message).toMatch(/^Line 3: /)
-    expect(found[0]?.message).toMatch(/code block/)
-  })
-
   it('rejects rules and indented code', () => {
     expect(problems('---')).toMatchObject([{ code: 'unsupported', line: 1 }])
     expect(problems('a\n\n    code')).toMatchObject([{ code: 'unsupported', line: 3 }])
@@ -650,6 +642,96 @@ describe('inline code', () => {
     const found = problems('`x`', { features: ['bold'] })
     expect(found).toMatchObject([{ code: 'not_allowed', line: 1 }])
     expect(found[0]?.message).toContain(t('richtext.feature.code'))
+  })
+})
+
+describe('code blocks', () => {
+  const codeBlock = (code: string, language?: string) =>
+    language === undefined ? { type: 'codeBlock', content: [text(code)] } : { type: 'codeBlock', attrs: { language }, content: [text(code)] }
+  const quote = (...content: unknown[]) => ({ type: 'blockquote', content })
+  const bullets = (...content: unknown[]) => ({ type: 'bulletList', content })
+
+  it('reads a fence as a code block, with or without a language', () => {
+    expect(markdownToRichText('```ts\nconst a = 1\n```')).toEqual({ ok: true, doc: doc(codeBlock('const a = 1', 'ts')) })
+    expect(markdownToRichText('```\nconst a = 1\n```')).toEqual({ ok: true, doc: doc(codeBlock('const a = 1')) })
+    expect(markdownToRichText('~~~ts\nconst a = 1\n~~~')).toEqual({ ok: true, doc: doc(codeBlock('const a = 1', 'ts')) })
+  })
+
+  it('writes a fence with the language after the backticks', () => {
+    expect(richTextToMarkdown(doc(codeBlock('const a = 1', 'ts')))).toBe('```ts\nconst a = 1\n```')
+  })
+
+  it.each([
+    ['simple code with a language', [codeBlock('const a = 1', 'ts')]],
+    ['blank lines, leading spaces and tabs', [codeBlock('a\n\n  b\n\tc\n    d\n', 'py')]],
+    ['backtick runs', [codeBlock('```\nx ```` y\n`')]],
+    ['Markdown and HTML syntax', [codeBlock('`` *a* _b_ <b> &amp; \\ ~~x~~ # [x](y) ![i](j)\n> q\n- l\n1. n\n---')]],
+    ['stand-in characters', [codeBlock('\uE000a\uE001 \uE002b\uE003 \uE004')]],
+    ['a quote', [quote(para(text('Run:')), codeBlock('a\n\n  b\n\tc', 'sh'))]],
+    ['a quote, first', [quote(codeBlock('a\n\n  b'))]],
+    ['a list item, second', [bullets(item(para(text('Run:')), codeBlock('a\n\n  b', 'ts')), item(para(text('next'))))]],
+    ['a list item, first', [bullets(item(para(), codeBlock('  a\n\nb', 'ts')), item(para(text('next'))))]],
+    ['a nested list in a quote', [quote(bullets(item(para(text('x')), bullets(item(para(), codeBlock('  a\n\n\tb'))))))]],
+    ['an ordered list', [{ type: 'orderedList', attrs: { start: 9 }, content: [item(para(text('a')), codeBlock(' x\n\ny', 'C#'))] }]],
+    ['between two paragraphs', [para(text('Before')), codeBlock('x', 'c++'), para(text('After'))]],
+    ['two in a row', [codeBlock('a'), codeBlock('b', 'objective-c')]],
+  ])('round-trips %s', (_, content) => {
+    expectRoundTrip(doc(...content))
+  })
+
+  it('writes a fence longer than the longest run of backticks', () => {
+    expect(richTextToMarkdown(doc(codeBlock('```\nx ```` y')))).toBe('`````\n```\nx ```` y\n`````')
+  })
+
+  it('puts the container prefix on every line', () => {
+    expect(richTextToMarkdown(doc(quote(codeBlock('a\n\n b'))))).toBe('> ```\n> a\n> \n>  b\n> ```')
+    expect(richTextToMarkdown(doc(bullets(item(para(), codeBlock(' a\n\nb', 'ts')))))).toBe('- ```ts\n   a\n  \n  b\n  ```')
+  })
+
+  it('refuses a fence whose info is not one language, naming its line', () => {
+    expect(problems('Intro\n\n```ts title="app.ts"\nx\n```')).toEqual([
+      { code: 'unsupported', line: 3, message: t('richtext.codeLanguage', { line: 3, language: 'ts title="app.ts"' }) },
+    ])
+    expect(problems('~~~a b\nx\n~~~')).toMatchObject([{ code: 'unsupported', line: 1 }])
+  })
+
+  it('refuses a fence that is never closed, on its opening line', () => {
+    const unclosed = (line: number) => [{ code: 'unsupported', line, message: t('richtext.unclosedCode', { line }) }]
+    expect(problems('```ts\nunclosed\n')).toEqual(unclosed(1))
+    expect(problems('Intro\n\n~~~\na\nb')).toEqual(unclosed(3))
+    expect(problems('```')).toEqual(unclosed(1))
+    expect(problems('Intro\n\n> ```\n> a\n\nafter')).toEqual(unclosed(3))
+    expect(problems('- ```\n  a\n- b')).toEqual(unclosed(1))
+    expect(problems('- x\n\n  ```\n  a\n\nnot')).toEqual(unclosed(3))
+  })
+
+  it('accepts a fence closed by the same or a longer run', () => {
+    expect(markdownToRichText('```\na\n`````\n\nafter')).toEqual({ ok: true, doc: doc(codeBlock('a'), para(text('after'))) })
+    expect(markdownToRichText('~~~\na\n~~~~')).toEqual({ ok: true, doc: doc(codeBlock('a')) })
+    expect(markdownToRichText('```\n```').ok).toBe(true)
+    expect(markdownToRichText('> ```\n> a\n> ```\n\nafter')).toEqual({ ok: true, doc: doc(quote(codeBlock('a')), para(text('after'))) })
+    expect(markdownToRichText('- ```\n  a\n  ```\n- b')).toEqual({
+      ok: true,
+      doc: doc(bullets(item(para(), codeBlock('a')), item(para(text('b'))))),
+    })
+  })
+
+  it('refuses indented code, naming its line', () => {
+    expect(problems('    indented code')).toEqual([{ code: 'unsupported', line: 1, message: t('richtext.indentedCode', { line: 1 }) }])
+  })
+
+  it('refuses a fence where the field leaves code blocks out', () => {
+    expect(problems('a\n\n```\nx\n```', { features: ['bold'] })).toEqual([
+      { code: 'not_allowed', line: 3, message: t('richtext.notAllowed', { line: 3, feature: t('richtext.feature.codeBlock') }) },
+    ])
+    expect(markdownToRichText('```\nx\n```', { features: ['codeBlock'] }).ok).toBe(true)
+  })
+
+  it('keeps HTML and strikethrough inside a fence as code', () => {
+    expect(markdownToRichText('```html\n<b>x</b> ~~y~~\n<div>\n```')).toEqual({
+      ok: true,
+      doc: doc(codeBlock('<b>x</b> ~~y~~\n<div>', 'html')),
+    })
   })
 })
 

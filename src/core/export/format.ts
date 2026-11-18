@@ -21,6 +21,8 @@ export interface Manifest {
   counts: { documents: number; revisions: number; publishEvents: number; media: number; redirects: number }
   /** The site lock; absent in exports made before it existed. */
   siteLock?: { enabled: boolean; passwordHash: string | null }
+  /** The integration settings; absent in exports made before they existed. */
+  integrations?: Array<{ name: string; enabled: boolean; values: Record<string, unknown> }>
 }
 
 export interface DocumentRecord {
@@ -138,6 +140,10 @@ export const manifestSchema = z.object({
   siteLock: z
     .object({ enabled: z.boolean(), passwordHash: z.string().regex(/^[^:\s]+:[^:\s]+$/).nullable() })
     .refine((lock) => !lock.enabled || lock.passwordHash !== null)
+    .optional(),
+  integrations: z
+    .array(z.object({ name: z.string(), enabled: z.boolean(), values: z.record(z.string(), z.unknown()) }))
+    .refine((rows) => new Set(rows.map((r) => r.name)).size === rows.length)
     .optional(),
 })
 

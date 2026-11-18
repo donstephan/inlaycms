@@ -10,6 +10,7 @@ import {
 } from 'inlaycms/site'
 import type { RenderContext, Renderable } from 'inlaycms/site'
 import { content } from './content.js'
+import { visitCounter } from './integrations.js'
 import { migrations } from './migrations.js'
 import { contactRoutes } from './routes.js'
 
@@ -47,6 +48,16 @@ async function Layout({ ctx, children }: { ctx: RenderContext; children?: Render
         <footer class="site-footer">
           <p>{footer?.text ?? ''}</p>
         </footer>
+        <div id="consent-banner" class="consent-banner" role="region" aria-label="Cookies" hidden>
+          <p>May we count the pages you open, to see which ones are read?</p>
+          <button type="button" class="button" data-consent="accept">
+            Accept
+          </button>
+          <button type="button" class="button secondary" data-consent="decline">
+            Decline
+          </button>
+        </div>
+        <script src={ctx.asset('consent-banner.js')} defer />
       </body>
     </html>
   )
@@ -407,6 +418,7 @@ export const site = defineSite({
   admin: { name: 'Example Studio', logo: '/public/logo.svg' },
   notFound: 'notFound',
   secrets: ['SLACK_WEBHOOK'],
+  integrations: [visitCounter],
   routes: contactRoutes(ThankYou, Contact),
   redirects: [{ from: '/about-us', to: '/about' }],
   migrations,

@@ -407,7 +407,7 @@ describe('rich text island', () => {
   })
 
   it('does not overwrite text it cannot show', async () => {
-    const stored = { type: 'doc', content: [{ type: 'codeBlock', content: [{ type: 'text', text: 'x' }] }] }
+    const stored = { type: 'doc', content: [{ type: 'horizontalRule' }] }
     const { editor, hidden, root } = await mount(f.richText({ label: 'Body' }), stored)
     expect(editor.isEditable).toBe(false)
     expect(root.querySelector<HTMLElement>('[data-richtext-error]')!.hidden).toBe(false)
@@ -538,5 +538,97 @@ describe('web address in the documents picker', () => {
     expect(problem.hidden).toBe(false)
     expect(input.getAttribute('aria-invalid')).toBe('true')
     expect(input.getAttribute('aria-describedby')).toContain(problem.id)
+  })
+})
+
+describe('code blocks', () => {
+  const CODE: RichTextDoc = {
+    type: 'doc',
+    content: [{ type: 'codeBlock', attrs: { language: 'C#' }, content: [{ type: 'text', text: 'var a = 1\n\n  b()' }] }],
+  }
+  const language = (root: HTMLElement) => root.querySelector<HTMLInputElement>('input[data-code-language]')!
+  const setLanguage = (root: HTMLElement, value: string) => {
+    const box = language(root)
+    box.value = value
+    box.dispatchEvent(new Event('change', { bubbles: true }))
+  }
+
+  it('puts the Code block button after Quote, and only on fields that allow it', async () => {
+    const all = await mount(f.richText({ label: 'Body' }), paragraph('Hi'))
+    const commands = all.buttons().map((b) => b.dataset.command)
+    expect(commands.indexOf('codeBlock')).toBe(commands.indexOf('blockquote') + 1)
+    const some = await mount(f.richText({ label: 'Body', features: ['bold'] }), paragraph('Hi'))
+    expect(some.root.querySelector('[data-command="codeBlock"]')).toBeNull()
+    expect(some.root.querySelector('input[data-code-language]')).toBeNull()
+  })
+
+  it('turns a paragraph into a code block', async () => {
+    const { editor, hidden, button } = await mount(f.richText({ label: 'Body' }), paragraph('Hi'))
+    cursorIn(editor, 'Hi')
+    button('codeBlock').click()
+    editor.commands.insertContent('x')
+    expect(written(hidden).content[0]?.type).toBe('codeBlock')
+  })
+
+  it('shows the language box only inside a code block', async () => {
+    const { editor, root, button } = await mount(f.richText({ label: 'Body' }), paragraph('Hi'))
+    cursorIn(editor, 'Hi')
+    expect(language(root).hidden).toBe(true)
+    button('codeBlock').click()
+    expect(language(root).hidden).toBe(false)
+    expect(language(root).getAttribute('aria-label')).toBe('Code language')
+  })
+
+  it('stores, clears and refuses languages', async () => {
+    const { editor, root, hidden, button } = await mount(f.richText({ label: 'Body' }), paragraph('Hi'))
+    cursorIn(editor, 'Hi')
+    button('codeBlock').click()
+    editor.commands.insertContent('x')
+    setLanguage(root, 'ts')
+    expect(written(hidden).content[0]).toEqual({ type: 'codeBlock', attrs: { language: 'ts' }, content: [{ type: 'text', text: 'Hxi' }] })
+    const note = root.querySelector<HTMLElement>('[data-code-language-invalid]')!
+    expect(note.hidden).toBe(true)
+    expect(language(root).hasAttribute('aria-describedby')).toBe(false)
+    setLanguage(root, 'a b')
+    expect(language(root).getAttribute('aria-invalid')).toBe('true')
+    expect(note.hidden).toBe(false)
+    expect(note.textContent).toBe('Use only letters, digits and + # _ . - (up to 32), with no spaces.')
+    expect(language(root).getAttribute('aria-describedby')).toBe(note.id)
+    expect(document.getElementById(note.id)).toBe(note)
+    expect(written(hidden).content[0]).toMatchObject({ attrs: { language: 'ts' } })
+    setLanguage(root, '')
+    expect(language(root).hasAttribute('aria-invalid')).toBe(false)
+    expect(language(root).hasAttribute('aria-describedby')).toBe(false)
+    expect(note.hidden).toBe(true)
+    expect(written(hidden).content[0]).toEqual({ type: 'codeBlock', content: [{ type: 'text', text: 'Hxi' }] })
+  })
+
+  it('mounts a stored code block editable and gives it back unchanged', async () => {
+    const { editor, root, hidden } = await mount(f.richText({ label: 'Body' }), CODE)
+    expect(editor.isEditable).toBe(true)
+    expect(editor.getJSON()).toEqual(CODE)
+    cursorIn(editor, 'var a = 1\n\n  b()')
+    expect(language(root).value).toBe('C#')
+    expect(hidden.value).toBe(JSON.stringify(CODE))
+  })
+
+  it('drops a pasted language the core would refuse, and keeps a valid one', async () => {
+    const { editor, hidden } = await mount(f.richText({ label: 'Body' }), paragraph('Hi'))
+    editor.commands.setContent('<pre><code class="language-js{1,3}">x</code></pre>', { emitUpdate: true })
+    expect(editor.getJSON().content?.[0]).toEqual({ type: 'codeBlock', attrs: { language: null }, content: [{ type: 'text', text: 'x' }] })
+    expect(written(hidden).content[0]).toEqual({ type: 'codeBlock', content: [{ type: 'text', text: 'x' }] })
+    editor.commands.setContent('<p></p>', { emitUpdate: true })
+    editor.view.pasteHTML('<pre><code class="language-a&quot;b">y</code></pre>')
+    expect(written(hidden).content.find((node) => node.type === 'codeBlock')).toEqual({ type: 'codeBlock', content: [{ type: 'text', text: 'y' }] })
+    editor.commands.setContent('<pre><code class="language-ts">z</code></pre>', { emitUpdate: true })
+    expect(written(hidden).content[0]).toEqual({ type: 'codeBlock', attrs: { language: 'ts' }, content: [{ type: 'text', text: 'z' }] })
+  })
+
+  it('disables the button inside a table', async () => {
+    const { editor, button } = await mount(f.richText({ label: 'Body' }), TABLE)
+    cursorIn(editor, 'c')
+    expect(button('codeBlock').disabled).toBe(true)
+    cursorIn(editor, 'before')
+    expect(button('codeBlock').disabled).toBe(false)
   })
 })

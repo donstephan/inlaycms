@@ -65,6 +65,8 @@ describe('structuralDiff', () => {
       fields: [],
       routes: { added: [], removed: [], sitemap: { added: [], removed: [] } },
       redirects: { added: [], removed: [], changed: [] },
+      integrations: { added: [], removed: [], changed: [] },
+      csp: { added: [], removed: [] },
       secrets: [],
       migrations: [],
       shipped: { stale: [] },
@@ -328,6 +330,72 @@ describe('structuralDiff', () => {
     ])
   })
 
+  it('an added and a removed integration', () => {
+    const current = manifest({ integrations: [{ name: 'gtm', label: 'Tag Manager' }] })
+    const staged = manifest({ integrations: [{ name: 'chat', label: 'Chat' }] })
+    expect(structuralDiff(current, staged).integrations).toEqual({ added: ['chat'], removed: ['gtm'], changed: [] })
+  })
+
+  it('a changed label, consent category or csp marks the integration changed', () => {
+    const base = { name: 'gtm', label: 'Tag Manager', consent: 'analytics' as const, csp: { 'script-src': ['https://t.example'] } }
+    const current = manifest({ integrations: [base, { name: 'a', label: 'A' }, { name: 'b', label: 'B' }, { name: 'c', label: 'C' }] })
+    const staged = manifest({
+      integrations: [
+        { ...base, consent: 'marketing' },
+        { name: 'a', label: 'A', csp: { 'img-src': ['https://x.example'] } },
+        { name: 'b', label: 'B2' },
+        { name: 'c', label: 'C' },
+      ],
+    })
+    expect(structuralDiff(current, staged).integrations).toEqual({ added: [], removed: [], changed: ['gtm', 'a', 'b'] })
+  })
+
+  it('csp lists what the site may newly load and what it no longer may', () => {
+    const current = manifest({ csp: { 'img-src': ['https://old.example', 'https://keep.example'] } })
+    const staged = manifest({
+      csp: { 'img-src': ['https://keep.example'] },
+      integrations: [{ name: 'gtm', label: 'Tag Manager', csp: { 'script-src': ['https://t.example'] } }],
+    })
+    expect(structuralDiff(current, staged).csp).toEqual({
+      added: ['script-src https://t.example'],
+      removed: ['img-src https://old.example'],
+    })
+  })
+
+  it('a source that moves from one integration to the site is neither added nor removed', () => {
+    const current = manifest({ integrations: [{ name: 'gtm', label: 'T', csp: { 'script-src': ['https://t.example'] } }] })
+    const staged = manifest({ csp: { 'script-src': ['https://t.example'] } })
+    expect(structuralDiff(current, staged).csp).toEqual({ added: [], removed: [] })
+  })
+
+  it('a current manifest without the keys diffs as empty lists', () => {
+    const diff = structuralDiff(manifest(), manifest())
+    expect(diff.integrations).toEqual({ added: [], removed: [], changed: [] })
+    expect(diff.csp).toEqual({ added: [], removed: [] })
+  })
+
+  it('formatDiff prints one line per integration and per source', () => {
+    const current = manifest({ integrations: [{ name: 'gtm', label: 'T' }], csp: { 'img-src': ['https://old.example'] } })
+    const staged = manifest({
+      integrations: [{ name: 'chat', label: 'Chat', csp: { 'script-src': ['https://t.example'] } }],
+    })
+    const lines = formatDiff({ structural: structuralDiff(current, staged), content: null })
+    expect(lines).toEqual([
+      t('diff.release.integrationAdded', { name: 'chat' }),
+      t('diff.release.integrationRemoved', { name: 'gtm' }),
+      t('diff.release.cspAdded', { source: 'script-src https://t.example' }),
+      t('diff.release.cspRemoved', { source: 'img-src https://old.example' }),
+    ])
+    expect(lines[0]).toContain('chat')
+    expect(lines[1]).toContain('gtm')
+    expect(lines[2]).toContain('script-src https://t.example')
+  })
+
+  it('formatDiff accepts a diff without the new fields', () => {
+    const { integrations: _i, csp: _c, ...old } = structuralDiff(manifest(), manifest())
+    expect(formatDiff({ structural: old, content: null })).toEqual([t('diff.release.nothing')])
+  })
+
   it('a shipped document whose content changed but whose edition did not', () => {
     const current = manifest({
       shipped: [
@@ -368,6 +436,8 @@ describe('structuralDiff', () => {
       fields: [],
       routes: { added: [{ method: 'GET', path: '/ping' }], removed: [], sitemap: { added: [], removed: [] } },
       redirects: { added: [{ from: '/x', to: '/y', status: 301 }], removed: [], changed: [] },
+      integrations: { added: [], removed: [], changed: [] },
+      csp: { added: [], removed: [] },
       secrets: ['HOOK'],
       migrations: ['first'],
       shipped: { stale: [] },

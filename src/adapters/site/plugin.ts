@@ -27,16 +27,18 @@ import { fetchRemoteFile } from '../mcp/fetch-url.js'
 import { registerMcpRoute } from '../mcp/route.js'
 import { createInlayMcpHandler } from '../mcp/server.js'
 import { sendWebResponse, toWebRequest } from '../web.js'
+import { loadConsentAsset, registerConsentRoute } from './consent.js'
 import { publicAssets, type PublicAssets } from './assets.js'
 import { cacheControl, etagMatches, PageCache, response, type CachedResponse, type CdnOptions } from './cache.js'
 import { createRenderContext } from './context.js'
 import { registerSiteHeaders, siteHeaders } from './headers.js'
+import { createSiteIntegrations, type SiteIntegrations } from './integrations.js'
 import { startBackupSchedule, type BackupSchedule } from './backup-schedule.js'
 import { isLockedRequest, registerSiteLockGate, registerUnlockRoute } from './lock.js'
 import { registerMediaRoutes } from './media-routes.js'
 import { registerPublicRoutes } from './public.js'
 import { previewLink, readPreview, registerPreviewRoutes } from './preview.js'
-import { catalogPage, renderPage } from './render.js'
+import { catalogPage, renderPageResult, type RenderedPage } from './render.js'
 import { registerReleaseRoutes } from './routes.js'
 import { renderSitemap } from './sitemap.js'
 
@@ -243,6 +245,7 @@ function registerSiteRoutes(
   app: FastifyInstance,
   core: Core,
   cache: PageCache | undefined,
+  integrations: SiteIntegrations,
   opts: {
     baseUrl: string
     secret: string
@@ -260,12 +263,17 @@ function registerSiteRoutes(
   const { baseUrl, cdn, assets } = opts
   const banner = opts.release === undefined ? {} : { release: opts.release }
 
-  async function notFoundPage(locale: string, state: LiveState): Promise<string> {
+  async function notFoundPage(locale: string, state: LiveState): Promise<RenderedPage> {
     if (notFound !== null) {
       const doc = await core.liveSingleton(notFound, locale, { state })
-      if (doc) return renderPage(core, doc, { state, page: 1, baseUrl, assets, ...banner })
+      if (doc) return renderPageResult(core, doc, { state, page: 1, baseUrl, assets, integrations, ...banner })
     }
-    return catalogPage('site.notFound.title', 'site.notFound')
+    return { html: catalogPage('site.notFound.title', 'site.notFound'), scriptHashes: [] }
+  }
+
+  /** `page` as a response carrying its own content-security-policy, when Inlay sets one. */
+  async function pageResponse(status: number, page: RenderedPage): Promise<CachedResponse> {
+    return response(status, page.html, HTML, (await integrations.policy(page.scriptHashes)) ?? undefined)
   }
 
   function localeOf(rawPath: string): string {
@@ -279,13 +287,16 @@ function registerSiteRoutes(
   function send(request: FastifyRequest, reply: FastifyReply, res: CachedResponse, hit: boolean | undefined): FastifyReply {
     if (hit !== undefined) reply.header('x-inlay-cache', hit ? 'hit' : 'miss')
     reply.header('cache-control', control).header('vary', 'Cookie').header('etag', res.etag)
+    if (res.csp !== undefined) reply.header('content-security-policy', res.csp)
     if (etagMatches(request.headers['if-none-match'], res.etag)) return reply.code(304).send()
     return reply.code(res.status).type(res.type).send(res.body)
   }
 
   /** Preview responses are never stored or revalidated. */
-  function sendPreview(reply: FastifyReply, status: number, body: string): FastifyReply {
-    return reply.code(status).type(HTML).send(body)
+  async function sendPreview(reply: FastifyReply, status: number, page: RenderedPage): Promise<FastifyReply> {
+    const csp = await integrations.policy(page.scriptHashes)
+    if (csp !== null) reply.header('content-security-policy', csp)
+    return reply.code(status).type(HTML).send(page.html)
   }
 
   /** Serves `key` from the cache, or renders it and stores the result unless a live change landed meanwhile. */
@@ -293,15 +304,13 @@ function registerSiteRoutes(
     request: FastifyRequest,
     reply: FastifyReply,
     key: string,
-    status: number,
-    type: string,
-    render: () => Promise<string>,
+    render: () => Promise<CachedResponse>,
   ): Promise<FastifyReply> {
-    if (!cache) return send(request, reply, response(status, await render(), type), undefined)
+    if (!cache) return send(request, reply, await render(), undefined)
     const hit = cache.get(key)
     if (hit) return send(request, reply, hit, true)
     const generation = cache.generation
-    const res = response(status, await render(), type)
+    const res = await render()
     cache.set(key, res, generation)
     return send(request, reply, res, false)
   }
@@ -309,7 +318,7 @@ function registerSiteRoutes(
   const missing = async (request: FastifyRequest, reply: FastifyReply, locale: string, state: LiveState) =>
     state === 'preview'
       ? sendPreview(reply, 404, await notFoundPage(locale, state))
-      : cached(request, reply, `404:${locale}`, 404, HTML, () => notFoundPage(locale, state))
+      : cached(request, reply, `404:${locale}`, async () => pageResponse(404, await notFoundPage(locale, state)))
 
   /** A cookie that previews a staged release reaches this app only when that preview isn't available: the live site answers. */
   function stateOf(request: FastifyRequest): LiveState {
@@ -349,9 +358,9 @@ function registerSiteRoutes(
         }
       }
       if (match.kind === 'page') {
-        const html = await renderPage(core, match.document, { state, page: pageNumber, baseUrl, assets, ...banner })
-        if (preview) return sendPreview(reply, 200, html)
-        const res = response(200, html, HTML)
+        const page = await renderPageResult(core, match.document, { state, page: pageNumber, baseUrl, assets, integrations, ...banner })
+        if (preview) return await sendPreview(reply, 200, page)
+        const res = await pageResponse(200, page)
         if (cache && key !== null) {
           cache.set(key, res, generation)
           return send(request, reply, res, false)
@@ -377,8 +386,8 @@ function registerSiteRoutes(
   app.get('/sitemap.xml', async (request, reply) =>
     opts.noSite === 'unavailable'
       ? unavailable(request, reply)
-      : cached(request, reply, 'sitemap.xml', 200, 'application/xml', async () =>
-          renderSitemap(await core.sitemapEntries(), baseUrl),
+      : cached(request, reply, 'sitemap.xml', async () =>
+          response(200, renderSitemap(await core.sitemapEntries(), baseUrl), 'application/xml'),
         ),
   )
   app.get('/robots.txt', async (request, reply) => {
@@ -499,10 +508,37 @@ const plugin: FastifyPluginAsync<InlayOptions> = async (app, opts) => {
     }
   }
   const core = opts.readOnly ? readOnlyCore(booted.core) : booted.core
-  for (const warning of report.warnings) app.log.warn('document' in warning ? { document: warning.document } : { redirect: warning.redirect }, warning.message)
+  for (const warning of report.warnings) {
+    if ('document' in warning) app.log.warn({ document: warning.document }, warning.message)
+    else if ('redirect' in warning) app.log.warn({ redirect: warning.redirect }, warning.message)
+    else app.log.warn(warning.message)
+  }
   for (const warning of report.shipped.warnings ?? []) app.log.warn(warning.message)
   const now = opts.now ?? (() => new Date())
-  registerSiteHeaders(app, siteHeaders(baseUrl, registry.site.headers))
+  // A commit from another connection (the other worker during a `serve` swap, a second `inlaycms dev`) changes
+  // data_version; this connection's own writes don't, and the live ones among them clear the cache below.
+  let seen = dataVersion(db)
+  const changedElsewhere = () => {
+    const version = dataVersion(db)
+    if (version === seen) return false
+    seen = version
+    return true
+  }
+  const cache = opts.cache === false ? undefined : new PageCache(opts.cache?.maxEntries ?? 500, changedElsewhere)
+  // Without a page cache, an empty one still counts live changes, so the integrations' settings are read again after one.
+  const generations = cache ?? new PageCache(0, changedElsewhere)
+  const stopGenerations = core.onLiveChange(() => generations.clear())
+  app.addHook('onClose', async () => stopGenerations())
+  const consentAsset = await loadConsentAsset()
+  registerConsentRoute(app, consentAsset)
+  const siteIntegrations = createSiteIntegrations({
+    core,
+    site: registry.site,
+    generation: () => generations.generation,
+    consentUrl: consentAsset.url,
+    log: (err, message) => app.log.error({ err }, message),
+  })
+  registerSiteHeaders(app, siteHeaders(baseUrl, registry.site.headers), () => siteIntegrations.policy())
   const lockOptions = { db, service: auth, secret, baseUrl, now, publicPaths }
   registerSiteLockGate(app, { ...lockOptions, ...(opts.preview === 'forced' && opts.release && { release: opts.release.id }) })
   registerUnlockRoute(app, { ...lockOptions, rateLimit: opts.rateLimit !== false })
@@ -525,20 +561,6 @@ const plugin: FastifyPluginAsync<InlayOptions> = async (app, opts) => {
   })
 
   const siteAssets = publicAssets(opts.publicDir ?? null)
-  // A commit from another connection (the other worker during a `serve` swap, a second `inlaycms dev`) changes
-  // data_version; this connection's own writes don't, and the live ones among them clear the cache below.
-  let seen = dataVersion(db)
-  const changedElsewhere = () => {
-    const version = dataVersion(db)
-    if (version === seen) return false
-    seen = version
-    return true
-  }
-  const cache = opts.cache === false ? undefined : new PageCache(opts.cache?.maxEntries ?? 500, changedElsewhere)
-  if (cache) {
-    const stop = core.onLiveChange(() => cache.clear())
-    app.addHook('onClose', async () => stop())
-  }
 
   if (baseUrl.startsWith('https:') && !app.initialConfig.https) warnWithoutTrustProxy(app, baseUrl)
 
@@ -588,9 +610,9 @@ const plugin: FastifyPluginAsync<InlayOptions> = async (app, opts) => {
   })
   registerMediaRoutes(app, core)
   if (opts.publicDir !== undefined) registerPublicRoutes(app, { dir: opts.publicDir, maxAge: opts.publicMaxAge ?? 3600 })
-  registerReleaseRoutes(app, { core, registry, baseUrl, assets: siteAssets, secrets: opts.secrets ?? {}, fetch: opts.fetch ?? ((input, init) => globalThis.fetch(input, init)), log: app.log, preview: opts.preview === 'forced' })
+  registerReleaseRoutes(app, { core, registry, baseUrl, assets: siteAssets, integrations: siteIntegrations, secrets: opts.secrets ?? {}, fetch: opts.fetch ?? ((input, init) => globalThis.fetch(input, init)), log: app.log, preview: opts.preview === 'forced' })
   registerPreviewRoutes(app, { secret, baseUrl, now })
-  registerSiteRoutes(app, core, cache, {
+  registerSiteRoutes(app, core, cache, siteIntegrations, {
     baseUrl,
     secret,
     now,

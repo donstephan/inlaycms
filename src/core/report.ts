@@ -15,6 +15,7 @@ export interface CheckProblem {
 export type CheckWarning =
   | { code: 'slug_shadowed'; message: string; document: { id: string; type: string; locale: string; title: string } }
   | { code: 'redirect_hidden' | 'redirect_loop'; message: string; redirect: { from: string } }
+  | { code: 'csp_unsafe_inline' | 'csp_unsafe_eval' | 'csp_script_scheme' | 'csp_overridden'; message: string }
 
 /** What boot or `inlaycms check` did (or would do) to a database. */
 export interface CheckReport {

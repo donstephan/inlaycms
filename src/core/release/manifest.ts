@@ -5,6 +5,7 @@ import { z } from 'zod'
 import { imageTarget } from '../content/shipped-images.js'
 import { mapRichText, shippedFiles } from '../content/shipped-input.js'
 import { typeSchemas } from '../export/schema.js'
+import { CONSENT_CATEGORIES } from '../registry/integration.js'
 import type { Registry } from '../registry/registry.js'
 import { markdownImages } from '../richtext/markdown.js'
 import { inlayVersion } from '../version.js'
@@ -13,6 +14,13 @@ import { replaceImageTargets } from './markdown-file.js'
 export const MANIFEST_FORMAT = 1
 
 export type ManifestRedirect = { from: string; to: string; status: 301 | 302 }
+export type ManifestCsp = Record<string, string[]>
+export type ManifestIntegration = {
+  name: string
+  label: string
+  consent?: (typeof CONSENT_CATEGORIES)[number]
+  csp?: ManifestCsp
+}
 
 /** What `manifest.json` in a release says; `manifest.sig` signs its bytes. */
 export interface ReleaseManifest {
@@ -38,6 +46,10 @@ export interface ReleaseManifest {
   routes: Array<{ method: string; path: string; sitemap?: true }>
   /** The site's code redirects in stored form; absent in manifests made before 0.3, which means none. */
   redirects?: ManifestRedirect[]
+  /** The site's integrations; absent when it has none, and in manifests made before integrations. */
+  integrations?: ManifestIntegration[]
+  /** The sources the site's own `csp` adds, by directive; absent when empty. */
+  csp?: ManifestCsp
   locales: string[]
   /** Each type's kind and slot names, by type name. */
   types: Record<string, { kind: 'singleton' | 'collection' | 'global'; slots: string[] }>
@@ -67,6 +79,17 @@ export const manifestSchema = z.strictObject({
   redirects: z
     .array(z.strictObject({ from: z.string(), to: z.string(), status: z.union([z.literal(301), z.literal(302)]) }))
     .optional(),
+  integrations: z
+    .array(
+      z.strictObject({
+        name: z.string(),
+        label: z.string(),
+        consent: z.enum(CONSENT_CATEGORIES).optional(),
+        csp: z.record(z.string(), z.array(z.string())).optional(),
+      }),
+    )
+    .optional(),
+  csp: z.record(z.string(), z.array(z.string())).optional(),
   locales: z.array(z.string()),
   types: z.record(
     z.string(),
@@ -152,6 +175,13 @@ function withReleaseImages(markdown: string, siteDir: string | null, paths: Read
   return { markdown: text, images: markdownImages(markdown).map(({ src }) => releaseCopy(src) ?? src) }
 }
 
+/** `csp` as a manifest keeps it, or `undefined` when it adds no source. */
+function cspOf(csp: Partial<Record<string, readonly string[]>>): ManifestCsp | undefined {
+  const out: ManifestCsp = {}
+  for (const [directive, sources] of Object.entries(csp)) if (sources && sources.length > 0) out[directive] = [...sources]
+  return Object.keys(out).length > 0 ? out : undefined
+}
+
 /**
  * The manifest of the site `registry` describes, without its files: what `packRelease` writes, given the shipped
  * files it packed as `content`. Without `content`, shipped files are read here to name them the way a release
@@ -209,6 +239,13 @@ export function manifestOfRegistry(
     migrations: site.migrations.map((m) => m.name),
     routes: site.routes.map((r) => ({ method: r.method, path: r.path, ...(r.sitemap === true && { sitemap: true as const }) })),
     redirects: registry.redirects.map(({ from, to, status }) => ({ from, to, status })),
+    ...(site.integrations.length > 0 && {
+      integrations: site.integrations.map(({ name, label, consent, csp }) => {
+        const sources = cspOf(csp)
+        return { name, label, ...(consent !== undefined && { consent }), ...(sources && { csp: sources }) }
+      }),
+    }),
+    ...(cspOf(site.csp) && { csp: cspOf(site.csp) }),
     locales: [...registry.locales],
     types: Object.fromEntries(
       [...registry.types].map(([name, def]) => [name, { kind: def.kind, slots: Object.keys(def.template.slots) }]),

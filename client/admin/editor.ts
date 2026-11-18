@@ -3,6 +3,7 @@ import { Editor, Extension, Mark, Node, getSchema, type AnyExtension, type Attri
 import { Blockquote } from '@tiptap/extension-blockquote'
 import { Bold } from '@tiptap/extension-bold'
 import { Code } from '@tiptap/extension-code'
+import { CodeBlock } from '@tiptap/extension-code-block'
 import { Document } from '@tiptap/extension-document'
 import { HardBreak } from '@tiptap/extension-hard-break'
 import { Heading, type Level } from '@tiptap/extension-heading'
@@ -21,8 +22,11 @@ import type { Pick } from './picker.js'
  */
 
 /** The core's `RICH_TEXT_FEATURES`, in toolbar order. */
-const FEATURES = ['heading', 'bold', 'italic', 'code', 'link', 'bulletList', 'orderedList', 'blockquote', 'image', 'hardBreak', 'table'] as const
+const FEATURES = ['heading', 'bold', 'italic', 'code', 'link', 'bulletList', 'orderedList', 'blockquote', 'codeBlock', 'image', 'hardBreak', 'table'] as const
 type Feature = (typeof FEATURES)[number]
+
+/** Mirrors the core's `CODE_LANGUAGE`. */
+const CODE_LANGUAGE = /^[A-Za-z0-9_+#.-]{1,32}$/
 
 const HEX64 = /^[0-9a-f]{64}$/
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
@@ -116,6 +120,23 @@ const InlayOrderedList = OrderedList.extend({
   },
 })
 
+/** A code block keeps a pasted `language-…` class only when the core would take it as a language. */
+const InlayCodeBlock = CodeBlock.extend({
+  addAttributes() {
+    const { language } = (this.parent?.() ?? {}) as Attributes
+    if (language === undefined) return {}
+    return {
+      language: {
+        ...language,
+        parseHTML: (element: HTMLElement) => {
+          const value: unknown = language.parseHTML?.(element)
+          return typeof value === 'string' && CODE_LANGUAGE.test(value) ? value : null
+        },
+      },
+    }
+  },
+})
+
 /** A cell holds one paragraph, as in the core. Tiptap's cell attrs stay: its table commands need them. */
 const InlayTableHeader = TableHeader.extend({ content: 'paragraph' })
 const InlayTableCell = TableCell.extend({ content: 'paragraph' })
@@ -173,6 +194,7 @@ function extensionsFor(features: ReadonlySet<Feature>, levels: Level[], inline: 
   if (features.has('orderedList')) out.push(InlayOrderedList)
   if (features.has('bulletList') || features.has('orderedList')) out.push(ListItem)
   if (features.has('blockquote')) out.push(Blockquote)
+  if (features.has('codeBlock')) out.push(InlayCodeBlock.configure({ languageClassPrefix: 'language-', defaultLanguage: null, enableTabIndentation: false }))
   if (features.has('hardBreak')) out.push(HardBreak)
   if (features.has('image')) out.push(InlayImage)
   if (features.has('table')) {
@@ -302,6 +324,14 @@ function toolsFor(editor: Editor, root: HTMLElement, features: ReadonlySet<Featu
       case 'blockquote':
         tools.push({ command: 'blockquote', run: () => editor.chain().focus().toggleBlockquote().run(), active: () => editor.isActive('blockquote') })
         break
+      case 'codeBlock':
+        tools.push({
+          command: 'codeBlock',
+          run: () => editor.chain().focus().toggleCodeBlock().run(),
+          active: () => editor.isActive('codeBlock'),
+          enabled: () => !editor.isActive('table'),
+        })
+        break
       case 'image':
         tools.push({
           command: 'image',
@@ -395,6 +425,70 @@ function buildToolbar(toolbar: HTMLElement, tools: Tool[], labels: Record<string
   }
 }
 
+let languageNotes = 0
+
+/**
+ * The language box for the code block the cursor is in: shown only there, and applied on change or Enter.
+ * A value the core would refuse isn't applied, and a note under it says why.
+ */
+function addCodeLanguageInput(editor: Editor, toolbar: HTMLElement, labels: Record<string, string>): void {
+  const box = document.createElement('input')
+  box.type = 'text'
+  box.className = 'input input-sm w-40'
+  box.dataset.codeLanguage = ''
+  box.maxLength = 64
+  box.setAttribute('aria-label', labels.codeLanguage ?? 'codeLanguage')
+  box.placeholder = labels.codeLanguageHint ?? ''
+  box.hidden = !editor.isActive('codeBlock')
+  const note = document.createElement('span')
+  note.id = `${toolbar.getAttribute('aria-controls') ?? 'richtext'}-code-language-${++languageNotes}`
+  note.className = 'basis-full px-1 text-sm text-error'
+  note.dataset.codeLanguageInvalid = ''
+  note.textContent = labels.codeLanguageInvalid ?? 'codeLanguageInvalid'
+  note.hidden = true
+  toolbar.append(box, note)
+
+  const setInvalid = (invalid: boolean) => {
+    note.hidden = !invalid
+    if (invalid) {
+      box.setAttribute('aria-invalid', 'true')
+      box.setAttribute('aria-describedby', note.id)
+    } else {
+      box.removeAttribute('aria-invalid')
+      box.removeAttribute('aria-describedby')
+    }
+  }
+  const apply = () => {
+    const value = box.value.trim()
+    if (value === '') {
+      setInvalid(false)
+      editor.chain().updateAttributes('codeBlock', { language: null }).run()
+    } else if (CODE_LANGUAGE.test(value)) {
+      setInvalid(false)
+      editor.chain().updateAttributes('codeBlock', { language: value }).run()
+    } else {
+      setInvalid(true)
+    }
+  }
+  box.addEventListener('change', apply)
+  box.addEventListener('keydown', (event) => {
+    if (event.key !== 'Enter') return
+    event.preventDefault()
+    apply()
+    editor.commands.focus()
+  })
+  editor.on('transaction', () => {
+    const inside = editor.isActive('codeBlock')
+    box.hidden = !inside
+    if (!inside) note.hidden = true
+    if (inside && document.activeElement !== box) {
+      const language = editor.getAttributes('codeBlock').language
+      box.value = typeof language === 'string' ? language : ''
+      setInvalid(false)
+    }
+  })
+}
+
 const mounted = new WeakMap<HTMLElement, Editor>()
 
 /**
@@ -456,6 +550,7 @@ export function mountRichText(root: HTMLElement): Editor {
     const refresh = buildToolbar(toolbar, toolsFor(editor, root, features, levels), labels)
     editor.on('transaction', refresh)
     refresh()
+    if (features.has('codeBlock')) addCodeLanguageInput(editor, toolbar, labels)
   }
   return editor
 }

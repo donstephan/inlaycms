@@ -1,6 +1,7 @@
 import { InlayError } from '../../core/errors.js'
 import { isSafeUrl } from '../../core/fields/define.js'
 import type { OgType } from '../../core/registry/define.js'
+import { scriptJson } from '../../core/registry/js.js'
 import type { HeadApi, HeadLink } from '../../core/registry/render.js'
 import { encodePath } from '../../core/site/paths.js'
 import { escapeHtml, raw, type SafeHtml } from '../../jsx/html.js'
@@ -33,21 +34,6 @@ export interface CollectedHead {
 }
 
 export const NO_HEAD: CollectedHead = { meta: [], links: [], jsonLd: [] }
-
-const SCRIPT_UNSAFE: Record<string, string> = {
-  '<': '\\u003c',
-  '>': '\\u003e',
-  '&': '\\u0026',
-  '\u2028': '\\u2028',
-  '\u2029': '\\u2029',
-}
-
-/** `value` as JSON that can't end its `<script>` or open an HTML comment in it. */
-function scriptJson(value: unknown): string {
-  const json = JSON.stringify(value) as string | undefined
-  if (json === undefined) throw new InlayError('config', 'config.headJsonLd')
-  return json.replace(/[<>&\u2028\u2029]/g, (c) => SCRIPT_UNSAFE[c]!)
-}
 
 const LINK_ATTRS = ['rel', 'hreflang', 'type', 'sizes', 'media', 'as', 'crossorigin', 'href'] as const
 

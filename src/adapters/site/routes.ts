@@ -9,7 +9,8 @@ import type { RouteContext, RouteDef, RouteRequest, RouteResponse } from '../../
 import { encodePath } from '../../core/site/paths.js'
 import { publicAssets, type PublicAssets } from './assets.js'
 import { queryApi } from './context.js'
-import { catalogPage, renderTemplateData } from './render.js'
+import type { SiteIntegrations } from './integrations.js'
+import { catalogPage, renderTemplateResult } from './render.js'
 
 const BODY_LIMIT = 1024 * 1024
 const HTML = 'text/html; charset=utf-8'
@@ -21,6 +22,8 @@ export interface ReleaseRouteOptions {
   registry: Registry
   baseUrl: string
   assets?: PublicAssets
+  /** Renders the active integrations into a rendered template's page, and gives it its content-security-policy. */
+  integrations?: SiteIntegrations
   /** The site is a staged release's forced preview: its renders stay noindex, with no canonical. */
   preview?: boolean
   /** Host-supplied secret values; a route sees only the ones its site declares. */
@@ -144,8 +147,11 @@ export function registerReleaseRoutes(app: FastifyInstance, opts: ReleaseRouteOp
             const read = templateRegistry(registry, template)
             const doc = readData(read, template.name, normalizeContent(read, template.name, data), { fill: true }).data
             const canonical = route.sitemap === true && request.url.split('?')[0] === encodePath(route.path) ? route.path : null
-            const html = await renderTemplateData(core, template, doc, { locale, path: route.path, baseUrl, canonical, assets, preview: opts.preview === true })
-            return { status: o.status ?? 200, headers: { 'content-type': HTML }, body: html }
+            const rendered = await renderTemplateResult(core, template, doc, { locale, path: route.path, baseUrl, canonical, assets, preview: opts.preview === true, ...(opts.integrations && { integrations: opts.integrations }) })
+            const csp = (await opts.integrations?.policy(rendered.scriptHashes)) ?? null
+            const headers: Record<string, string> = { 'content-type': HTML }
+            if (csp !== null) headers['content-security-policy'] = csp
+            return { status: o.status ?? 200, headers, body: rendered.html }
           },
           fetch: opts.fetch,
           secrets,

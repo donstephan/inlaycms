@@ -36,6 +36,7 @@ export const en = {
   'issue.tooShort': '{field} is too short (at least {min} characters).',
   'issue.tooMany': '{field} has too many items (at most {max}).',
   'issue.tooFew': '{field} has too few items (at least {min}).',
+  'issue.pattern': "{field} isn't in the expected format.{hint}",
   'issue.tooHigh': '{field} must be at most {max}.',
   'issue.tooLow': '{field} must be at least {min}.',
   'definition.localeInvalid':
@@ -78,6 +79,11 @@ export const en = {
   'config.headJsonLd': "A template added JSON-LD that can't be written as JSON.",
   'config.headHref':
     'A template added a link to "{href}", which isn\'t a safe address. Use a path on this site or an http or https URL.',
+  'config.scriptValue':
+    "A template put a value into a script that can't be written as JSON (value number {position}). Use text, numbers, true or false, null, lists and plain objects.",
+  'config.scriptCode': "A template's script contains </script or <!--, which can't be written safely into a page.",
+  'config.scriptSrc':
+    'A template added a script from "{src}", which isn\'t allowed. Use an https URL or a path on this site.',
   'config.publicKey':
     "That isn't a public key. It should look like ed25519: followed by letters and digits (as printed by inlaycms keygen), but it was: {text}",
   'config.baseUrl':
@@ -88,6 +94,8 @@ export const en = {
     'The admin theme option "{value}" can\'t be used. Use the name of a built-in theme, or colors written as hex values such as #0b5fff.',
   'config.adminAssetsMissing':
     'The admin\'s style and script files are missing from {dir}. Run "pnpm run build:admin" to create them.',
+  'config.siteAssetsMissing':
+    'The script Inlay adds to pages for visitor consent is missing from {dir}. Run "pnpm run build:admin" to create it.',
   'config.backupKeep':
     'The backupSchedule option keep is "{value}", but it must be a whole number of at least 1, such as 14.',
   'config.backupsMissing':
@@ -160,6 +168,9 @@ export const en = {
   'import.siteLock.exportOn': 'This export makes the site private.',
   'import.siteLock.exportOff': 'This export makes the site public.',
   'import.siteLock.exportNoPassword': 'This export has no site password.',
+  'import.integrations.replace': 'Integration settings will be replaced: {list}',
+  'import.integrations.on': '{name} (on)',
+  'import.integrations.off': '{name} (off)',
   'site.notFound.title': 'Page not found',
   'site.notFound': "We couldn't find the page you were looking for. It may have moved, or the address may be mistyped.",
   'site.error.title': 'Something went wrong',
@@ -174,6 +185,8 @@ export const en = {
   'site.lock.wrong': "That password isn't right. Check it and try again.",
   'site.lock.tooMany': 'Too many tries. Wait a minute and try again.',
   'log.renderFailed': 'The page {path} could not be shown because of an error.',
+  'log.integrationFailed': 'The integration {name} was left out of a page because of an error.',
+  'log.integrationsUnreadable': 'The integration settings could not be read, so a page was shown without its integrations.',
   'site.unsupported.title': "This can't be sent here",
   'site.unsupported': 'This address accepts only plain form fields or JSON. Files and other kinds of data can\'t be sent here.',
   'site.tooLarge.title': 'Too much to send',
@@ -222,6 +235,23 @@ export const en = {
     'The site\'s headers list "{name}", which is not allowed. List each header once, by a name made of letters, digits and hyphens, such as Permissions-Policy. Inlay sets Cache-Control, Content-Type, Set-Cookie, Location, ETag and Vary itself.',
   'definition.headerValue':
     'The site\'s header "{name}" has a value that is not allowed. Give it a single line of text, or false to leave Inlay\'s default out.',
+  'definition.integrationName':
+    'An integration is named "{name}". Name each integration in lowercase letters and digits, with single hyphens between words, such as tag-manager.',
+  'definition.integrationDuplicate': 'Two integrations are named "{name}". Give each integration its own name.',
+  'definition.integrationField':
+    'The integration "{name}" has a field "{field}" that integrations can\'t use. Use text, text area, number, yes/no or select fields.',
+  'definition.integrationRender':
+    'The integration "{name}" has nothing to render. Give it a head, bodyStart or bodyEnd function.',
+  'definition.integrationConsent':
+    'The integration "{name}" asks for the consent category "{value}". Use analytics, marketing or functional.',
+  'definition.integrationFieldReserved':
+    'The integration "{name}" has a field called "enabled", a name the admin uses for its on/off switch. Give the field another name.',
+  'definition.cspOwnerSite': 'The site',
+  'definition.cspOwnerIntegration': 'The integration "{name}"',
+  'definition.cspDirective':
+    '{where} lists sources for "{directive}", which can\'t be declared. Use one of: {directives}.',
+  'definition.cspSource':
+    '{where} lists "{source}" under {directive}, which is not a valid source. Use an origin in lowercase with no path, such as https://www.example.com or https://*.example.com, a scheme such as data:, or \'unsafe-inline\' or \'unsafe-eval\' with the quotes.',
   'definition.migrationName':
     'The site\'s migrations use the name "{name}" more than once or leave it empty. Give each migration its own name, such as team-to-people.',
   'definition.routePath':
@@ -272,6 +302,7 @@ export const en = {
     'New entries are created in the default language ({locale}). Add other languages as translations of an entry.',
   'label.system': 'System',
   'label.sitePassword': 'Site password',
+  'integrations.unknown': 'This site has no integration called "{name}".',
   'error.sitePasswordMissing': 'Set a site password before making the site private.',
   'label.untitled': 'Untitled',
   'issue.notFound': "{field} points to content that doesn't exist.",
@@ -450,6 +481,11 @@ export const en = {
   'diff.release.redirectAdded': 'Adds the redirect {from} to {to} ({status}).',
   'diff.release.redirectRemoved': 'Removes the redirect {from} to {to}.',
   'diff.release.redirectChanged': 'The redirect from {from} now goes to {to} ({status}).',
+  'diff.release.integrationAdded': 'Adds the integration {name}.',
+  'diff.release.integrationRemoved': 'Removes the integration {name}.',
+  'diff.release.integrationChanged': 'The integration {name} changed.',
+  'diff.release.cspAdded': 'The site may now load from: {source}',
+  'diff.release.cspRemoved': 'The site may no longer load from: {source}',
   'diff.release.secrets': 'Needs the {count|secret|secrets} {names} set on the server.',
   'error.previewUnavailable': "The preview of this release couldn't be started. Try again in a moment.",
   'error.previewNotStaged': "{name} isn't waiting to go live any more (it was made live or deleted), so it can't be previewed.",
@@ -549,6 +585,14 @@ export const en = {
     'The redirect from {from} never fires: a published page now answers at that address. That is expected once the page has replaced the old URL, and you can remove the rule from the code when convenient.',
   'report.redirectLoop':
     'The redirect from {from} sends visitors round in a loop together with the other redirects, so the server skips it. Change its target or remove one of the rules.',
+  'report.cspUnsafeInline':
+    "{owner} allows 'unsafe-inline' scripts, which switches off the protection the Content-Security-Policy gives against injected scripts. Use ctx.script or page.script for inline code instead.",
+  'report.cspUnsafeEval':
+    "{owner} allows 'unsafe-eval' scripts, which lets text be run as code and weakens the Content-Security-Policy. Remove it if the script works without.",
+  'report.cspScriptScheme':
+    "{owner} allows scripts from any {source} address, which switches off the protection the Content-Security-Policy gives against injected scripts. List the exact sites the scripts come from instead, such as https://tags.example.",
+  'report.cspOverridden':
+    "The site sets its own content-security-policy header, so the sources that integrations declare are not added to it. Remove the header, or list the sources in it yourself.",
   'richtext.unsupported': "Line {line}: rich text can't contain {feature}. Remove it, or write it as normal text instead.",
   'richtext.notAllowed': "Line {line}: this field can't contain {feature}. Remove it, or write it as normal text instead.",
   'richtext.headingLevel':
@@ -558,6 +602,12 @@ export const en = {
   'richtext.tableCell': "Line {line}: table cells can't contain {feature}. Keep each cell to text, bold, italic, code and links.",
   'richtext.codeEmphasis':
     "Line {line}: code can't be bold or italic. Move the code (the text between backticks) out of the bold or italic text.",
+  'richtext.codeLanguage':
+    'Line {line}: "{language}" can\'t be used as the language of a code block. Write only the language\'s name after the opening backticks or tildes, like ```ts, or leave it out.',
+  'richtext.unclosedCode':
+    'Line {line}: this code block is never closed. Put the same line of backticks (or tildes) that opens it after the code to end it.',
+  'richtext.indentedCode':
+    'Line {line}: this text is indented by four or more spaces, which makes it a code block. Put a line of three backticks (```) before and after it to keep it as code, or remove the indent.',
   'richtext.imageSource':
     'Line {line}: images must come from the media library, not from another address ("{src}"). Upload the image to the media library and use that instead.',
   'richtext.linkUrl':
@@ -674,6 +724,7 @@ export const en = {
   'admin.nav.users': 'Users',
   'admin.nav.backups': 'Backups & export',
   'admin.nav.security': 'Security',
+  'admin.nav.integrations': 'Integrations',
   'admin.nav.account': 'Your account',
   'admin.nav.content': 'Content',
   'admin.nav.blocks': 'Building blocks',
@@ -720,6 +771,21 @@ export const en = {
   'admin.notice.siteLocked': 'Your site is now private.',
   'admin.notice.siteUnlocked': 'Your site is now public.',
   'admin.notice.sitePasswordSaved': 'The site password is saved.',
+  'admin.notice.integrationSaved': 'The integration is saved.',
+  'admin.integrations.title': 'Integrations',
+  'admin.integrations.description': "Scripts your site's developer has set up. Switch one on and fill in its details.",
+  'admin.integrations.public': "What you enter here is visible in your pages' source.",
+  'admin.integrations.on': 'Switched on',
+  'admin.integrations.consent': 'Waits for visitors to agree to: {category}',
+  'admin.integrations.always': 'Loads for every visitor',
+  'admin.integrations.preview': 'Also runs in preview',
+  'admin.integrations.unsafeInline': "This switches off part of your site's script protection.",
+  'admin.integrations.notRunning':
+    "This is switched on but isn't running, because its details no longer fit what the site expects. Check the details below and save again.",
+  'admin.integrations.save': 'Save',
+  'admin.integrations.category.analytics': 'analytics',
+  'admin.integrations.category.marketing': 'marketing',
+  'admin.integrations.category.functional': 'functional',
   'admin.security.title': 'Security',
   'admin.security.description': 'Choose whether people need a password to see your site.',
   'admin.security.statusOn': 'Your site is private. Visitors need the password to see it.',
@@ -768,6 +834,7 @@ export const en = {
   'admin.import.damaged': 'Damaged media files',
   'admin.import.shippedTitle': 'Shipped content that will be added or updated',
   'admin.import.siteLockTitle': 'Site password',
+  'admin.import.integrationsTitle': 'Integrations',
   'admin.import.replaceWarning': 'Restoring replaces all of the site\'s content and media with what is in this export. A backup of the current content is made first. Users and their passwords stay as they are.',
   'admin.import.restore': 'Restore content',
   'admin.import.cannotRestore': 'This export can\'t be restored. Ask whoever looks after the server for help.',
@@ -1223,6 +1290,10 @@ export const en = {
   'admin.richtext.bulletList': 'Bulleted list',
   'admin.richtext.orderedList': 'Numbered list',
   'admin.richtext.blockquote': 'Quote',
+  'admin.richtext.codeBlock': 'Code block',
+  'admin.richtext.codeLanguage': 'Code language',
+  'admin.richtext.codeLanguageHint': 'Language, for example ts',
+  'admin.richtext.codeLanguageInvalid': 'Use only letters, digits and + # _ . - (up to 32), with no spaces.',
   'admin.richtext.image': 'Image',
   'admin.richtext.hardBreak': 'Line break',
   'admin.richtext.table': 'Insert table',

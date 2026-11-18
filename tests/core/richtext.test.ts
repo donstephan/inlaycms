@@ -110,7 +110,6 @@ describe('parseRichText', () => {
 
   it('rejects what the schema or the field does not allow', () => {
     const rejected = [
-      doc({ type: 'codeBlock', content: [text('x')] }),
       doc({ type: 'heading', attrs: { level: 1 }, content: [text('H1')] }),
       doc(para(text('x', [{ type: 'link', attrs: { href: 'javascript:alert(1)' } }]))),
       doc(para(text('x', [{ type: 'link', attrs: { href: '/a', document: uuid } }]))),
@@ -370,5 +369,68 @@ describe('tables', () => {
     const blank = parse(doc(table(row(cell('tableHeader', ''), cell('tableHeader', '')))))
     if (!blank.ok) throw new Error('invalid')
     expect(richTextIsBlank(blank.doc)).toBe(true)
+  })
+})
+
+describe('code blocks', () => {
+  const code = (s: string, language?: unknown) => ({
+    type: 'codeBlock',
+    ...(language === undefined ? {} : { attrs: { language } }),
+    content: [text(s)],
+  })
+
+  it('keeps newlines and leading spaces and normalises carriage returns', () => {
+    const block = code('const a = 1\n\n  b()', 'ts')
+    expect(parse(doc(block))).toEqual({ ok: true, doc: doc(block) })
+    expect(parse(doc(code('a\r\nb\rc')))).toEqual({ ok: true, doc: doc(code('a\nb\nc')) })
+  })
+
+  it('stores a missing, null or empty language without attrs', () => {
+    for (const language of [undefined, null, '']) {
+      expect(parse(doc(code('x', language)))).toEqual({ ok: true, doc: doc(code('x')) })
+    }
+  })
+
+  it('keeps the language as written and refuses an invalid one', () => {
+    for (const language of ['C#', 'objective-c', 'c++']) {
+      expect(parse(doc(code('x', language)))).toEqual({ ok: true, doc: doc(code('x', language)) })
+    }
+    for (const language of ['ts title="x"', 'a b', 'a'.repeat(33), '<script>', '`', 7]) {
+      expect(parse(doc(code('x', language)))).toEqual({ ok: false })
+    }
+  })
+
+  it('refuses marks, line breaks and images inside', () => {
+    const inside = (...content: unknown[]) => doc({ type: 'codeBlock', content })
+    expect(parse(inside(text('x', [{ type: 'bold' }])))).toEqual({ ok: false })
+    expect(parse(inside(text('x', [{ type: 'code' }])))).toEqual({ ok: false })
+    expect(parse(inside({ type: 'hardBreak' }))).toEqual({ ok: false })
+    expect(parse(inside({ type: 'image', attrs: { media: sha } }))).toEqual({ ok: false })
+  })
+
+  it('drops an empty code block', () => {
+    expect(parse(doc({ type: 'codeBlock' }, code('')))).toEqual({ ok: true, doc: doc() })
+  })
+
+  it('allows a code block in a blockquote and a list item but not a table cell', () => {
+    expect(parse(doc({ type: 'blockquote', content: [code('x')] }))).toEqual({
+      ok: true,
+      doc: doc({ type: 'blockquote', content: [code('x')] }),
+    })
+    const item = { type: 'bulletList', content: [{ type: 'listItem', content: [para(text('a')), code('x')] }] }
+    expect(parse(doc(item))).toEqual({ ok: true, doc: doc(item) })
+    const cell = { type: 'tableHeader', content: [code('x')] }
+    expect(parse(doc({ type: 'table', content: [{ type: 'tableRow', content: [cell] }] }))).toEqual({ ok: false })
+  })
+
+  it('follows the codeBlock feature', () => {
+    expect(parse(doc(code('x')), { features: ['bold'], headings: [] })).toEqual({ ok: false })
+    expect(parse(doc(code('x')), { features: ['codeBlock'], headings: [] }).ok).toBe(true)
+  })
+
+  it('reads code text with its newlines', () => {
+    const parsed = parse(doc(para(text('Run:')), code('a\nb')))
+    if (!parsed.ok) throw new Error('invalid')
+    expect(richTextText(parsed.doc)).toBe('Run:\na\nb')
   })
 })

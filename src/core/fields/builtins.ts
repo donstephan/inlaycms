@@ -64,7 +64,12 @@ function isRealDate(s: string): boolean {
 interface TextOptions extends BaseOptions {
   maxLength?: number
   suggestedLength?: number
+  pattern?: RegExp
+  patternHint?: string
 }
+
+/** The `check` param of the refinement that holds a text field to its `pattern` (the hint is in `params.hint`). */
+export const PATTERN_CHECK = 'pattern'
 
 /** Marks the issue from text and textarea's non-blank check (in `params.check`). */
 export const NON_BLANK = 'nonBlank'
@@ -91,8 +96,16 @@ function stringField(
   let draft = z.string()
   if (o.maxLength !== undefined) draft = draft.max(o.maxLength)
   if (also) draft = draft.refine(also.test, { params: { check: also.check } })
-  const strict = draft.refine((s) => s.trim().length > 0, { params: { check: NON_BLANK } })
-  return defineField(strict, {
+  let strict: z.ZodType<string> = draft
+  const { pattern } = o
+  if (pattern) {
+    const re = new RegExp(pattern.source, pattern.flags.replace(/[gy]/g, ''))
+    strict = draft.refine((s) => s.trim().length === 0 || re.test(s), {
+      params: { check: PATTERN_CHECK, hint: o.patternHint ?? '' },
+    })
+  }
+  strict = strict.refine((s) => s.trim().length > 0, { params: { check: NON_BLANK } })
+  return defineField(strict as typeof draft, {
     kind,
     ...base(o),
     ...(o.suggestedLength !== undefined && { suggestedLength: o.suggestedLength }),

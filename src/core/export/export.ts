@@ -10,6 +10,7 @@ import type { Database } from '../db/schema.js'
 import { InlayError } from '../errors.js'
 import { fileMediaStore } from '../media/store.js'
 import { t } from '../messages/index.js'
+import { readIntegrationRows, type IntegrationRow } from '../integrations/integrations.js'
 import { readSiteLock, type SiteLockRow } from '../site-lock/site-lock.js'
 import { targetOf } from '../redirects/rule.js'
 import type { Registry } from '../registry/registry.js'
@@ -57,12 +58,14 @@ export async function exportContent(opts: ExportOptions): Promise<ExportSummary>
     let mediaRows: MediaRecord[]
     let deletions: MediaDeletionRecord[]
     let siteLock: SiteLockRow
+    let integrations: IntegrationRow[]
     try {
       content = await readContent(snap)
       redirects = await readRedirects(snap)
       mediaRows = await readMedia(snap)
       deletions = await readDeletions(snap)
       siteLock = await readSiteLock(snap)
+      integrations = await readIntegrationRows(snap)
     } finally {
       await snap.destroy()
     }
@@ -111,6 +114,7 @@ export async function exportContent(opts: ExportOptions): Promise<ExportSummary>
       })),
       counts,
       siteLock,
+      integrations,
     }
 
     await writeFile(join(staging, 'manifest.json'), JSON.stringify(manifest, null, 2))

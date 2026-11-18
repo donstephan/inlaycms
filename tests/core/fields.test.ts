@@ -276,3 +276,12 @@ describe('seoDefaults', () => {
     expect(fieldMeta(s)).toMatchObject({ kind: 'group', seoDefaults: true })
   })
 })
+
+describe('pattern', () => {
+  it('holds strict values to the pattern and leaves drafts lenient', () => {
+    const id = f.text({ label: 'Container ID', pattern: /^GTM-[A-Z0-9]+$/, patternHint: 'It looks like GTM-ABC123.' })
+    expect(id.safeParse('GTM-ABC123').success).toBe(true)
+    expect(id.safeParse('<script>').success).toBe(false)
+    expect(fieldMeta(id)?.draft?.safeParse('<script>').success).toBe(true)
+  })
+})

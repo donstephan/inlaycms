@@ -14,6 +14,7 @@ import { adminActor, formOf, hostOf, HTML, notFound, registerScreens, SETUP_PATH
 import { badOriginPage, consentPage, loginPage, messagePage, setupPage, type SetupField } from './pages.js'
 import { registerPublishRoutes } from './publish.js'
 import { registerBackups } from './screens/backups.js'
+import { registerIntegrations } from './screens/integrations.js'
 import { registerSecurity } from './screens/security.js'
 import { registerDashboard } from './screens/dashboard.js'
 import { registerEditor } from './screens/editor.js'
@@ -286,6 +287,7 @@ export function registerAdminRoutes(app: FastifyInstance, opts: AdminRouteOption
       registerUsers(authed, opts)
       registerBackups(authed, opts)
       registerReleases(authed, opts)
+      registerIntegrations(authed, opts)
       registerSecurity(authed, opts)
       registerPublishRoutes(authed, opts)
       registerSearch(authed, opts)

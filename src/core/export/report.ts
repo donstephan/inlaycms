@@ -49,6 +49,8 @@ export interface ImportReport {
   shipped: string[]
   /** The export's lock, or null for an export made before the lock existed (the import leaves the lock alone). */
   siteLock: ImportSiteLock | null
+  /** The integrations the export carries, or null for an export made before they existed (the import leaves them alone). */
+  integrations: Array<{ name: string; enabled: boolean }> | null
 }
 
 /** What replacing the lock `current` with `exported` changes. */
@@ -70,6 +72,12 @@ export function siteLockLines(lock: ImportSiteLock | null): string[] {
   return lines
 }
 
+export function integrationLines(report: ImportReport): string[] {
+  if (!report.integrations) return []
+  const list = report.integrations.map((i) => t(i.enabled ? 'import.integrations.on' : 'import.integrations.off', { name: i.name })).join(', ')
+  return [t('import.integrations.replace', { list })]
+}
+
 /** The report as lines a person reads: one per type and locale, with the documents needing attention indented, then everything else. */
 export function formatImportReport(report: ImportReport): string[] {
   const lines: string[] = []
@@ -89,5 +97,6 @@ export function formatImportReport(report: ImportReport): string[] {
   }
   if (report.shipped.length > 0) lines.push(t('import.shipped', { titles: report.shipped.join(', ') }))
   lines.push(...siteLockLines(report.siteLock))
+  lines.push(...integrationLines(report))
   return lines
 }

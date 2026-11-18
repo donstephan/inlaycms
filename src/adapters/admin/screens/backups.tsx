@@ -7,7 +7,7 @@ import { pipeline } from 'node:stream/promises'
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify'
 import { InlayError } from '../../../core/errors.js'
 import { exportFileName } from '../../../core/export/format.js'
-import { siteLockLines, type ImportReport } from '../../../core/export/report.js'
+import { integrationLines, siteLockLines, type ImportReport } from '../../../core/export/report.js'
 import { formatSize } from '../../../core/media/labels.js'
 import { t } from '../../../core/messages/index.js'
 import type { CheckProblem } from '../../../core/report.js'
@@ -271,6 +271,18 @@ export function registerBackups(scope: FastifyInstance, ctx: AdminContext): void
             </h2>
             <ul class="list-disc pl-6">
               {siteLockLines(report.siteLock).map((line) => (
+                <li>{line}</li>
+              ))}
+            </ul>
+          </section>
+        )}
+        {integrationLines(report).length > 0 && (
+          <section class="flex flex-col gap-2" aria-labelledby="integrations-heading">
+            <h2 id="integrations-heading" class="text-lg font-semibold">
+              {t('admin.import.integrationsTitle')}
+            </h2>
+            <ul class="list-disc pl-6">
+              {integrationLines(report).map((line) => (
                 <li>{line}</li>
               ))}
             </ul>

@@ -9,6 +9,7 @@ import { openDatabase } from './db/connection.js'
 import { migrateSystem, pendingSystemMigrations } from './db/migrate.js'
 import type { Database } from './db/schema.js'
 import { InlayError } from './errors.js'
+import { policyWarnings } from './integrations/warnings.js'
 import { t } from './messages/index.js'
 import type { SiteDefinition } from './registry/define.js'
 import { formatReport, type CheckReport } from './report.js'
@@ -88,6 +89,7 @@ export async function upgradeDatabase(
   for (const from of await core.codeRedirectLoops()) {
     report.warnings.push({ code: 'redirect_loop', message: t('report.redirectLoop', { from }), redirect: { from } })
   }
+  report.warnings.push(...policyWarnings(core.registry.site))
   return report
 }
 

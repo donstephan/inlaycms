@@ -16,8 +16,9 @@ const actions: Action[] = [
   'redirects.write',
   'users.manage',
   'site.protect',
+  'integrations.manage',
 ]
-const ownerOnly: Action[] = ['entry.restore', 'backup.create', 'backup.read', 'content.export', 'content.import', 'users.manage', 'site.protect']
+const ownerOnly: Action[] = ['entry.restore', 'backup.create', 'backup.read', 'content.export', 'content.import', 'users.manage', 'site.protect', 'integrations.manage']
 
 describe('roles', () => {
   it('lets owners and the system do everything', () => {

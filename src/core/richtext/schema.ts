@@ -13,10 +13,14 @@ export const RICH_TEXT_FEATURES = [
   'bulletList',
   'orderedList',
   'blockquote',
+  'codeBlock',
   'image',
   'hardBreak',
   'table',
 ] as const
+
+/** A code block's language: one short word, kept as written. */
+export const CODE_LANGUAGE = /^[A-Za-z0-9_+#.-]{1,32}$/
 
 export type RichTextFeature = (typeof RICH_TEXT_FEATURES)[number]
 
@@ -44,6 +48,7 @@ export type RichTextListItem = { type: 'listItem'; content: [RichTextParagraph, 
 export type RichTextBulletList = { type: 'bulletList'; content: RichTextListItem[] }
 export type RichTextOrderedList = { type: 'orderedList'; attrs?: { start: number }; content: RichTextListItem[] }
 export type RichTextBlockquote = { type: 'blockquote'; content: RichTextBlock[] }
+export type RichTextCodeBlock = { type: 'codeBlock'; attrs?: { language: string }; content?: [RichTextText] }
 export type RichTextTableCell = { type: 'tableHeader' | 'tableCell'; content: [RichTextParagraph] }
 export type RichTextTableRow = { type: 'tableRow'; content: RichTextTableCell[] }
 export type RichTextTable = { type: 'table'; content: RichTextTableRow[] }
@@ -53,6 +58,7 @@ export type RichTextBlock =
   | RichTextBulletList
   | RichTextOrderedList
   | RichTextBlockquote
+  | RichTextCodeBlock
   | RichTextTable
 
 export type RichTextNode =
@@ -77,6 +83,7 @@ export const richTextSchema = new Schema({
     orderedList: { group: 'block', content: 'listItem+', attrs: { start: { default: 1 } } },
     listItem: { content: 'paragraph block*' },
     blockquote: { group: 'block', content: 'block+' },
+    codeBlock: { group: 'block', content: 'text*', marks: '', code: true, attrs: { language: { default: null } } },
     table: { group: 'block', content: 'tableRow+' },
     tableRow: { content: '(tableHeader | tableCell)+' },
     tableHeader: { content: 'paragraph' },
@@ -98,6 +105,7 @@ const NODE_FEATURE: Readonly<Record<string, RichTextFeature>> = {
   bulletList: 'bulletList',
   orderedList: 'orderedList',
   blockquote: 'blockquote',
+  codeBlock: 'codeBlock',
   image: 'image',
   hardBreak: 'hardBreak',
   table: 'table',
@@ -157,6 +165,12 @@ function cleanAttrs(type: string, raw: Json, opts: RichTextOptions): Json | unde
     if (typeof start !== 'number' || !Number.isInteger(start) || start < 0) reject()
     return start === 1 ? undefined : { start }
   }
+  if (type === 'codeBlock') {
+    const { language } = attrs
+    if (absent(language) || language === '') return undefined
+    if (typeof language !== 'string' || !CODE_LANGUAGE.test(language)) reject()
+    return { language }
+  }
   if (type === 'image') {
     const { media, alt } = attrs
     if (typeof media !== 'string' || !HEX64.test(media)) reject()
@@ -181,6 +195,20 @@ function cleanNode(raw: unknown, opts: RichTextOptions): Json | null {
     // Code shows only on text: a line break or an image would lose it in Markdown.
     const marks = raw.marks.map((m) => cleanMark(m, opts)).filter((m) => type === 'text' || m.type !== 'code')
     if (marks.length > 0) out.marks = marks
+  }
+  if (type === 'codeBlock') {
+    if (!absent(raw.marks)) reject()
+    if (!absent(raw.content) && !Array.isArray(raw.content)) reject()
+    let code = ''
+    for (const child of raw.content ?? []) {
+      if (!isRecord(child) || child.type !== 'text' || typeof child.text !== 'string') reject()
+      if (!absent(child.marks) && !(Array.isArray(child.marks) && child.marks.length === 0)) reject()
+      code += child.text
+    }
+    code = code.replace(/\r\n?/g, '\n')
+    if (code === '') return null
+    out.content = [{ type: 'text', text: code }]
+    return out
   }
   if (type === 'text') {
     if (typeof raw.text !== 'string') reject()
@@ -321,6 +349,7 @@ function blockTexts(node: unknown, out: string[]): string[] {
   for (const child of childrenOf(node)) {
     if (!isRecord(child)) continue
     if (child.type === 'paragraph' || child.type === 'heading') out.push(inlineText(child))
+    else if (child.type === 'codeBlock') out.push(inlineText(child))
     else if (child.type === 'tableRow') out.push(childrenOf(child).map(inlineCell).join('\t'))
     else blockTexts(child, out)
   }

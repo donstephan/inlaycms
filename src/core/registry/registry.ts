@@ -4,11 +4,12 @@ import { InlayError } from '../errors.js'
 import { isTitleTemplate } from '../fields/builtins.js'
 import { fieldMeta } from '../fields/define.js'
 import { defOf, unwrap } from '../fields/zod-internals.js'
-import type { MessageId } from '../messages/index.js'
+import { t, type MessageId } from '../messages/index.js'
 import { isReserved, normalizePath, routeRegExp, singletonPath, withLocale } from '../site/paths.js'
 import { paramNames, ruleIndex, type RuleIndex } from '../redirects/collapse.js'
 import { cleanPath, defaultLocalePrefix, externalTarget, redirectFrom } from '../redirects/rule.js'
 import type { MatchRule } from '../types.js'
+import { CONSENT_CATEGORIES, CSP_DIRECTIVES, isCspSource, type CspSources } from './integration.js'
 import { KEY_PATTERN, type ShippedDocument } from './content.js'
 import type { BlockDef, SiteDefinition, TemplateDef, TypeDef } from './define.js'
 
@@ -185,6 +186,45 @@ function checkSettings(site: SiteDefinition, types: ReadonlyMap<string, TypeDef>
     if (typeof name !== 'string' || name.trim() === '' || migrations.has(name)) fail('definition.migrationName', { name: String(name) })
     migrations.add(name)
   }
+}
+
+const INTEGRATION_NAME = /^[a-z0-9]+(-[a-z0-9]+)*$/
+const INTEGRATION_FIELD_KINDS = new Set(['text', 'textarea', 'number', 'boolean', 'select'])
+
+function checkCsp(sources: unknown, where: string): void {
+  if (sources === null || typeof sources !== 'object') return
+  for (const [directive, list] of Object.entries(sources as CspSources)) {
+    if (!(CSP_DIRECTIVES as readonly string[]).includes(directive)) {
+      fail('definition.cspDirective', { where, directive, directives: CSP_DIRECTIVES.join(', ') })
+    }
+    if (!Array.isArray(list)) fail('definition.cspSource', { where, directive, source: String(list) })
+    for (const source of list) {
+      if (typeof source !== 'string' || !isCspSource(source)) fail('definition.cspSource', { where, directive, source: String(source) })
+    }
+  }
+}
+
+function checkIntegrations(site: SiteDefinition): void {
+  const names = new Set<string>()
+  for (const integration of site.integrations) {
+    const name = String(integration.name)
+    if (!INTEGRATION_NAME.test(name)) fail('definition.integrationName', { name })
+    if (names.has(name)) fail('definition.integrationDuplicate', { name })
+    names.add(name)
+    for (const [key, schema] of Object.entries(integration.fields.shape)) {
+      if (key === 'enabled') fail('definition.integrationFieldReserved', { name })
+      const kind = fieldMeta(schema as z.ZodType)?.kind
+      if (!NAME.test(key) || kind === undefined || !INTEGRATION_FIELD_KINDS.has(kind)) {
+        fail('definition.integrationField', { name, field: key })
+      }
+    }
+    if (!integration.head && !integration.bodyStart && !integration.bodyEnd) fail('definition.integrationRender', { name })
+    if (integration.consent !== undefined && !(CONSENT_CATEGORIES as readonly string[]).includes(integration.consent)) {
+      fail('definition.integrationConsent', { name, value: String(integration.consent) })
+    }
+    checkCsp(integration.csp, t('definition.cspOwnerIntegration', { name }))
+  }
+  checkCsp(site.csp, t('definition.cspOwnerSite'))
 }
 
 /** Paths a route can't take: Inlay's reserved paths and the home page. */
@@ -374,5 +414,6 @@ export function buildRegistry(site: SiteDefinition): Registry {
     },
   }
   checkRoutes(registry)
+  checkIntegrations(site)
   return registry
 }

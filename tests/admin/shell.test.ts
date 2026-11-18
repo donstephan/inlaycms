@@ -4,6 +4,7 @@ import { resolveTheme } from '../../src/adapters/admin/theme.js'
 import { adminPage } from '../../src/adapters/admin/views/layout.js'
 import { t } from '../../src/core/messages/index.js'
 import { defineCollection, defineSite } from '../../src/core/registry/define.js'
+import { defineIntegration } from '../../src/core/registry/integration.js'
 import { raw } from '../../src/jsx/html.js'
 import { parseHtml, signIn, submittedForm } from '../helpers/admin.js'
 import { makeApp } from '../helpers/app.js'
@@ -89,6 +90,21 @@ describe('navigation', () => {
     expect(links.find((l) => l.href === '/admin/releases')?.text).toBe(t('admin.nav.releases'))
     const eddie = await signIn(made.app, 'editor@example.com')
     expect(navLinks((await eddie.get('/admin')).body).map((l) => l.href)).not.toContain('/admin/releases')
+  })
+
+  it('shows the owner Integrations only when the site defines one', async () => {
+    const { app } = await setup()
+    const owner = await signIn(app, 'owner@example.com')
+    expect(navLinks((await owner.get('/admin')).body).map((l) => l.href)).not.toContain('/admin/integrations')
+
+    const site = defineSite({ ...webSite, integrations: [defineIntegration({ name: 'chat', label: 'Chat', head: () => '' })] })
+    const made = await makeApp({ withOwner: true, site })
+    open.push(made.app)
+    const olivia = await signIn(made.app, 'owner@example.com')
+    const links = navLinks((await olivia.get('/admin')).body)
+    expect(links.find((l) => l.href === '/admin/integrations')?.text).toBe(t('admin.nav.integrations'))
+    const eddie = await signIn(made.app, 'editor@example.com')
+    expect(navLinks((await eddie.get('/admin')).body).map((l) => l.href)).not.toContain('/admin/integrations')
   })
 
   it('marks the current section', async () => {

@@ -7,6 +7,9 @@ import { afterEach, beforeEach } from 'vitest'
 import { inlay } from '../../src/adapters/site/plugin.js'
 import { appOptions, makeApp } from '../helpers/app.js'
 
+const DEFAULT_CSP =
+  "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self'; connect-src 'self'; frame-src 'self'; media-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'self'"
+
 let dir: string
 const open: FastifyInstance[] = []
 
@@ -74,7 +77,7 @@ describe('/public/*', () => {
     await writeFile(join(dir, 'logo.svg'), '<svg xmlns="http://www.w3.org/2000/svg"><script>alert(1)</script></svg>')
     const { app } = await setup()
     expect((await app.inject('/public/site.css')).headers['x-content-type-options']).toBe('nosniff')
-    expect((await app.inject('/public/site.css')).headers['content-security-policy']).toBe("frame-ancestors 'self'")
+    expect((await app.inject('/public/site.css')).headers['content-security-policy']).toBe(DEFAULT_CSP)
     const res = await app.inject('/public/logo.svg')
     expect(res.statusCode).toBe(200)
     expect(res.headers['content-type']).toContain('image/svg+xml')

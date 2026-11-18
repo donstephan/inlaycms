@@ -100,6 +100,9 @@ function navItems(ctx: AdminContext, actor: Actor, counts: Record<string, { tota
     if (ctx.db !== undefined && ctx.releasesDir !== undefined) {
       siteItems.push({ section: 'releases', href: '/admin/releases', label: t('admin.nav.releases'), icon: 'rocket' })
     }
+    if (site.integrations.length > 0) {
+      siteItems.push({ section: 'integrations', href: '/admin/integrations', label: t('admin.nav.integrations'), icon: 'external' })
+    }
     siteItems.push({ section: 'security', href: '/admin/security', label: t('admin.nav.security'), icon: 'lock' })
   }
   const sections = [

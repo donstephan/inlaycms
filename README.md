@@ -274,7 +274,33 @@ What a site's fields can hold, beyond plain text and the basics of `f.richText`.
 
 ### Inline code
 
-Rich text and inline text hold inline code, on by default: a command, a file name or a placeholder, shown in a monospace font. In Markdown it is text between backticks (`` Run `npm test` first ``); a span holding a backtick is fenced with more of them (``` ``a`b`` ```). It renders as `<code>`. Code can go inside a link (``[`npm test`](/docs/testing)``) and in table cells, but it can't be bold or italic: Markdown that puts code inside bold or italic text is refused with the line it is on. Code blocks aren't supported. To leave code out of a field, list its `features` without `'code'`.
+Rich text and inline text hold inline code, on by default: a command, a file name or a placeholder, shown in a monospace font. In Markdown it is text between backticks (`` Run `npm test` first ``); a span holding a backtick is fenced with more of them (``` ``a`b`` ```). It renders as `<code>`. Code can go inside a link (``[`npm test`](/docs/testing)``) and in table cells, but it can't be bold or italic: Markdown that puts code inside bold or italic text is refused with the line it is on. For longer code, see [Code blocks](#code-blocks). To leave code out of a field, list its `features` without `'code'`.
+
+### Code blocks
+
+Rich text holds code blocks, on by default. In Markdown a block is a fence of three or more backticks (` ``` `) or tildes (`~~~`) with an optional language after it, like ` ```ts `, and the same fence, or a longer one, after the code to close it. A language is up to 32 letters, digits and `_ + # . -`, kept as written (`C#` stays `C#`). Indented code blocks, a fence that is never closed and a fence with anything else after the language (`ts title="x"`) are refused with the line they are on. A code block keeps its text, newlines and spaces exactly; it can't hold bold, italic, links, images or line breaks. A block renders as `<pre><code class="language-ts">`, and without a language as `<pre><code>`. In the admin, the Code block button turns the current paragraph into one, and a language box appears while the cursor is inside it. To leave code blocks out of a field, list its `features` without `'codeBlock'`.
+
+Inlay ships no highlighter. To use one, pass `highlight` to `ctx.richText`: it gets the code and the language (or `undefined`) and returns the inside of the `<code>` element as `raw(...)`, or `null` to leave the code plain. Its output is trusted as written, so it must escape the code; Inlay writes the `<pre><code>` around it.
+
+```tsx
+import { raw } from 'inlaycms/site'
+
+{ctx.richText(fields.body, {
+  highlight: (code, language) => (language === 'ts' ? raw(myHighlighter(code)) : null),
+})}
+```
+
+### Heading links
+
+Pass `headingIds` to `ctx.richText` to give each heading an `id`, so a page can link to it: `{ headingIds: true }`, or `{ headingIds: { prefix: 'intro-' } }` to start every id with a prefix. An id is the heading's text in lowercase, with spaces turned to hyphens and anything but letters, digits and hyphens dropped (`section` if nothing is left). Repeats are numbered (`a`, `a-2`). Numbering is per call, so when one page renders several rich-text values, give each its own prefix. Without the option, headings have no `id`.
+
+`richTextHeadings(doc, { prefix })` lists a value's headings with the same ids, for a contents list on the page:
+
+```tsx
+import { richTextHeadings } from 'inlaycms/site'
+
+const toc = richTextHeadings(fields.body, { prefix: 'body-' }) // [{ level, text, id }, ...]
+```
 
 ### Tables
 
@@ -635,7 +661,7 @@ const Faq = defineBlock({
 - **Twitter tags** follow the final `og:*` values, so `meta({ property: 'og:image', … })` also sets `twitter:image` and the large card. A `twitter:*` meta of your own wins over the mirrored one.
 - **Preview** always stays `noindex`: a `robots` meta from a template is dropped there.
 
-Values are escaped, so `ctx.head` can only add tags to the head. For anything else (raw HTML, scripts, styles), write it in the template's own `<head>`.
+Values are escaped, so `ctx.head` can only add tags to the head. For a script, use `ctx.script` (see [Scripts](#scripts)): a `<script>` written by hand is blocked by the page's Content-Security-Policy. Other raw HTML and styles go in the template's own `<head>`.
 
 ### Routes in the sitemap
 
@@ -745,9 +771,146 @@ export const site = defineSite({
 - A redirect to an `https://` address, whether it comes from code, the admin, a CSV import or the MCP tools, doesn't pass the visitor's query string on. Redirects within the site still do.
 - Paths are case-sensitive. The one exception: a path with an uppercase letter that would otherwise be a 404 is redirected when something answers at its lowercase form. A page or a code route there gets a 301 to the lowercase path. A redirect rule there sends the visitor straight to the rule's target with the rule's own status, so a `302` rule stays a 302. That doesn't apply to reserved paths (`/admin`, `/media`, `/public` and the like) or to paths whose last segment contains a `.`.
 
+## Integrations
+
+An integration is a third-party script (a tag manager, analytics, a chat widget) that the site's developer ships in the release and the site's owner switches on in the admin. The developer writes the code, so an owner or an editor can never paste a script into a page, and Inlay knows every script the site uses. That is what lets public pages carry a strict [Content-Security-Policy](#security-headers) and keep gated scripts back until a visitor [consents](#consent).
+
+```tsx
+import { defineIntegration, defineSite, f, js, z } from 'inlaycms/site'
+
+export const tagManager = defineIntegration({
+  name: 'tag-manager',
+  label: 'Google Tag Manager',
+  description: 'Loads the tags set up in your Tag Manager container.',
+  fields: z.object({
+    containerId: f.text({ label: 'Container ID', pattern: /^GTM-[A-Z0-9]+$/, patternHint: 'It looks like GTM-ABC123.' }),
+  }),
+  consent: 'marketing',
+  csp: {
+    'script-src': ['https://www.googletagmanager.com'],
+    'img-src': ['https://www.googletagmanager.com'],
+    'connect-src': ['https://www.googletagmanager.com', 'https://www.google.com'],
+  },
+  head: ({ containerId }, page) =>
+    page.script(js`(function(w,d,s,l,i){w[l]=w[l]||[];w[l].push({'gtm.start':Date.now(),event:'gtm.js'});
+var f=d.getElementsByTagName(s)[0],j=d.createElement(s);j.async=true;
+j.src='https://www.googletagmanager.com/gtm.js?id='+i;f.parentNode.insertBefore(j,f)})(window,document,'script','dataLayer',${containerId})`),
+})
+
+export const site = defineSite({
+  ...,
+  integrations: [tagManager],
+})
+```
+
+The sources in `csp` above are a starting point, taken from Google's guide to Tag Manager and CSP (developers.google.com/tag-platform/security/guides/csp). What a container needs depends on the tags in it: Google Analytics, Google Ads, preview mode and the rest each need more sources, which that guide lists. Google also says that tags a container adds itself may need `'unsafe-inline'` in `script-src` (it recommends a nonce, which Inlay does not use, because a cached page can't carry one). Declaring `'unsafe-inline'` makes Inlay leave the page's script hashes out, so inline scripts are allowed (see [Security headers](#security-headers)), and `inlaycms check` warns about it.
+
+`defineIntegration` takes:
+
+- **`name`**: lowercase letters and digits with single hyphens, unique on the site. It is the key the settings are stored under, so renaming an integration makes a new one.
+- **`label`, `description`**: shown on the Integrations screen.
+- **`fields`**: what the owner fills in, as `z.object({ ... })`. Only `f.text`, `f.textarea`, `f.number`, `f.boolean` and `f.select`, at the top level. A field is required unless it ends in `.optional()`. Leave `fields` out and the integration is just an on/off switch. `pattern` on `f.text` (with an optional `patternHint` shown when it fails) is checked when an integration is switched on, and when content is published, not while an integration is saved switched off.
+- **`consent`**: `'analytics'`, `'marketing'` or `'functional'`. The integration's output then stays inert until the visitor agrees to that category (see [Consent](#consent)). Left out, it loads for everyone.
+- **`preview`**: `false` by default. In preview only integrations with `preview: true` render.
+- **`csp`**: the sources the integration needs, by directive. They are added to the page's policy only while the integration is switched on and its settings are valid.
+- **`head`, `bodyStart`, `bodyEnd`**: at least one. Each gets `(values, page)` and returns JSX or `null`, and may be async. The output goes just before `</head>`, just after `<body>` and just before `</body>`. A slot the template has no marker for is skipped. `page` is `{ path, locale, preview, script }`; on the 404 page `path` is an empty string.
+
+Integrations render in the order `defineSite` lists them, on every page that goes through Inlay's rendering: documents, singletons, the 404 page and a code route's `ctx.render`, in preview as noted above. They never render on Inlay's own pages (the site password screen, a preview that has expired), and never in the admin's editor pane. A render function that throws is logged with the integration's name and left out of that page, which renders as usual. An integration that is off, or whose saved values don't pass the fields, is not rendered and adds no CSP sources.
+
+Only an owner sees the **Integrations** screen in the admin. It is listed when the site defines at least one integration, and each integration has a switch, its fields, and notes on whether it waits for consent, runs in preview or loosens script protection. An editor, an API key and the MCP tools can't read or change integration settings. A save takes effect at once and clears the page cache: there is no draft or publish step. Settings are kept in the database, so backups, `export` and `import` carry them, and an integration a later release drops keeps its settings and comes back if a release defines it again.
+
+What an owner enters is written into the page, so it is public. A field that needs a secret belongs in `secrets`, read by a code route. Write any value you put into inline code through `js`, so a value can't end its script or run as code.
+
+### Scripts
+
+`ctx.script` (in templates and blocks) and `page.script` (in integrations) are the same function. A page's Content-Security-Policy allows an inline script only by its hash, and `script` records that hash:
+
+```tsx
+<>
+  {ctx.script(js`window.pageLocale = ${ctx.locale}`)}
+  {ctx.script({ src: 'https://widgets.example.com/chat.js', async: true })}
+</>
+```
+
+- **`script(code)`**: an inline `<script>`. `code` is a string or the result of `js`. Code that contains `</script`, `<!--` or a NUL character throws during the render. Line breaks are written as `\n`, the way the browser reads them.
+- **`script({ src, async?, defer?, type? })`**: an external `<script src>`. `src` must be a path on the site or an `https://` address, and `type` can be `'module'`. It doesn't add the address to the policy: declare its origin in `csp`.
+- **`` js`...` ``**: a tagged template that writes every `${value}` as JSON, with `<`, `>`, `&`, U+2028 and U+2029 escaped, so a value is data whatever it contains. Build inline code with `js`, not by joining strings.
+
+A bare `<script>` written in a template without `ctx.script` isn't hashed, so the browser blocks it. `<script src="/public/site.js">` needs no helper, because the site's own address is allowed.
+
+### Consent
+
+A gated integration (one with `consent`) is written into the page inside `<template data-inlay-consent="marketing">`. Nothing inside a `<template>` loads or runs, so no script, pixel, image or frame starts before the visitor agrees. Pages with at least one switched-on gated integration also load Inlay's small consent script from `/_inlay/consent.js`; other pages don't. Without JavaScript, gated integrations never load. The page itself is the same for every visitor and is cached as usual: consent is decided in the browser.
+
+The banner is the site's. The consent script gives it three calls:
+
+```ts
+window.inlay.consent.grant(categories: string[] | 'all'): void
+window.inlay.consent.revoke(categories: string[] | 'all'): void
+window.inlay.consent.get(): { decided: boolean; analytics: boolean; marketing: boolean; functional: boolean }
+```
+
+- **`grant`** records the choice and releases every matching `<template>` on the page, so its scripts run in document order, though a script with `async` doesn't hold up what follows it. Only scripts at the top level of an integration's output wait for each other: one wrapped in another element doesn't hold up what follows it. A template is released once. On every page load, the templates for categories already granted are released.
+- **`revoke`** records the choice. It can't unload what already ran, so it takes effect from the next page load: a banner that withdraws consent can reload the page.
+- **`get`** says what is granted. `decided` is `false` until the visitor has granted or revoked something, which is when a banner should show.
+- **`inlay:consent`** fires on `document` after every `grant` and `revoke`, and once on load, with the same object as `get()` in `detail`. An integration without `consent` that handles consent itself (such as Google's consent mode) can listen for it.
+
+The choice is kept in `localStorage` under `inlay-consent`, with its time, and counts as undecided again after 365 days. Nothing is sent to the server and no cookie is set. Inlay doesn't act on Global Privacy Control or Do Not Track. A minimal banner (the example site has one in `example/site.tsx` and `example/public/consent-banner.js`):
+
+```tsx
+<div id="consent-banner" hidden>
+  <p>May we count the pages you open?</p>
+  <button type="button" data-consent="accept">Accept</button>
+  <button type="button" data-consent="decline">Decline</button>
+</div>
+<script src={ctx.asset('consent-banner.js')} defer />
+```
+
+```js
+const banner = document.getElementById('consent-banner')
+// the consent script is only on pages with a switched-on gated integration
+const consent = window.inlay && window.inlay.consent
+if (banner && consent) {
+  const show = () => { banner.hidden = consent.get().decided }
+  show()
+  document.addEventListener('inlay:consent', show)
+  banner.querySelector('[data-consent="accept"]').addEventListener('click', () => consent.grant('all'))
+  banner.querySelector('[data-consent="decline"]').addEventListener('click', () => consent.revoke('all'))
+}
+```
+
+Inlay provides the gate, not the legal advice: which scripts need consent, and what the banner says, is up to the site.
+
 ## Security headers
 
-Every response carries `X-Content-Type-Options: nosniff`, `Referrer-Policy: strict-origin-when-cross-origin` and `Content-Security-Policy: frame-ancestors 'self'` (only the site itself may frame its pages). When the site's base URL is `https://`, responses also carry `Strict-Transport-Security: max-age=31536000`, so browsers keep to https for a year. The admin sends its own stricter policy, and a response that sets one of these headers itself keeps its own.
+Every response carries `X-Content-Type-Options: nosniff` and `Referrer-Policy: strict-origin-when-cross-origin`. Public responses (pages, files, routes, redirects, and the auth, MCP and push paths) also carry this `Content-Security-Policy`:
+
+```
+default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self'; connect-src 'self'; frame-src 'self'; media-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'self'
+```
+
+This is strict on purpose: the public site shares an origin with `/admin`, so a script on a page could act as whoever is signed in. It means a site's pages can load only from the site itself, so:
+
+- an inline script goes through `ctx.script` (see [Scripts](#scripts)), which adds its hash to `script-src` for that page. Each page's header is made with the page and cached with it, and a `304` carries the same header;
+- anything from outside the site (a font, an external image, a video embed) is declared in `defineSite({ csp })`;
+- inline `style` attributes and `<style>` elements still work (`style-src 'unsafe-inline'`).
+
+```ts
+export const site = defineSite({
+  ...,
+  csp: {
+    'img-src': ['https://images.example.com'],
+    'font-src': ['https://fonts.gstatic.com'],
+    'frame-src': ['https://www.youtube-nocookie.com'],
+  },
+})
+```
+
+The directives you can declare are `script-src`, `style-src`, `img-src`, `font-src`, `connect-src`, `frame-src`, `media-src`, `form-action` and `worker-src` (`worker-src 'self'` is added only when something declares it). A source is an origin (`https://images.example.com`, `https://*.example.com`, `wss://live.example.com`: lowercase, no path), a bare scheme such as `data:` or `blob:`, or one of the keywords `'unsafe-inline'`, `'unsafe-eval'` and `'wasm-unsafe-eval'`. Anything else, an unknown directive included, fails `inlaycms check`, `pack` and boot. A switched-on integration's `csp` is merged in beside the site's, each source once.
+
+Browsers ignore `'unsafe-inline'` in `script-src` when a hash is present. So when the site or a switched-on integration declares it, Inlay leaves the hashes out and inline scripts are simply allowed. `inlaycms check` warns about that, and about `'unsafe-eval'`, and the Integrations screen says so on the integration concerned. Public SVG files, the admin and the editor pane keep their own stricter policies.
+
+When the site's base URL is `https://`, responses also carry `Strict-Transport-Security: max-age=31536000`, so browsers keep to https for a year. A response that sets one of these headers itself keeps its own.
 
 A site changes or adds headers with `headers` in `defineSite`. A value replaces Inlay's default and `false` leaves the default out:
 
@@ -762,7 +925,7 @@ export const site = defineSite({
 })
 ```
 
-A CSP set here replaces the default one, so include `frame-ancestors` in it. If your reverse proxy already sends HSTS, set `'Strict-Transport-Security': false` so browsers don't get it twice.
+A CSP set here replaces the whole policy: Inlay then adds no hashes and no declared sources (the site's `csp` and its integrations'), so list what the site needs yourself and include `frame-ancestors`. `inlaycms check` warns when a site does this and also defines integrations. The release diff on push and on the Releases screen shows an integration added or removed and any change to what the site may load. If your reverse proxy already sends HSTS, set `'Strict-Transport-Security': false` so browsers don't get it twice.
 
 ## Site password
 

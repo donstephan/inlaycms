@@ -6,12 +6,30 @@ import type { AuthService } from '../../src/core/auth/service.js'
 import type { Core } from '../../src/core/core.js'
 import { InlayError } from '../../src/core/errors.js'
 import type { Ctx } from '../../src/core/types.js'
+import { z } from 'zod'
+import { f } from '../../src/core/fields/builtins.js'
+import { defineSite } from '../../src/core/registry/define.js'
+import { defineIntegration } from '../../src/core/registry/integration.js'
 import { adminSite } from '../fixtures/admin.js'
 import { jpeg, png } from '../fixtures/media.js'
 import { generateKeyPair } from '../../src/core/release/keys.js'
 import { packRelease } from '../../src/core/release/pack.js'
 import { makeApp } from '../helpers/app.js'
 import { parseHtml, signIn, submittedForm, type AdminClient } from '../helpers/admin.js'
+
+const withIntegration = defineSite({
+  ...adminSite,
+  integrations: [
+    defineIntegration({
+      name: 'gtm',
+      label: 'Tag manager',
+      description: 'Measures visits.',
+      consent: 'marketing',
+      fields: z.object({ id: f.text({ label: 'Container ID' }), mode: f.select(['basic', 'full'], { label: 'Mode' }), debug: f.boolean({ label: 'Debug' }).optional() }),
+      head: () => '',
+    }),
+  ],
+})
 
 const FORM = '#editor-form'
 const SAVE = { name: '_action', value: 'save' }
@@ -118,7 +136,7 @@ describe('admin accessibility sweep', () => {
   let olivia: AdminClient
 
   beforeEach(async () => {
-    ;({ app, core, owner, service } = await makeApp({ withOwner: true, site: adminSite }))
+    ;({ app, core, owner, service } = await makeApp({ withOwner: true, site: withIntegration }))
     await app.ready()
     olivia = await signIn(app, 'owner@example.com')
   })
@@ -183,6 +201,7 @@ describe('admin accessibility sweep', () => {
       '/admin/account',
       '/admin/backups',
       '/admin/security',
+      '/admin/integrations',
       `/admin/publish?ids=${kitchen.id}`,
       '/admin/search?q=hello',
     ]

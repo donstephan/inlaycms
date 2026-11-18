@@ -8,7 +8,7 @@ import { markdownToInlineText } from '../../src/core/richtext/inline.js'
 import type { RenderContext } from '../../src/core/registry/render.js'
 import type { RichTextDoc } from '../../src/core/richtext/schema.js'
 import { plainText } from '../../src/site.js'
-import type { Renderable } from '../../src/jsx/html.js'
+import { raw, type Renderable } from '../../src/jsx/html.js'
 import { Page, webSite } from '../fixtures/web.js'
 import { makeCore } from '../helpers/core.js'
 
@@ -222,6 +222,11 @@ describe('inline text', () => {
     ],
   }
 
+  const codeDoc: RichTextDoc = {
+    type: 'doc',
+    content: [{ type: 'codeBlock', attrs: { language: 'ts' }, content: [{ type: 'text', text: 'a < b' }] }],
+  }
+
   async function renderWith(
     body: (ctx: RenderContext) => Renderable,
     prepare?: (w: Awaited<ReturnType<typeof world>>) => Promise<void>,
@@ -281,6 +286,24 @@ describe('inline text', () => {
   it('renders inline text with its <p> through ctx.richText', async () => {
     const html = await renderWith((ctx) => <div>{ctx.richText(inlineDoc('**Big** news'))}</div>)
     expect(html).toContain('<div><p><strong>Big</strong> news</p></div>')
+  })
+
+  it('passes a highlighter through ctx.richText', async () => {
+    const html = await renderWith((ctx) => (
+      <div>{ctx.richText(codeDoc, { highlight: () => raw('<i>hl</i>') })}</div>
+    ))
+    expect(html).toContain('<pre><code class="language-ts"><i>hl</i></code></pre>')
+  })
+
+  it('renders code escaped without options', async () => {
+    const html = await renderWith((ctx) => <div>{ctx.richText(codeDoc)}</div>)
+    expect(html).toContain('<pre><code class="language-ts">a &lt; b</code></pre>')
+  })
+
+  it('adds heading ids only on request', async () => {
+    const d = { type: 'doc', content: [{ type: 'heading', attrs: { level: 2 }, content: [{ type: 'text', text: 'Hello there' }] }] } as RichTextDoc
+    expect(await renderWith((ctx) => <div>{ctx.richText(d, { headingIds: true })}</div>)).toContain('<h2 id="hello-there">Hello there</h2>')
+    expect(await renderWith((ctx) => <div>{ctx.richText(d)}</div>)).toContain('<h2>Hello there</h2>')
   })
 
   it('gives the plain text through plainText', () => {

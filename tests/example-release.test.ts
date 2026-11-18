@@ -28,6 +28,10 @@ describe('the example site as a release', () => {
     const loaded = await readRelease(out, { dir: releaseDir, trustedKeys: [publicKey] })
 
     expect(loaded.site.routes.map((r) => `${r.method} ${r.path}`)).toContain('POST /contact')
+    expect((loaded.manifest.integrations ?? []).map((i) => i.name)).toEqual(['visit-counter'])
+    expect(loaded.site.integrations.map((i) => i.name)).toEqual(['visit-counter'])
+    expect(existsSync(join(releaseDir, 'public/visits.js'))).toBe(true)
+    expect(existsSync(join(releaseDir, 'public/consent-banner.js'))).toBe(true)
     expect(loaded.site.secrets).toContain('SLACK_WEBHOOK')
     expect(loaded.manifest.secrets).toContain('SLACK_WEBHOOK')
     expect(loaded.site.content.flatMap((c) => c.documents.map((d) => `${c.type}/${d.key}`))).toContain('home/home')

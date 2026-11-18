@@ -16,6 +16,7 @@ import { manifestOfRegistry, manifestSchema, satisfies, type ReleaseManifest } f
 import { packRelease } from '../../src/core/release/pack.js'
 import { INLAY_ENTRIES, loadRelease, openRelease, readRelease } from '../../src/core/release/read.js'
 import { defineSite } from '../../src/core/registry/define.js'
+import { defineIntegration } from '../../src/core/registry/integration.js'
 import { defineRoute } from '../../src/core/registry/route.js'
 import { buildRegistry } from '../../src/core/registry/registry.js'
 import { t } from '../../src/core/messages/index.js'
@@ -126,6 +127,30 @@ describe('packRelease', () => {
       { from: '/old-landing', to: '/', status: 302 },
       { from: '/2019/:slug', to: '/blog/:slug', status: 301 },
     ])
+  })
+
+  it('lists the site csp and its integrations, only when it has them', () => {
+    const now = new Date(Date.UTC(2026, 10, 4))
+    const site = defineSite({
+      locales: ['en'],
+      defaultLocale: 'en',
+      csp: { 'img-src': ['https://i.example'] },
+      integrations: [
+        defineIntegration({ name: 'gtm', label: 'Tag Manager', consent: 'marketing', csp: { 'script-src': ['https://t.example'] }, head: () => '' }),
+        defineIntegration({ name: 'chat', label: 'Chat', head: () => '' }),
+      ],
+    })
+    const manifest = manifestOfRegistry(buildRegistry(site), { name: 'x', now })
+    expect(manifest.csp).toEqual({ 'img-src': ['https://i.example'] })
+    expect(manifest.integrations).toEqual([
+      { name: 'gtm', label: 'Tag Manager', consent: 'marketing', csp: { 'script-src': ['https://t.example'] } },
+      { name: 'chat', label: 'Chat' },
+    ])
+    expect(manifestSchema.parse(manifest)).toEqual(manifest)
+    const plain = manifestOfRegistry(buildRegistry(defineSite({ locales: ['en'], defaultLocale: 'en' })), { name: 'x', now })
+    expect(plain).not.toHaveProperty('csp')
+    expect(plain).not.toHaveProperty('integrations')
+    expect(manifestSchema.parse(plain)).toEqual(plain)
   })
 
   it('a release names the site folder it was packed from, and loading from source names it too', async () => {

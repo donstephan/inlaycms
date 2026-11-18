@@ -65,7 +65,7 @@ describe('database', () => {
     await migrateSystem(db);
     const tables = await sql<{ name: string }>`SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%' AND name NOT LIKE 'kysely_%'`.execute(db);
     expect(tables.rows.map((t) => t.name).sort()).toEqual(
-      ['documents', 'media', 'media_deletions', 'publish_events', 'redirects', 'refs', 'release_migrations', 'releases', 'revisions', 'site_lock', 'token_cutoffs'],
+      ['documents', 'integrations', 'media', 'media_deletions', 'publish_events', 'redirects', 'refs', 'release_migrations', 'releases', 'revisions', 'site_lock', 'token_cutoffs'],
     );
     const columns = await sql<{ name: string }>`SELECT name FROM pragma_table_info('revisions')`.execute(db);
     expect(columns.rows.map((c) => c.name)).not.toContain('versions');
@@ -91,7 +91,7 @@ describe('database', () => {
 
   it('reports pending system migrations', async () => {
     await new Migrator({ db, provider: { getMigrations: async () => ({ '0001_content': m0001 }) } }).migrateToLatest();
-    expect(await pendingSystemMigrations(db)).toEqual(['0002_media', '0003_redirects', '0004_token_cutoffs', '0005_site_lock', '0006_releases', '0007_published_at']);
+    expect(await pendingSystemMigrations(db)).toEqual(['0002_media', '0003_redirects', '0004_token_cutoffs', '0005_site_lock', '0006_releases', '0007_published_at', '0008_integrations']);
     await migrateSystem(db);
     expect(await pendingSystemMigrations(db)).toEqual([]);
   });

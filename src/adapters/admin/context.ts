@@ -27,6 +27,7 @@ export type Section =
   | 'users'
   | 'backups'
   | 'releases'
+  | 'integrations'
   | 'security'
   | 'account'
 
@@ -46,6 +47,7 @@ export const NOTICES: Record<string, { id: MessageId; params?: readonly string[]
   siteLocked: { id: 'admin.notice.siteLocked' },
   siteUnlocked: { id: 'admin.notice.siteUnlocked' },
   sitePasswordSaved: { id: 'admin.notice.sitePasswordSaved' },
+  integrationSaved: { id: 'admin.notice.integrationSaved' },
   passwordChanged: { id: 'admin.notice.passwordChanged' },
   userAdded: { id: 'admin.notice.userAdded' },
   userUpdated: { id: 'admin.notice.userUpdated' },

@@ -40,6 +40,19 @@ describe('PageCache', () => {
     expect(cache.get('a')?.body).toBe('fresh')
   })
 
+  it('keeps a response\'s content-security-policy, and an ETag that changes with it', () => {
+    const plain = response(200, 'a', 'text/html')
+    expect(plain.csp).toBeUndefined()
+    const one = response(200, 'a', 'text/html', "script-src 'self' 'sha256-x'")
+    const two = response(200, 'a', 'text/html', "script-src 'self' 'sha256-y'")
+    expect(one.csp).toBe("script-src 'self' 'sha256-x'")
+    expect(one.etag).not.toBe(two.etag)
+    expect(response(200, 'a', 'text/html', "script-src 'self' 'sha256-x'").etag).toBe(one.etag)
+    const cache = new PageCache(2)
+    cache.set('a', one, 0)
+    expect(cache.get('a')?.csp).toBe("script-src 'self' 'sha256-x'")
+  })
+
   it('does not grow when the same key is set again', () => {
     const cache = new PageCache(5)
     cache.set('404:en', page('x'), 0)

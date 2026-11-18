@@ -1,4 +1,6 @@
-import { richTextToHtml } from '../../src/core/richtext/html.js'
+import { raw } from '../../src/jsx/html.js'
+import { richTextHeadings } from '../../src/core/richtext/headings.js'
+import { richTextToHtml, type CodeHighlighter } from '../../src/core/richtext/html.js'
 import { DEFAULT_RICH_TEXT, parseRichText, type RichTextDoc } from '../../src/core/richtext/schema.js'
 
 const uuid = '6f1c2b1e-8a3d-4b7e-9c2a-000000000001'
@@ -120,5 +122,101 @@ describe('richTextToHtml tables', () => {
   it('renders a header-only table without tbody', () => {
     const d = doc({ type: 'table', content: [row(cell('tableHeader', text('A')))] })
     expect(richTextToHtml(d, resolve)).toBe('<table><thead><tr><th>A</th></tr></thead></table>')
+  })
+})
+
+describe('code blocks', () => {
+  const code = (s: string, language?: string) =>
+    doc({ type: 'codeBlock', ...(language ? { attrs: { language } } : {}), content: [text(s)] })
+
+  it('renders escaped code with a language class', () => {
+    expect(richTextToHtml(code('a < b && c\n  d', 'ts'), resolve)).toBe(
+      '<pre><code class="language-ts">a &lt; b &amp;&amp; c\n  d</code></pre>',
+    )
+  })
+
+  it('renders without a class when there is no language', () => {
+    expect(richTextToHtml(code('x'), resolve)).toBe('<pre><code>x</code></pre>')
+  })
+
+  it('keeps a language like c# as written', () => {
+    expect(richTextToHtml(code('x', 'c#'), resolve)).toContain('class="language-c#"')
+  })
+
+  it('puts highlighter output inside the core wrapper', () => {
+    const highlight = vi.fn(() => raw('<span class="k">const</span>'))
+    expect(richTextToHtml(code('const', 'ts'), resolve, { highlight })).toBe(
+      '<pre><code class="language-ts"><span class="k">const</span></code></pre>',
+    )
+    expect(highlight).toHaveBeenCalledWith('const', 'ts')
+  })
+
+  it('passes undefined when there is no language', () => {
+    const highlight = vi.fn(() => null)
+    richTextToHtml(code('x'), resolve, { highlight })
+    expect(highlight).toHaveBeenCalledWith('x', undefined)
+  })
+
+  it('falls back to escaped text when the highlighter returns null', () => {
+    expect(richTextToHtml(code('<a>', 'ts'), resolve, { highlight: () => null })).toContain('&lt;a&gt;')
+  })
+
+  it('escapes a plain string from the highlighter', () => {
+    const highlight = (() => '<b>') as unknown as CodeHighlighter
+    expect(richTextToHtml(code('x', 'ts'), resolve, { highlight })).toContain('&lt;b&gt;')
+  })
+
+  it('renders a doc without code blocks the same with or without options', () => {
+    expect(richTextToHtml(full, resolve, {})).toBe(richTextToHtml(full, resolve))
+  })
+})
+
+describe('heading ids', () => {
+  const h = (t: string, level = 2) => ({ type: 'heading', attrs: { level }, content: [text(t)] })
+  const many = doc(
+    h('A'),
+    h('A'),
+    h('A 2'),
+    h('!!!'),
+    h('Créer un site'),
+    h('  Two   words  '),
+    { type: 'heading', attrs: { level: 3 }, content: [text('Run '), { type: 'text', text: 'npm test', marks: [{ type: 'code' }] }] },
+  )
+  const ids = ['a', 'a-2', 'a-2-2', 'section', 'créer-un-site', 'two-words', 'run-npm-test']
+
+  it('adds no ids by default', () => {
+    expect(richTextToHtml(doc(h('Packing a release')), resolve)).toBe('<h2>Packing a release</h2>')
+  })
+
+  it('adds ids on request, with an optional prefix', () => {
+    expect(richTextToHtml(doc(h('Packing a release')), resolve, { headingIds: true })).toBe('<h2 id="packing-a-release">Packing a release</h2>')
+    expect(richTextToHtml(doc(h('Packing a release')), resolve, { headingIds: { prefix: 'doc-' } })).toContain('id="doc-packing-a-release"')
+  })
+
+  it('keeps ids unique and matches richTextHeadings', () => {
+    const html = richTextToHtml(many, resolve, { headingIds: true })
+    expect([...html.matchAll(/ id="([^"]+)"/g)].map((m) => m[1])).toEqual(ids)
+    const list = richTextHeadings(many)
+    expect(list.map((x) => x.id)).toEqual(ids)
+    expect(list[6]).toEqual({ level: 3, text: 'Run npm test', id: 'run-npm-test' })
+    expect(richTextHeadings(many, { prefix: 'p-' }).map((x) => x.id)).toEqual(ids.map((i) => `p-${i}`))
+  })
+
+  it('numbers headings in blockquotes in document order', () => {
+    const d = doc(h('Hi'), { type: 'blockquote', content: [h('Hi')] }, h('Hi'))
+    const html = richTextToHtml(d, resolve, { headingIds: true })
+    expect([...html.matchAll(/ id="([^"]+)"/g)].map((m) => m[1])).toEqual(['hi', 'hi-2', 'hi-3'])
+    expect(richTextHeadings(d).map((x) => x.id)).toEqual(['hi', 'hi-2', 'hi-3'])
+  })
+
+  it('keeps combining marks in ids', () => {
+    const d = doc(h('हिन्दी'), h('Crème brûlée'.normalize('NFD')))
+    expect(richTextHeadings(d).map((x) => x.id)).toEqual(['हिन्दी', 'crème-brûlée'])
+    expect(richTextToHtml(d, resolve, { headingIds: true })).toContain('id="हिन्दी"')
+  })
+
+  it('gives no headings for no doc', () => {
+    expect(richTextHeadings(null)).toEqual([])
+    expect(richTextHeadings(undefined)).toEqual([])
   })
 })

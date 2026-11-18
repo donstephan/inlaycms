@@ -117,6 +117,17 @@ export interface TokenCutoffsTable {
   before: number;
 }
 
+/** Integration settings: one row per integration the owner has saved. */
+export interface IntegrationsTable {
+  name: string;
+  /** 0 or 1. */
+  enabled: number;
+  /** JSON object of the saved field values. */
+  data: string;
+  updated_at: string;
+  updated_by: string | null;
+}
+
 /** The site password lock: at most one row (`id = 1`). */
 export interface SiteLockTable {
   id: number;
@@ -163,6 +174,7 @@ export interface Database {
   redirects: RedirectsTable;
   token_cutoffs: TokenCutoffsTable;
   site_lock: SiteLockTable;
+  integrations: IntegrationsTable;
   releases: ReleasesTable;
   release_migrations: ReleaseMigrationsTable;
   user: UserTable;

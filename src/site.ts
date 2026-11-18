@@ -41,6 +41,15 @@ export {
   type TypeDef,
 } from './core/registry/define.js'
 export {
+  defineIntegration,
+  type ConsentCategory,
+  type CspDirective,
+  type CspSources,
+  type IntegrationDef,
+  type IntegrationPage,
+  type IntegrationRender,
+} from './core/registry/integration.js'
+export {
   defineRoute,
   type QueryApi,
   type RouteContext,
@@ -64,6 +73,8 @@ export type {
   QueryOptions,
   QueryResult,
   RenderContext,
+  ScriptApi,
+  ScriptInput,
   ResolvedFile,
   ResolvedImage,
   ResolvedLink,
@@ -85,5 +96,8 @@ export type {
 export function plainText(doc: RichTextDoc | null | undefined): string {
   return doc ? richTextText(doc) : ''
 }
+export { js, JsCode } from './core/registry/js.js'
+export { richTextHeadings, type RichTextHeading } from './core/richtext/headings.js'
 export type { RichTextDoc }
+export type { CodeHighlighter, RichTextRenderOptions } from './core/richtext/html.js'
 export type { RichTextFeature, RichTextOptions } from './core/richtext/schema.js'

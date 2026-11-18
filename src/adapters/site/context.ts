@@ -16,7 +16,7 @@ import type {
   ResolvedLink,
 } from '../../core/registry/render.js'
 import type { QueryApi } from '../../core/registry/route.js'
-import { richTextToHtml, type RichTextResolver } from '../../core/richtext/html.js'
+import { richTextToHtml, type RichTextRenderOptions, type RichTextResolver } from '../../core/richtext/html.js'
 import { inlineTextToHtml } from '../../core/richtext/inline.js'
 import type { RichTextDoc } from '../../core/richtext/schema.js'
 import { encodePath } from '../../core/site/paths.js'
@@ -32,6 +32,7 @@ import type {
 } from '../../core/types.js'
 import { publicAssets, type PublicAssets } from './assets.js'
 import { createHeadCollector, type CollectedHead } from './head.js'
+import { createScriptCollector } from './scripts.js'
 import { escapeHtml, raw, type SafeHtml } from '../../jsx/html.js'
 
 export interface RenderContextOptions {
@@ -50,6 +51,8 @@ export type PreloadingRenderContext = RenderContext & {
   preloadData(template: TemplateDef, data: DocumentData): Promise<void>
   /** What `head` collected so far. */
   headTags(): CollectedHead
+  /** The hashes of the inline scripts written through `script` so far. */
+  scriptHashes(): string[]
 }
 
 /** Rich text images get this width as `src` when the original is at least as wide. */
@@ -151,6 +154,7 @@ export function createRenderContext(core: Core, opts: RenderContextOptions): Pre
   const collections = new Map<string, Promise<LiveDocument[]>>()
   const globals = new Map<string, Promise<LiveDocument | null>>()
   const head = createHeadCollector()
+  const scripts = createScriptCollector()
 
   /**
    * Whether `doc` can be shown as is. In preview, a draft that isn't complete can't: an entry is
@@ -242,8 +246,8 @@ export function createRenderContext(core: Core, opts: RenderContextOptions): Pre
     },
   }
 
-  function richText(doc: RichTextDoc | null | undefined): SafeHtml {
-    return raw(doc ? richTextToHtml(doc, resolver) : '')
+  function richText(doc: RichTextDoc | null | undefined, opts?: RichTextRenderOptions): SafeHtml {
+    return raw(doc ? richTextToHtml(doc, resolver, opts) : '')
   }
 
   function inline(value: RichTextDoc | string | null | undefined): SafeHtml {
@@ -329,6 +333,7 @@ export function createRenderContext(core: Core, opts: RenderContextOptions): Pre
     baseUrl: opts.baseUrl,
     asset: (path) => assets.url(path),
     head: head.api,
+    script: scripts.api,
     alternates: opts.alternates,
     image,
     file,
@@ -341,6 +346,7 @@ export function createRenderContext(core: Core, opts: RenderContextOptions): Pre
     preload,
     preloadData,
     headTags: head.collected,
+    scriptHashes: scripts.hashes,
   }
 }
 

@@ -11,6 +11,7 @@ import { escapeHtml, raw, renderToString, toHtml, type SafeHtml } from '../../js
 import type { PublicAssets } from './assets.js'
 import { createRenderContext, type PreloadingRenderContext } from './context.js'
 import { buildHead, injectHead } from './head.js'
+import { injectIntegrations, type IntegrationPageInfo, type SiteIntegrations } from './integrations.js'
 import { isHomePath, mediaShareImage, pageTitle, resolveSeoDefaults } from './seo.js'
 
 const DOCTYPE = /^\s*<!doctype\s/i
@@ -63,25 +64,43 @@ function withPreviewBanner(html: string, release?: string): string {
   return `${html.slice(0, at)}${banner}${html.slice(at)}`
 }
 
+/** A rendered page and the `'sha256-…'` hashes of the inline scripts it wrote through `ctx.script`. */
+export interface RenderedPage {
+  html: string
+  scriptHashes: string[]
+}
+
+type PageOptions = {
+  state: LiveState
+  page: number
+  baseUrl: string
+  release?: string
+  assets?: PublicAssets
+  /** Renders the site's active integrations into the page; without it, none are. */
+  integrations?: SiteIntegrations
+}
+
 /**
  * Renders `doc` through its template, with its enabled slots rendered by their blocks. Render errors propagate.
  * In preview the page gets the preview banner (naming `release`, the name of the staged release previewed, when
  * given), and a draft that fails strict validation gets a list of its problems instead of its template.
  */
-export async function renderPage(
-  core: Core,
-  doc: LiveDocument,
-  opts: { state: LiveState; page: number; baseUrl: string; release?: string; assets?: PublicAssets },
-): Promise<string> {
+export async function renderPage(core: Core, doc: LiveDocument, opts: PageOptions): Promise<string> {
+  return (await renderPageResult(core, doc, opts)).html
+}
+
+/** `renderPage`, with the hashes of the page's inline scripts. */
+export async function renderPageResult(core: Core, doc: LiveDocument, opts: PageOptions): Promise<RenderedPage> {
   const { release, ...render } = opts
   if (render.state !== 'preview') return renderTemplate(core, doc, render)
   const checked = validateContent(core.registry, doc.type, doc.data, 'strict')
   if (!checked.ok) {
     const items = checked.issues.map((issue) => `<li>${escapeHtml(issue.message)}</li>`).join('')
     const body = raw(`<p>${escapeHtml(t('preview.incomplete'))}</p><ul>${items}</ul>`)
-    return withPreviewBanner(catalogDocument('preview.incomplete.title', body), release)
+    return { html: withPreviewBanner(catalogDocument('preview.incomplete.title', body), release), scriptHashes: [] }
   }
-  return withPreviewBanner(await renderTemplate(core, doc, render), release)
+  const rendered = await renderTemplate(core, doc, render)
+  return { html: withPreviewBanner(rendered.html, release), scriptHashes: rendered.scriptHashes }
 }
 
 export type PaneResult = { ok: true; html: string } | { ok: false; issues: ContentIssue[] }
@@ -100,7 +119,7 @@ export async function renderPane(
   if (doc.path === null) throw new InlayError('invalid_operation', 'error.paneNoPath', { title: doc.title })
   const checked = validateContent(core.registry, doc.type, doc.data, 'strict')
   if (!checked.ok) return { ok: false, issues: checked.issues }
-  return { ok: true, html: await renderTemplate(core, doc, { ...opts, state: 'preview' }, { pane: true }) }
+  return { ok: true, html: (await renderTemplate(core, doc, { ...opts, state: 'preview' }, { pane: true })).html }
 }
 
 /** `template` rendered with `data` and its enabled slots rendered by their blocks: the page before its head is added. */
@@ -130,12 +149,23 @@ async function renderBody(
 
 const withDoctype = (html: string) => (DOCTYPE.test(html) ? html : `<!doctype html>${html}`)
 
+/** `html` with the active integrations rendered for `page` through `ctx.script`, when `integrations` is given. */
+async function withIntegrations(
+  html: string,
+  integrations: SiteIntegrations | undefined,
+  page: IntegrationPageInfo,
+  ctx: PreloadingRenderContext,
+): Promise<string> {
+  if (!integrations) return html
+  return injectIntegrations(html, await integrations.render(page, ctx.script))
+}
+
 async function renderTemplate(
   core: Core,
   doc: LiveDocument,
-  opts: { state: LiveState; page: number; baseUrl: string; assets?: PublicAssets },
+  opts: { state: LiveState; page: number; baseUrl: string; assets?: PublicAssets; integrations?: SiteIntegrations },
   internal: { pane?: boolean } = {},
-): Promise<string> {
+): Promise<RenderedPage> {
   const { template } = core.registry.getType(doc.type)
   if (!template.render) throw new InlayError('config', 'config.renderMissing', { name: template.name })
 
@@ -189,7 +219,21 @@ async function renderTemplate(
       out = `${out.slice(0, at)}<base href="${escapeHtml(doc.path)}">${out.slice(at)}`
     }
   }
-  return withDoctype(out)
+  if (!internal.pane) {
+    out = await withIntegrations(out, opts.integrations, { path: page.path, locale: doc.locale, preview: ctx.preview }, ctx)
+  }
+  return { html: withDoctype(out), scriptHashes: ctx.scriptHashes() }
+}
+
+type TemplateDataOptions = {
+  locale: string
+  path: string
+  baseUrl: string
+  canonical?: string | null
+  assets?: PublicAssets
+  preview?: boolean
+  /** Renders the site's active integrations into the page; without it, none are. */
+  integrations?: SiteIntegrations
 }
 
 /**
@@ -201,8 +245,18 @@ export async function renderTemplateData(
   core: Core,
   template: TemplateDef,
   data: DocumentData,
-  opts: { locale: string; path: string; baseUrl: string; canonical?: string | null; assets?: PublicAssets; preview?: boolean },
+  opts: TemplateDataOptions,
 ): Promise<string> {
+  return (await renderTemplateResult(core, template, data, opts)).html
+}
+
+/** `renderTemplateData`, with the hashes of the page's inline scripts. */
+export async function renderTemplateResult(
+  core: Core,
+  template: TemplateDef,
+  data: DocumentData,
+  opts: TemplateDataOptions,
+): Promise<RenderedPage> {
   const ctx = createRenderContext(core, {
     locale: opts.locale,
     state: 'published',
@@ -240,7 +294,9 @@ export async function renderTemplateData(
     preview: opts.preview === true,
     collected: ctx.headTags(),
   })
-  return withDoctype(injectHead(html, head))
+  const at = { path: opts.path, locale: opts.locale, preview: opts.preview === true }
+  const out = await withIntegrations(injectHead(html, head), opts.integrations, at, ctx)
+  return { html: withDoctype(out), scriptHashes: ctx.scriptHashes() }
 }
 
 type Seo = { title?: string; description?: string; image?: ImageValue }

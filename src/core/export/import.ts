@@ -100,6 +100,7 @@ export async function planImport(site: SiteDefinition, bundle: ExportBundle, now
       media: { files: bundle.media.length, damaged: bundle.damaged.map((m) => m.filename) },
       redirects: { count: bundle.redirects.length },
       shipped: await shippedTitles(stage),
+      integrations: manifest.integrations ? manifest.integrations.map((r) => ({ name: r.name, enabled: r.enabled })) : null,
       siteLock: manifest.siteLock
         ? {
             enabled: manifest.siteLock.enabled,
@@ -187,7 +188,12 @@ export async function importContent(opts: ImportOptions): Promise<ImportResult> 
           })
         }
       }
-      replaced = await replaceContent(opts.db, stage.db, bundle.manifest.siteLock)
+      replaced = await replaceContent(
+        opts.db,
+        stage.db,
+        bundle.manifest.siteLock,
+        bundle.manifest.integrations && { rows: bundle.manifest.integrations, now: (opts.now?.() ?? new Date()).toISOString(), by: opts.ctx.actor.id },
+      )
     } catch (e) {
       if (store) await removeUnusedMedia(opts.db, store, added)
       throw e

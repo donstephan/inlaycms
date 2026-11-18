@@ -1,8 +1,10 @@
 import type { z } from 'zod'
 import type { SafeHtml } from '../../jsx/html.js'
 import type { VariantFormat } from '../media/variants.js'
+import type { RichTextRenderOptions } from '../richtext/html.js'
 import type { RichTextDoc } from '../richtext/schema.js'
 import type { FileValue, ImageValue, LinkValue } from '../types.js'
+import type { JsCode } from './js.js'
 import type { CollectionDef, GlobalDef, TemplateDef } from './define.js'
 
 export interface ResolvedImage {
@@ -104,6 +106,12 @@ export interface HeadApi {
   link(attrs: HeadLink): void
 }
 
+/** What `ctx.script` takes: inline code, or an external script. */
+export type ScriptInput = string | JsCode | { src: string; async?: boolean; defer?: boolean; type?: 'module' }
+
+/** Writes a `<script>` and records its hash for the page's Content-Security-Policy. Throws on unsafe code or `src`. */
+export type ScriptApi = (input: ScriptInput) => SafeHtml
+
 export interface RenderContext {
   locale: string
   defaultLocale: string
@@ -115,13 +123,15 @@ export interface RenderContext {
   asset(path: string): string
   /** Tags for the page's `<head>`, collected during this render. */
   head: HeadApi
+  /** A `<script>` for the page, to put in the template's output; inline code is allowed by the page's CSP by its hash. */
+  script: ScriptApi
   alternates: Array<{ locale: string; path: string; fallback: boolean }>
   /** Alt is the value's, then the media's default, then `''`. `null` when the media is missing. */
   image(v: ImageValue | null | undefined): ResolvedImage | null
   file(v: FileValue | null | undefined): ResolvedFile | null
   /** `null` when the target document isn't live. Text is the value's, then the target's title, then the URL. */
   link(v: LinkValue | null | undefined): ResolvedLink | null
-  richText(doc: RichTextDoc | null | undefined): SafeHtml
+  richText(doc: RichTextDoc | null | undefined, opts?: RichTextRenderOptions): SafeHtml
   /** An inline-text value's first paragraph without its `<p>`, for a heading or a tagline. A string is escaped. */
   inline(value: RichTextDoc | string | null | undefined): SafeHtml
   /** Live entries in the given order; ones that aren't live are skipped. */

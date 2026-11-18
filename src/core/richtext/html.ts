@@ -1,4 +1,5 @@
-import { escapeHtml } from '../../jsx/html.js'
+import { escapeHtml, SafeHtml } from '../../jsx/html.js'
+import { richTextHeadings } from './headings.js'
 import { isRichTextHref, type RichTextDoc, type RichTextInline, type RichTextMark, type RichTextNode, type RichTextTableRow } from './schema.js'
 
 export interface RichTextImageHtml {
@@ -13,6 +14,14 @@ export interface RichTextResolver {
   /** The encoded `href` of a document's page, or `null` if it has none. */
   link(groupId: string): string | null
   image(id: string, alt: string | undefined): RichTextImageHtml | null
+}
+
+/** Highlights code: the inside of `<code>` as `SafeHtml`, or `null` to leave it plain. */
+export type CodeHighlighter = (code: string, language: string | undefined) => SafeHtml | null
+
+export interface RichTextRenderOptions {
+  highlight?: CodeHighlighter
+  headingIds?: boolean | { prefix: string }
 }
 
 type OpenMark = { key: string; open: string; close: string }
@@ -65,15 +74,18 @@ export function richTextInlineHtml(nodes: RichTextInline[], resolve: RichTextRes
   return out
 }
 
-function block(node: RichTextNode, resolve: RichTextResolver): string {
-  const children = (nodes: RichTextNode[] | undefined) => (nodes ?? []).map((n) => block(n, resolve)).join('')
+type HeadingIds = { ids: string[]; next: number }
+
+function block(node: RichTextNode, resolve: RichTextResolver, opts: RichTextRenderOptions, headings: HeadingIds | null): string {
+  const children = (nodes: RichTextNode[] | undefined) => (nodes ?? []).map((n) => block(n, resolve, opts, headings)).join('')
   switch (node.type) {
     case 'paragraph':
       return `<p>${richTextInlineHtml(node.content ?? [], resolve)}</p>`
     case 'heading': {
       const level = node.attrs.level
       const tag = Number.isInteger(level) && level >= 1 && level <= 6 ? `h${level}` : 'p'
-      return `<${tag}>${richTextInlineHtml(node.content ?? [], resolve)}</${tag}>`
+      const id = headings ? headings.ids[headings.next++] ?? null : null
+      return `<${tag}${attr('id', id)}>${richTextInlineHtml(node.content ?? [], resolve)}</${tag}>`
     }
     case 'bulletList':
       return `<ul>${children(node.content)}</ul>`
@@ -96,6 +108,13 @@ function block(node: RichTextNode, resolve: RichTextResolver): string {
         '</table>'
       )
     }
+    case 'codeBlock': {
+      const code = node.content?.[0]?.text ?? ''
+      const language = node.attrs?.language
+      const out = opts.highlight?.(code, language)
+      const inside = out instanceof SafeHtml ? out.value : escapeHtml(out === null || out === undefined ? code : String(out))
+      return `<pre><code${attr('class', language ? `language-${language}` : null)}>${inside}</code></pre>`
+    }
     case 'tableRow':
     case 'tableHeader':
     case 'tableCell':
@@ -106,6 +125,8 @@ function block(node: RichTextNode, resolve: RichTextResolver): string {
 }
 
 /** The doc as HTML. Every text and attribute is escaped; only Inlay's own tags are emitted. */
-export function richTextToHtml(doc: RichTextDoc, resolve: RichTextResolver): string {
-  return doc.content.map((node) => block(node, resolve)).join('')
+export function richTextToHtml(doc: RichTextDoc, resolve: RichTextResolver, opts: RichTextRenderOptions = {}): string {
+  const ids = opts.headingIds
+  const headings = ids ? { ids: richTextHeadings(doc, { prefix: typeof ids === 'object' ? ids.prefix : '' }).map((h) => h.id), next: 0 } : null
+  return doc.content.map((node) => block(node, resolve, opts, headings)).join('')
 }

@@ -16,6 +16,7 @@ export type Action =
   | 'redirects.write'
   | 'users.manage'
   | 'site.protect'
+  | 'integrations.manage'
   | 'release.push'
   | 'release.activate'
   | 'release.manage'
@@ -29,6 +30,7 @@ const OWNER_ONLY: ReadonlySet<Action> = new Set<Action>([
   'content.import',
   'users.manage',
   'site.protect',
+  'integrations.manage',
   'release.push',
   'release.activate',
   'release.manage',

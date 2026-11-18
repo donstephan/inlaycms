@@ -2,9 +2,11 @@ import { createServer, type RequestListener } from 'node:http'
 import type { AddressInfo } from 'node:net'
 import { drainable } from '../../src/host/drain.js'
 
-async function start(handler: RequestListener) {
+async function start(handler: RequestListener, graceMs?: number) {
   const server = createServer(handler)
-  const drain = drainable(server)
+  // Fastify's default, which it also tells clients in Keep-Alive: they keep an idle connection for over a minute.
+  server.keepAliveTimeout = 72_000
+  const drain = drainable(server, graceMs)
   await new Promise<void>((done) => server.listen(0, '127.0.0.1', done))
   const url = `http://127.0.0.1:${(server.address() as AddressInfo).port}/`
   return { server, drain, url }
@@ -56,6 +58,16 @@ describe('drainable', () => {
     expect(await res.text()).toBe('slow')
     expect(res.headers.get('connection')).toBe('close')
     await drained
+    expect(server.listening).toBe(false)
+  })
+
+  it('closes a connection still idle once the grace period is over', async () => {
+    const { server, drain, url } = await start((_req, res) => res.end('ok'), 200)
+    expect(await (await fetch(url)).text()).toBe('ok')
+    const started = Date.now()
+    await drain()
+    expect(Date.now() - started).toBeGreaterThanOrEqual(150)
+    expect(Date.now() - started).toBeLessThan(2_000)
     expect(server.listening).toBe(false)
   })
 })

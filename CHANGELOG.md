@@ -12,7 +12,7 @@ All notable changes to Inlay are recorded here. The format follows [Keep a Chang
 
 ### Fixed
 
-- Swapping releases under `inlaycms serve` no longer, now and then, resets a request a client sends down a kept-alive connection just as the old release stops. The old release finishes its open connections instead: each one opened before the swap may get one more answer from it, within 5 seconds, and then closes.
+- Swapping releases under `inlaycms serve` no longer, now and then, resets a request a client sends down a kept-alive connection just as the old release stops. The old release finishes its open connections instead: each one opened before the swap may get one more answer from it, within 2 seconds, and then closes.
 - The admin no longer shifts sideways when moving between short and long pages, or when the menu is taller than the window: space for the page's and the menu's scrollbars is always kept.
 
 ## [0.4.0] - 2026-11-17

@@ -11,6 +11,7 @@ import { packRelease } from '../../src/core/release/pack.js'
 import { loadRelease } from '../../src/core/release/read.js'
 import { activateRelease } from '../../src/host/activate.js'
 import { ensureDataDir, readHostConfig } from '../../src/host/config.js'
+import { SHUTDOWN_GRACE_MS } from '../../src/host/primary.js'
 import { releaseDir, storeRelease } from '../../src/host/store.js'
 import { png } from '../fixtures/media.js'
 
@@ -247,8 +248,11 @@ describe('inlaycms push --activate on a running server', () => {
     // Without the cookie, the live release still answers.
     expect(await (await fetch(url('/'))).text()).toContain('swap-2: Hello')
 
+    const stopping = Date.now()
     proc.kill('SIGTERM')
     expect(await exited(proc)).toBe(0)
+    // Each worker drained and left on its own, rather than being killed at the end of the grace period.
+    expect(Date.now() - stopping).toBeLessThan(SHUTDOWN_GRACE_MS)
     const listed = await run('releases', '--data', dataDir, '--json')
     expect(listed.code).toBe(0)
     const rows = JSON.parse(listed.out.join('\n')) as Array<{ name: string; state: string }>

@@ -58,6 +58,17 @@ async function get(path, init = {}) {
   }
 }
 
+// After a release swap the old worker drains: each kept-alive connection opened before the swap may answer once more
+// from the old release, then closes. Bursts of requests use them up until every answer comes from the new release.
+async function afterSwap(isNew) {
+  const deadline = Date.now() + 15_000
+  for (;;) {
+    const bodies = await Promise.all(Array.from({ length: 20 }, async () => (await fetch(`${BASE}/`)).text()))
+    if (bodies.every(isNew)) return
+    if (Date.now() > deadline) throw new Error('the old release still answers 15 seconds after the swap')
+  }
+}
+
 async function startServer() {
   serverLog = ''
   // The installed bin itself rather than npx, so SIGTERM reaches inlaycms serve. Plain node: the host runs built code.
@@ -284,6 +295,7 @@ await check('cli push --activate', async () => {
   const r = cli(['push', BASE, '--file', SECOND, '--activate', '--token', pushKey])
   expectCli(r, 'inlaycms push')
   if (!/home/.test(r.out)) throw new Error(`the printed diff doesn't mention the home page:\n${r.out}`)
+  await afterSwap((body) => body.includes(SECOND_MARK))
   const body = await (await get('/')).text()
   if (!body.includes(HEADLINE_NEW)) throw new Error('/ does not show the new headline')
   if (!body.includes(SECOND_MARK)) throw new Error('/ does not show the second release template')
@@ -309,6 +321,7 @@ await check('cli push --dry-run changes nothing', () => {
 
 await check('cli activate rolls back', async () => {
   expectCli(cli(['activate', BASE, firstId, '--token', pushKey]), 'inlaycms activate <host> <id>')
+  await afterSwap((body) => !body.includes(SECOND_MARK))
   const body = await (await get('/')).text()
   if (body.includes(SECOND_MARK)) throw new Error('/ still shows the second release template')
   // Content edited under a newer release survives a rollback (the stored edition is higher), so the headline stays.

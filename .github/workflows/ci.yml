@@ -31,6 +31,23 @@ jobs:
       # The host tests spawn real processes and can hang when a cluster child leaks.
       - run: timeout 1200 pnpm test
 
+  docs:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v5
+      - uses: pnpm/action-setup@v4
+        with:
+          package_json_file: website/package.json
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24
+          cache: pnpm
+          cache-dependency-path: website/pnpm-lock.yaml
+      - run: pnpm --dir website install --frozen-lockfile
+      - run: pnpm --dir website run build
+      - run: pnpm --dir website run check
+
   pack-test:
     runs-on: ubuntu-24.04
     timeout-minutes: 20

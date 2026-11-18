@@ -1,0 +1,4 @@
+# Its own pnpm project, separate from inlaycms. Shares the root's store so no .pnpm-store appears at the repo root.
+storeDir: ../node_modules/.pnpm-store
+allowBuilds:
+  esbuild: false

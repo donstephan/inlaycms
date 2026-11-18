@@ -31,6 +31,19 @@ services:
     environment:
       INLAY_SECRET: inlay-dev-only-secret-not-for-production-0123456789
       INLAY_BASE_URL: http://localhost:3000
+  # The docs site (website/) with live reload at http://localhost:5180/inlaycms/ (INLAY_DOCS_PORT changes the port).
+  # website/ is its own pnpm project; corepack runs the pnpm pinned in website/package.json.
+  docs:
+    image: node:24-bookworm-slim
+    user: node
+    working_dir: /app/website
+    ports:
+      - "127.0.0.1:${INLAY_DOCS_PORT:-5180}:5173"
+    volumes:
+      - .:/app
+    environment:
+      COREPACK_ENABLE_DOWNLOAD_PROMPT: "0"
+    command: sh -c "corepack pnpm install --frozen-lockfile && corepack pnpm exec vitepress dev --host 0.0.0.0 --port 5173"
   serve:
     pull_policy: build
     build:

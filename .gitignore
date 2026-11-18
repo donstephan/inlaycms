@@ -7,3 +7,5 @@ docs/superpowers
 .sdd
 .ledger
 inlaycms-*.tgz
+website/.vitepress/cache
+website/.vitepress/dist

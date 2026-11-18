@@ -1,0 +1,356 @@
+/* Home B's palette: ink #14161a, muted #5b6270, brand blue #3b4fd8, code background #0f1420. */
+
+:root {
+  --inlay-ink: #14161a;
+  --inlay-muted: #5b6270;
+  --inlay-blue: #3b4fd8;
+  --inlay-code-bg: #0f1420;
+  --inlay-code-text: #d7dbe6;
+  --inlay-code-label: #8891a7;
+
+  /* #3b4fd8 on white is 6.37:1; white button text on it is the same. */
+  --vp-c-brand-1: #3b4fd8;
+  --vp-c-brand-2: #3242c0;
+  --vp-c-brand-3: #3b4fd8;
+  --vp-c-brand-soft: rgba(59, 79, 216, 0.14);
+
+  /* Body text stays on VitePress's bundled Inter: system-ui is Ubuntu on Linux, which reads cramped at heading sizes. */
+  --vp-font-family-mono: ui-monospace, 'SF Mono', Menlo, Consolas, 'Liberation Mono', monospace;
+
+  --vp-home-hero-name-color: var(--vp-c-brand-1);
+
+  /* Code blocks are dark in both modes, like the home page's code panel. */
+  --vp-code-block-bg: var(--inlay-code-bg);
+  --vp-code-block-color: var(--inlay-code-text);
+  --vp-code-lang-color: var(--inlay-code-label);
+  --vp-code-copy-code-border-color: #2a3142;
+  --vp-code-copy-code-bg: #1a2030;
+  --vp-code-copy-code-hover-border-color: #3a4256;
+  --vp-code-copy-code-hover-bg: #232a3c;
+  --vp-code-copy-code-active-text: var(--inlay-code-label);
+}
+
+:root:not(.dark) {
+  --vp-c-text-1: var(--inlay-ink);
+  --vp-c-text-2: var(--inlay-muted);
+}
+
+.dark {
+  /*
+   * Brand blue lightened for dark mode: #8b98f5 on VitePress's dark background
+   * #1b1b1f is 6.46:1 (WCAG AA needs 4.5:1). Buttons keep #3b4fd8 behind white text (6.37:1).
+   */
+  --vp-c-brand-1: #8b98f5;
+  --vp-c-brand-2: #5165e0;
+  --vp-c-brand-3: #3b4fd8;
+  --vp-c-brand-soft: rgba(139, 152, 245, 0.16);
+}
+
+/* Hero: the name as an eyebrow above the headline. */
+
+.VPHome .VPHero .name {
+  font-size: 13px;
+  line-height: 20px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  padding-bottom: 12px;
+}
+
+/* Smaller and looser than VitePress's 56/64px headline and 24px tagline. */
+.VPHome .VPHero .text {
+  letter-spacing: -0.01em;
+  line-height: 1.2;
+}
+
+@media (min-width: 640px) {
+  .VPHome .VPHero .text {
+    font-size: 40px;
+  }
+
+  .VPHome .VPHero .tagline {
+    font-size: 19px;
+    line-height: 1.6;
+  }
+}
+
+@media (min-width: 960px) {
+  .VPHome .VPHero .text {
+    font-size: 44px;
+  }
+
+  .VPHome .VPHero .tagline {
+    font-size: 20px;
+  }
+}
+
+.home-install {
+  margin-top: 22px;
+  font-family: var(--vp-font-family-mono);
+  font-size: 14px;
+  color: var(--vp-c-text-2);
+  overflow-wrap: anywhere;
+}
+
+/* Hero code panel, in place of VitePress's fixed-size hero image. */
+
+.VPHome .VPHero .image {
+  min-width: 0;
+  margin: 0;
+  order: 3;
+}
+
+.VPHome .VPHero .image-container {
+  width: 100%;
+  height: auto;
+  margin-top: 40px;
+  transform: none;
+}
+
+@media (min-width: 960px) {
+  .VPHome .VPHero .container {
+    align-items: center;
+  }
+
+  .VPHome .VPHero .main {
+    flex-shrink: 1;
+    min-width: 0;
+    width: 50%;
+  }
+
+  .VPHome .VPHero .image {
+    flex: 1 1 0;
+    order: 2;
+    margin-left: 48px;
+  }
+
+  .VPHome .VPHero .image-container {
+    margin-top: 0;
+  }
+}
+
+.home-code {
+  width: 100%;
+  min-width: 0;
+  background: var(--inlay-code-bg);
+  border-radius: 12px;
+  padding: 0 0 4px;
+  overflow: hidden;
+  text-align: left;
+  box-shadow: 0 20px 50px -20px rgba(20, 30, 80, 0.45);
+}
+
+/* The panel's tabs (page.tsx, site.tsx, terminal): VitePress's code group, restyled for the dark panel. */
+.home-code .vp-doc .vp-code-group {
+  margin: 0;
+}
+
+.home-code .vp-doc .vp-code-group .tabs {
+  margin: 0;
+  padding: 0 12px;
+  background: transparent;
+  border-radius: 0;
+  box-shadow: inset 0 -1px rgba(255, 255, 255, 0.08);
+}
+
+.home-code {
+  --vp-code-tab-text-color: var(--inlay-code-label);
+  --vp-code-tab-hover-text-color: #c3c8d6;
+  --vp-code-tab-active-text-color: #e8eaf2;
+  --vp-code-tab-active-bar-color: #8b98f5;
+}
+
+.home-code .vp-doc .vp-code-group .tabs label {
+  font-family: var(--vp-font-family-mono);
+  font-size: 12px;
+}
+
+/* Every tab's block sits in the same grid cell and only the active one is visible, so the panel keeps the
+   tallest block's height and the hero doesn't jump when you switch tabs. */
+.home-code .vp-doc .vp-code-group .blocks {
+  display: grid;
+}
+
+.home-code .vp-doc .vp-code-group .blocks > div[class*='language-'] {
+  display: block;
+  grid-area: 1 / 1;
+  visibility: hidden;
+}
+
+.home-code .vp-doc .vp-code-group .blocks > div[class*='language-'].active {
+  visibility: visible;
+}
+
+.home-code .vp-doc div[class*='language-'] {
+  margin: 0;
+  border-radius: 0;
+  background: transparent;
+}
+
+/* The code scrolls inside the panel rather than widening the page. */
+.home-code .vp-doc div[class*='language-'] pre {
+  overflow-x: auto;
+  padding: 10px 0 18px;
+}
+
+.home-code .vp-doc div[class*='language-'] code {
+  padding: 0 24px;
+  font-size: 13.5px;
+}
+
+.home-code .vp-doc div[class*='language-'] > span.lang {
+  display: none;
+}
+
+/* Shared home sections. */
+
+.home-wrap {
+  margin: 0 auto;
+  max-width: 1152px;
+}
+
+.home-steps h2,
+.home-closing h2 {
+  margin: 0 0 8px;
+  font-size: 30px;
+  line-height: 1.25;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  color: var(--vp-c-text-1);
+}
+
+.home-sub {
+  margin: 0 0 32px;
+  color: var(--vp-c-text-2);
+}
+
+.home-steps code,
+.home-closing code {
+  font-family: var(--vp-font-family-mono);
+  font-size: 13px;
+  background: var(--vp-c-default-soft);
+  color: var(--vp-c-text-1);
+  padding: 2px 6px;
+  border-radius: 4px;
+}
+
+/* From code to a live site. */
+
+.home-steps {
+  margin: 0 0 64px;
+  padding: 56px 24px;
+  background: var(--vp-c-bg-soft);
+  border-top: 1px solid var(--vp-c-divider);
+  border-bottom: 1px solid var(--vp-c-divider);
+}
+
+.home-steps-row {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 18px;
+}
+
+.home-step {
+  background: var(--vp-c-bg);
+  border: 1px solid var(--vp-c-divider);
+  border-radius: 10px;
+  padding: 18px;
+}
+
+.home-step h3 {
+  margin: 0 0 10px;
+  font-size: 13px;
+  line-height: 20px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--vp-c-text-1);
+}
+
+.home-step-n {
+  color: var(--vp-c-brand-1);
+}
+
+.home-step p {
+  margin: 8px 0 0;
+  font-size: 14.5px;
+  line-height: 1.55;
+  color: var(--vp-c-text-2);
+}
+
+@media (min-width: 640px) {
+  .home-steps {
+    padding: 56px 48px;
+  }
+
+  .home-steps-row {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+
+@media (min-width: 960px) {
+  .home-steps {
+    padding: 56px 64px;
+  }
+
+  .home-steps-row {
+    grid-template-columns: repeat(4, 1fr);
+  }
+}
+
+/* Ten minutes to a running site. */
+
+/* VitePress puts 96-128px under the home page; the closing panel has its own even spacing instead. */
+.VPContent .VPHome {
+  margin-bottom: 0;
+}
+
+/* The closing call to action: a dark panel in both modes, with a violet glow (the logo's dark-mode piece) and a faint dot pattern. */
+.home-closing {
+  margin-top: 64px;
+  padding: 0 24px 80px;
+  text-align: center;
+}
+
+.home-closing .home-wrap {
+  position: relative;
+  overflow: hidden;
+  padding: 64px 24px;
+  border: 1px solid rgba(139, 152, 245, 0.3);
+  border-radius: 16px;
+  background:
+    radial-gradient(ellipse 70% 90% at 50% 0%, rgba(124, 108, 240, 0.5), transparent 70%),
+    radial-gradient(rgba(200, 196, 255, 0.14) 1px, transparent 1.5px) 0 0 / 18px 18px,
+    linear-gradient(180deg, #1c1838, #110f22);
+  box-shadow: 0 20px 50px -20px rgba(20, 30, 80, 0.45);
+}
+
+.home-closing h2 {
+  color: #e8eaf2;
+}
+
+.home-closing .home-sub {
+  color: #b4bad0;
+}
+
+.home-closing code {
+  background: rgba(255, 255, 255, 0.1);
+  color: #e8eaf2;
+}
+
+.home-closing-button {
+  display: inline-block;
+  padding: 0 20px;
+  line-height: 40px;
+  font-size: 16px;
+  font-weight: 600;
+  border-radius: 20px;
+  color: var(--vp-button-brand-text);
+  background: var(--vp-button-brand-bg);
+  transition: background-color 0.25s;
+}
+
+.home-closing-button:hover {
+  color: var(--vp-button-brand-hover-text);
+  background: var(--vp-button-brand-hover-bg);
+}

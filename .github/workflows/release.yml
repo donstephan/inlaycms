@@ -1,6 +1,7 @@
 name: Release
 
 # Pushing a tag like v0.2.0 runs CI, then publishes inlaycms@0.2.0 to npm and ghcr.io/<owner>/inlaycms:0.2.0.
+# A stable tag (not a prerelease) also publishes the docs site; that job blocks nothing and nothing waits on it.
 on:
   push:
     tags: ['v*']
@@ -34,6 +35,15 @@ jobs:
   ci:
     needs: version
     uses: ./.github/workflows/ci.yml
+
+  docs:
+    needs: [version, ci]
+    if: needs.version.outputs.npm-tag == 'latest'
+    uses: ./.github/workflows/docs.yml
+    permissions:
+      contents: read
+      pages: write
+      id-token: write
 
   npm:
     needs: [version, ci]

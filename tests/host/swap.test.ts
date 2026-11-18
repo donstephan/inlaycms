@@ -218,7 +218,15 @@ describe('inlaycms push --activate on a running server', () => {
     expect(pushed.out.join('\n'), output).not.toContain("couldn't be worked out")
     expect(failures, output).toEqual([])
     expect(seen).toEqual(new Set(['swap-1', 'swap-2']))
-    expect(await (await fetch(url('/'))).text()).toContain('swap-2: Hello')
+    // The old worker drains: a connection opened before the swap may answer once more from swap-1, then closes. Once
+    // a burst has used every idle connection, all answers come from swap-2.
+    await vi.waitFor(
+      async () => {
+        const bodies = await Promise.all(Array.from({ length: 10 }, async () => (await fetch(url('/'))).text()))
+        expect(bodies.every((body) => body.includes('swap-2: Hello'))).toBe(true)
+      },
+      { timeout: 10_000, interval: 100 },
+    )
 
     // A release pushed without --activate: the printed link previews it through its own worker, cookie and all.
     const staged = await run('push', env.INLAY_BASE_URL!, '--file', third, '--token', key)

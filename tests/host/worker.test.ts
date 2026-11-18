@@ -110,7 +110,7 @@ async function activated(): Promise<ReleaseRow> {
 
 function get(path: string): Promise<{ status: number; headers: Record<string, unknown>; body: string }> {
   return new Promise((done, fail) => {
-    const req = request({ socketPath: socket, path, headers: { host: 'example.com' } }, (res) => {
+    const req = request({ socketPath: socket, path, agent: false, headers: { host: 'example.com' } }, (res) => {
       let body = ''
       res.on('data', (chunk: Buffer) => (body += chunk.toString()))
       res.on('end', () => done({ status: res.statusCode ?? 0, headers: res.headers, body }))

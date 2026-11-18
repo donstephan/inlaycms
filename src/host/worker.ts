@@ -10,6 +10,7 @@ import { checkInlayVersion, loadRelease, type LoadedRelease } from '../core/rele
 import { activateRelease, summarize } from './activate.js'
 import { createSiteApp } from './app.js'
 import type { HostConfig } from './config.js'
+import { drainable } from './drain.js'
 import { runPreviewWorker } from './preview-worker.js'
 import {
   ACTIVATION_TIMEOUT_MS,
@@ -146,6 +147,7 @@ export async function runWorker(config: HostConfig, env: WorkerEnv, io: WorkerIo
   }
   const log = io.log ?? ((id: MessageId, params?: Record<string, string | number>) => console.error(t(id, params)))
   let app: FastifyInstance | null = null
+  let drain: (() => Promise<void>) | null = null
   let listening = false
   let stopping = false
   let exiting = false
@@ -154,6 +156,8 @@ export async function runWorker(config: HostConfig, env: WorkerEnv, io: WorkerIo
     if (exiting) return
     exiting = true
     try {
+      // Finish with the visitors' open connections first, so a swap never resets a request.
+      if (listening) await drain?.()
       await app?.close()
     } finally {
       io.exit(code)
@@ -184,6 +188,7 @@ export async function runWorker(config: HostConfig, env: WorkerEnv, io: WorkerIo
         ...(opts.release && { release: opts.release }),
       })
     ).app
+    drain = drainable(app.server)
     return app
   }
   const listen = async () => {

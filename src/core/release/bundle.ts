@@ -1,12 +1,16 @@
 import { randomBytes } from 'node:crypto'
-import { existsSync, realpathSync } from 'node:fs'
+import { existsSync, readFileSync, realpathSync } from 'node:fs'
 import { readFile } from 'node:fs/promises'
 import { builtinModules } from 'node:module'
 import { dirname, extname, isAbsolute, join, relative, resolve } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 import { build, transform, type BuildOptions, type Loader, type OnLoadResult, type Plugin } from 'esbuild'
+import { imageTarget, realInsideSync } from '../content/shipped-images.js'
 import { InlayError } from '../errors.js'
-import { t } from '../messages/index.js'
+import { detectType } from '../media/detect.js'
+import { t, type MessageId } from '../messages/index.js'
+import { markdownImages } from '../richtext/markdown.js'
+import { isMediaTarget, MARKDOWN_IMAGE_TYPES, parseMarkdownText } from '../richtext/markdown-text.js'
 import { rewriteImageTargets } from './markdown-file.js'
 import { INLAY_ENTRIES } from './read.js'
 import { SITE_DIR_EXPORT, siteDirUrl } from './site-dir.js'
@@ -129,12 +133,55 @@ function shownPath(base: string, file: string): string {
   return rel === '' || rel.startsWith('..') || isAbsolute(rel) ? file : rel
 }
 
+/** The extensions a `.md` image's file may have, for messages: ".png, .jpg, …". */
+const IMAGE_EXTENSIONS = Object.keys(MARKDOWN_IMAGE_TYPES).join(', ')
+
+/**
+ * The first reason the image target `src` (on `line` of the `.md` file shown as `shown`, its relative targets already
+ * rewritten to `file:` URLs) can't be used, or null when it is a media library image or a picture file inside the
+ * site's folder (`siteDir`, a `file:` URL ending in `/`) whose extension is in `MARKDOWN_IMAGE_TYPES` and matches
+ * what it holds. An SVG file is refused.
+ */
+function markdownImageProblem(src: string, line: number, shown: string, siteDir: string): string | null {
+  const refuse = (id: MessageId, extra: Record<string, string> = {}) => t(id, { file: shown, line, src, ...extra })
+  const target = imageTarget(src, siteDir)
+  if (target.kind === 'library') return isMediaTarget(src) ? null : refuse('error.markdownImageOther')
+  if (target.kind === 'remote') return refuse('error.markdownImageRemote')
+  if (target.kind === 'rooted') return refuse('error.markdownImageRooted')
+  if (!/^file:/i.test(src)) return refuse('error.markdownImageOther')
+  let path: string
+  try {
+    path = fileURLToPath(src)
+  } catch {
+    return refuse('error.markdownImageOutside')
+  }
+  if (!existsSync(path)) return refuse('error.markdownImageMissing')
+  const real = realInsideSync(path, siteDir)
+  if (real === null) return refuse('error.markdownImageOutside')
+  let bytes: Buffer
+  try {
+    bytes = readFileSync(real)
+  } catch {
+    return refuse('error.markdownImageMissing')
+  }
+  const ext = extname(path).toLowerCase()
+  const mime = detectType(bytes, path)
+  if (mime === 'image/svg+xml' || ext === '.svg') return refuse('error.markdownImageSvg')
+  if (!mime.startsWith('image/')) return refuse('error.markdownImageNotImage')
+  const expected = MARKDOWN_IMAGE_TYPES[ext]
+  if (expected === undefined) return refuse('error.markdownImageExtension', { extensions: IMAGE_EXTENSIONS })
+  if (mime !== expected) return refuse('error.markdownImageMismatch', { ext })
+  return null
+}
+
 /**
  * A `.md` file at `file` as a module whose default export is its text, with its images' targets rewritten from
  * the file's own folder; a reference-style image is refused with `error.markdownImageReference`, and one whose
- * place in the file can't be found with `error.markdownImageUnplaced`.
+ * place in the file can't be found with `error.markdownImageUnplaced`. Then the first thing `parseMarkdownText`
+ * refuses is, and then the first image `markdownImageProblem` refuses. `images` is given the `file:` targets of a
+ * file that passes.
  */
-async function loadMarkdown(file: string, base: string): Promise<OnLoadResult> {
+async function loadMarkdown(file: string, base: string, images?: Set<string>): Promise<OnLoadResult> {
   const result = rewriteImageTargets(await readFile(file, 'utf8'), file)
   const line = result.references[0]
   if (line !== undefined) return { errors: [{ text: t('error.markdownImageReference', { file: shownPath(base, file), line }) }] }
@@ -142,6 +189,20 @@ async function loadMarkdown(file: string, base: string): Promise<OnLoadResult> {
   if (unplaced !== undefined) {
     return { errors: [{ text: t('error.markdownImageUnplaced', { file: shownPath(base, file), line: unplaced }) }] }
   }
+  const shown = shownPath(base, file)
+  const problem = parseMarkdownText(result.text)
+  if (!problem.ok) {
+    const first = problem.problems[0]
+    if (first) return { errors: [{ text: t('error.markdownProblem', { file: shown, problem: first.message }) }] }
+  }
+  const siteDir = pathToFileURL(base).href + '/'
+  const targets: string[] = []
+  for (const { src, line } of markdownImages(result.text)) {
+    const refused = markdownImageProblem(src, line, shown, siteDir)
+    if (refused !== null) return { errors: [{ text: refused }] }
+    if (/^file:/i.test(src)) targets.push(src)
+  }
+  for (const target of targets) images?.add(target)
   return { contents: result.text, loader: 'text' }
 }
 
@@ -217,9 +278,10 @@ export async function bundleConfig(configFile: string, outFile: string): Promise
  * any other import left outside the bundle (`inlaycms` itself included) with `error.packImport`, and site code
  * (not installed packages) that reaches for the server with `error.packForbidden`; other build failures are
  * `error.packBundle`. These checks catch mistakes: the release's signature is what makes it trusted. Returns the
- * imports left in the bundle.
+ * imports left in the bundle, and the `file:` URLs of the images named by its `.md` files.
  */
-export async function bundleSite(configFile: string, outFile: string): Promise<{ imports: string[] }> {
+export async function bundleSite(configFile: string, outFile: string): Promise<{ imports: string[]; markdownImages: string[] }> {
+  const images = new Set<string>()
   const base = dirname(resolve(configFile))
   const shown = (file: string) => shownPath(base, file)
   const refused: Array<{ file: string; specifier: string }> = []
@@ -249,7 +311,7 @@ export async function bundleSite(configFile: string, outFile: string): Promise<{
         }
         return withOwnUrl(text, args.path, loader, await tsconfigFor(dirname(args.path)))
       })
-      b.onLoad({ filter: /\.md$/ }, (args) => (args.namespace === 'file' ? loadMarkdown(args.path, base) : undefined))
+      b.onLoad({ filter: /\.md$/ }, (args) => (args.namespace === 'file' ? loadMarkdown(args.path, base, images) : undefined))
     },
   }
   let result
@@ -272,5 +334,5 @@ export async function bundleSite(configFile: string, outFile: string): Promise<{
       throw new InlayError('release', 'error.packImport', { file: shown(resolve(configFile)), specifier })
     }
   }
-  return { imports: [...imports] }
+  return { imports: [...imports], markdownImages: [...images].sort() }
 }

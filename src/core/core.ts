@@ -41,7 +41,7 @@ import { buildRegistry, type Registry } from './registry/registry.js'
 import { activeIntegrations, listIntegrations, saveIntegration, type ActiveIntegration, type IntegrationState } from './integrations/integrations.js'
 import { checkSitePassword, readSiteLock, setSiteLock, setSitePassword, type SiteLockStatus } from './site-lock/site-lock.js'
 import { codeRedirectLoops, createRedirect, deleteRedirect, importRedirects, listCodeRedirects, listRedirects } from './redirects/redirects.js'
-import { liveAlternates, liveDocuments, liveEntries, liveSingleton } from './site/live.js'
+import { groupIdsByKey, liveAlternates, liveDocuments, liveEntries, liveSingleton } from './site/live.js'
 import { resolvePath } from './site/resolve.js'
 import { sitemapEntries, type SitemapEntry } from './site/sitemap.js'
 import type { Activity, ContentInput, CoreDeps, Ctx, DocumentData, DocumentSummary, DocumentView, ContentRef, Usage, DiffEntry, RevisionMeta, UploadLimits, MediaInfo, MediaStatus, LiveDocument, LiveState, RouteMatch, Redirect, RedirectInput, CodeRedirect } from './types.js'
@@ -50,6 +50,8 @@ export type { PatchOp, PublishResult, SaveResult, ShippedItem, ShippedReport }
 
 export interface Core {
   registry: Registry
+  /** A loaded release's images that `.md` files the site imports name, by source: what `/media/files/` serves. */
+  readonly markdownFiles?: ReadonlyMap<string, string>
   getDocument(id: string, opts?: { state?: 'head' | 'published' }): Promise<DocumentView | null>
   findSingleton(type: string, locale?: string): Promise<DocumentSummary | null>
   findTranslation(groupId: string, locale: string): Promise<DocumentSummary | null>
@@ -127,6 +129,8 @@ export interface Core {
   /** Entries whose slug gives them a page another path hides; editors can't save them until it changes. */
   shadowedEntries(): Promise<Array<{ document: DocumentSummary; slug: string; path: string }>>
   liveDocuments(groupIds: string[], locale: string, opts?: { state?: LiveState }): Promise<Map<string, LiveDocument>>
+  /** The group id of each shipped-style document by `type/key` (a missing key means the type); deleted and unknown ones are left out. */
+  groupIdsByKey(refs: Array<{ type: string; key: string | null }>): Promise<Map<string, string>>
   liveSingleton(type: string, locale: string, opts?: { state?: LiveState }): Promise<LiveDocument | null>
   liveEntries(collection: string, locale: string, opts?: { state?: LiveState }): Promise<LiveDocument[]>
   liveAlternates(
@@ -185,6 +189,8 @@ export interface CreateCoreOptions {
   uploads?: UploadLimits
   /** A loaded release's shipped files, by source as written in the site. */
   shippedFiles?: ReadonlyMap<string, string>
+  /** As `shippedFiles`, only the images `.md` files the site imports name. */
+  markdownFiles?: ReadonlyMap<string, string>
 }
 
 /** Builds the registry and binds the core functions. Does not migrate the database. */
@@ -226,6 +232,7 @@ export function createCore(opts: CreateCoreOptions): Core {
 
   return {
     registry,
+    ...(opts.markdownFiles !== undefined && { markdownFiles: opts.markdownFiles }),
     getDocument: (id, o) => getDocument(deps, id, o),
     findSingleton: (type, locale) => findSingleton(deps, type, locale),
     findTranslation: (groupId, locale) => findTranslation(deps, groupId, locale),
@@ -275,6 +282,7 @@ export function createCore(opts: CreateCoreOptions): Core {
     repairRefs: () => repairRefs(deps),
     shadowedEntries: () => shadowedEntries(deps),
     liveDocuments: (groupIds, locale, o) => liveDocuments(deps, groupIds, locale, o),
+    groupIdsByKey: (refs) => groupIdsByKey(deps, refs),
     liveSingleton: (type, locale, o) => liveSingleton(deps, type, locale, o),
     liveEntries: (collection, locale, o) => liveEntries(deps, collection, locale, o),
     liveAlternates: (groupId, o) => liveAlternates(deps, groupId, o),

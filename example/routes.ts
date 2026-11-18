@@ -58,3 +58,13 @@ export function contactRoutes(thankYou: TemplateDef, contact: TemplateDef): Rout
     }),
   ]
 }
+
+/** `GET /colophon`: the template renders `pages/colophon.md`. */
+export function colophonRoute(colophon: TemplateDef): RouteDef {
+  return defineRoute({
+    method: 'GET',
+    path: '/colophon',
+    sitemap: true,
+    handler: (_request, ctx) => ctx.render(colophon, { fields: { title: 'Colophon' } }),
+  })
+}

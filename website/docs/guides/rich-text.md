@@ -36,6 +36,8 @@ import { richTextHeadings } from 'inlaycms/site'
 const toc = richTextHeadings(fields.body, { prefix: 'body-' }) // [{ level, text, id }, ...]
 ```
 
+`ctx.markdown` takes the same options (`highlight`, `headingIds`) when a template renders an imported `.md` file, and `markdownHeadings(text, { prefix })` is the counterpart of `richTextHeadings` for it. See [Rendering a Markdown file from a template](/docs/guides/shipped-content#rendering-a-markdown-file-from-a-template).
+
 ## Tables
 
 Rich text holds tables, on by default. In Markdown (what assistants send and get back, and what shipped content is written in) a table is a GitHub-style table:

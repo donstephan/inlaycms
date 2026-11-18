@@ -49,6 +49,7 @@ export { formatReport, type CheckProblem, type CheckReport } from './core/report
 export { richTextToMarkdown, markdownToRichText, type RichTextProblem } from './core/richtext/markdown.js'
 export { js, JsCode } from './core/registry/js.js'
 export { richTextHeadings, type RichTextHeading } from './core/richtext/headings.js'
+export { markdownHeadings } from './core/richtext/markdown-text.js'
 export type { CodeHighlighter, RichTextRenderOptions } from './core/richtext/html.js'
 export type { RichTextDoc, RichTextFeature, RichTextOptions } from './core/richtext/schema.js'
 export { missingMediaLabel } from './core/media/labels.js'

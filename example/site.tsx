@@ -6,13 +6,15 @@ import {
   defineSite,
   defineTemplate,
   f,
+  markdownHeadings,
   z,
 } from 'inlaycms/site'
 import type { RenderContext, Renderable } from 'inlaycms/site'
+import colophon from './pages/colophon.md'
 import { content } from './content.js'
 import { visitCounter } from './integrations.js'
 import { migrations } from './migrations.js'
-import { contactRoutes } from './routes.js'
+import { colophonRoute, contactRoutes } from './routes.js'
 
 async function Layout({ ctx, children }: { ctx: RenderContext; children?: Renderable }) {
   const nav = await ctx.global(navGlobal)
@@ -245,6 +247,34 @@ const Contact = defineTemplate({
   ),
 })
 
+/** The colophon; the `GET /colophon` route renders it from `pages/colophon.md`. */
+const Colophon = defineTemplate({
+  name: 'colophon',
+  label: 'Colophon',
+  fields: z.object({
+    title: f.text({ label: 'Title' }),
+  }),
+  render: async (_props, ctx) => {
+    const toc = markdownHeadings(colophon, { prefix: 'colophon-' }).filter((h) => h.level === 2)
+    return (
+      <Layout ctx={ctx}>
+        <main>
+          <nav>
+            <ul>
+              {toc.map((h) => (
+                <li>
+                  <a href={`#${h.id}`}>{h.text}</a>
+                </li>
+              ))}
+            </ul>
+          </nav>
+          {await ctx.markdown(colophon, { headingIds: { prefix: 'colophon-' } })}
+        </main>
+      </Layout>
+    )
+  },
+})
+
 const BlogIndex = defineTemplate({
   name: 'blogIndex',
   label: 'Blog',
@@ -419,7 +449,7 @@ export const site = defineSite({
   notFound: 'notFound',
   secrets: ['SLACK_WEBHOOK'],
   integrations: [visitCounter],
-  routes: contactRoutes(ThankYou, Contact),
+  routes: [...contactRoutes(ThankYou, Contact), colophonRoute(Colophon)],
   redirects: [{ from: '/about-us', to: '/about' }],
   migrations,
   singletons: [

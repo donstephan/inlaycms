@@ -386,6 +386,25 @@ export const en = {
     "{file}, line {line}: this image is written as a reference ([alt][name]), which Inlay can't follow in a Markdown file. Write the image inline instead, such as ![A chart](images/chart.png).",
   'error.markdownImageUnplaced':
     "{file}, line {line}: Inlay couldn't work out where this image's file is. Put the image on a line of its own, written simply, such as ![A chart](images/chart.png).",
+  'error.markdownProblem': '{file}: {problem}',
+  'error.markdownImageMissing': '{file}, line {line}: there is no file for the image {src}.',
+  'error.markdownImageOutside': "{file}, line {line}: the image {src} isn't inside the site folder, so a release can't include it.",
+  'error.markdownImageNotImage': "{file}, line {line}: the file for the image {src} isn't a picture Inlay can use.",
+  'error.markdownImageRemote':
+    "{file}, line {line}: the image {src} is on another website, and a release never downloads anything. Download it into the site folder and name it by its path from this file, such as images/chart.png.",
+  'error.markdownImageRooted':
+    '{file}, line {line}: the image {src} starts with "/", which is an address on the site, not a file. Name the file by its path from this file, such as images/chart.png.',
+  'error.markdownImageOther':
+    "{file}, line {line}: the image {src} isn't a file Inlay can find. Name a picture file by its path from this file, such as images/chart.png.",
+  'error.markdownImageSvg':
+    "{file}, line {line}: the image {src} is an SVG file, which Inlay doesn't show. Save it as a PNG or WebP picture instead.",
+  'error.markdownImageExtension':
+    "{file}, line {line}: the name of the image {src} doesn't end in one of {extensions}. Rename the file so its name ends in the one for its kind of picture.",
+  'error.markdownImageMismatch':
+    "{file}, line {line}: the name of the image {src} ends in {ext}, but the file holds another kind of picture. Rename the file so its name ends in the one for its kind of picture.",
+  'error.markdownRender': "This page's Markdown couldn't be shown. {problem}",
+  'error.markdownRenderImage':
+    "This page's Markdown couldn't be shown. Line {line}: the image {src} can't be used. Use an image from the media library, or put the Markdown in a .md file the site imports and name the picture by its path from there.",
   'error.releaseSignature': "This release isn't signed by a trusted key, so it wasn't opened.",
   'error.releaseInvalid': "This release file is damaged or wasn't made by inlaycms pack.",
   'error.releaseVersion':

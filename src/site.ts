@@ -98,6 +98,7 @@ export function plainText(doc: RichTextDoc | null | undefined): string {
 }
 export { js, JsCode } from './core/registry/js.js'
 export { richTextHeadings, type RichTextHeading } from './core/richtext/headings.js'
+export { markdownHeadings } from './core/richtext/markdown-text.js'
 export type { RichTextDoc }
 export type { CodeHighlighter, RichTextRenderOptions } from './core/richtext/html.js'
 export type { RichTextFeature, RichTextOptions } from './core/richtext/schema.js'

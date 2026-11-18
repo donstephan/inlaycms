@@ -2,6 +2,8 @@ import { createCore, type Core } from '../../src/core/core.js'
 import type { SiteDefinition } from '../../src/core/registry/define.js'
 import type { Ctx, DocumentView, RouteMatch } from '../../src/core/types.js'
 import { routedSite } from '../fixtures/routes.js'
+import { defineEntries } from '../../src/core/registry/content.js'
+import { aboutShipped, homeShipped, maria, navShipped, shippedSite } from '../fixtures/shipped.js'
 import { makeCore } from '../helpers/core.js'
 
 const fields = { title: 'Hello world', date: '2026-02-01', body: 'Hi' }
@@ -257,5 +259,34 @@ describe('publishedAt', () => {
     const { core, owner } = await world()
     await core.createEntry('posts', { slug: 'draft-only', fields: { ...fields, title: 'Draft only' } }, owner)
     expect(page(await core.resolvePath('/blog/draft-only', { state: 'preview' })).publishedAt).toBeNull()
+  })
+})
+
+describe('groupIdsByKey', () => {
+  it('maps a keyed entry and a singleton, and leaves out a deleted or unknown one', async () => {
+    const { core, owner } = await makeCore({ site: shippedSite([homeShipped(1), aboutShipped, navShipped, defineEntries('testimonials', [maria, { ...maria, key: 'lone' }])]) })
+    await core.applyShippedContent()
+    const refs = [
+      { type: 'testimonials', key: 'lone' },
+      { type: 'about', key: null },
+      { type: 'testimonials', key: 'nobody' },
+    ]
+    const found = await core.groupIdsByKey(refs)
+    expect([...found.keys()].sort()).toEqual(['about/about', 'testimonials/lone'])
+    const lone = found.get('testimonials/lone')!
+    expect((await core.listEntries('testimonials')).map((e) => e.groupId)).toContain(lone)
+    await core.deleteEntry(lone, owner)
+    expect([...(await core.groupIdsByKey(refs)).keys()]).toEqual(['about/about'])
+  })
+
+  it('gives only the keys asked for, and a singleton by its type written as its key', async () => {
+    const { core } = await makeCore({ site: shippedSite([homeShipped(1), aboutShipped, navShipped, defineEntries('testimonials', [maria, { ...maria, key: 'lone' }])]) })
+    await core.applyShippedContent()
+    const found = await core.groupIdsByKey([
+      { type: 'testimonials', key: 'maria' },
+      { type: 'about', key: 'about' },
+    ])
+    expect([...found.keys()].sort()).toEqual(['about/about', 'testimonials/maria'])
+    expect(found.get('about/about')).toBe((await core.groupIdsByKey([{ type: 'about', key: null }])).get('about/about'))
   })
 })

@@ -3,10 +3,12 @@ import { existsSync } from 'node:fs'
 import { copyFile, mkdir, mkdtemp, readdir, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { dirname, join, posix, relative, sep } from 'node:path'
+import { fileURLToPath, pathToFileURL } from 'node:url'
 import { promisify } from 'node:util'
 import * as tar from 'tar'
 import { loadConfig } from '../../config.js'
 import { shippedFiles } from '../content/shipped-input.js'
+import { realInsideSync } from '../content/shipped-images.js'
 import { InlayError } from '../errors.js'
 import { buildRegistry } from '../registry/registry.js'
 import { bundleSite } from './bundle.js'
@@ -57,10 +59,18 @@ export async function packRelease(opts: {
   const registry = buildRegistry(config.site)
   const tmp = await mkdtemp(join(tmpdir(), 'inlay-pack-'))
   try {
-    await bundleSite(file, join(tmp, 'site.js'))
+    const bundled = await bundleSite(file, join(tmp, 'site.js'))
 
     const content: ReleaseManifest['content'] = []
+    const markdownImages = new Set(bundled.markdownImages)
     const sources = shippedFiles(registry)
+    const known = new Set(sources.map((s) => s.source))
+    const siteDir = pathToFileURL(dir).href + '/'
+    for (const source of bundled.markdownImages) {
+      if (known.has(source)) continue
+      const path = fileURLToPath(source)
+      sources.push({ source, path, read: realInsideSync(path, siteDir) ?? path })
+    }
     if (sources.length > 0) await mkdir(join(tmp, 'content'))
     for (const { source, path, read } of sources) {
       let bytes: Buffer
@@ -71,7 +81,7 @@ export async function packRelease(opts: {
       }
       const target = contentPath(path, bytes)
       await writeFile(join(tmp, target), bytes)
-      content.push({ source, path: target })
+      content.push({ source, path: target, ...(markdownImages.has(source) && { markdown: true as const }) })
     }
 
     const publicDir = join(dir, 'public')

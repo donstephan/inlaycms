@@ -186,3 +186,33 @@ export async function liveAlternates(
   }
   return out
 }
+
+/** The group id of each keyed document (or singleton or global, whose key is its type), by `type/key`. */
+export async function groupIdsByKey(
+  deps: CoreDeps,
+  refs: Array<{ type: string; key: string | null }>,
+): Promise<Map<string, string>> {
+  const out = new Map<string, string>()
+  if (refs.length === 0) return out
+  const wanted = new Map(refs.map((r) => [`${r.type}/${r.key ?? r.type}`, { type: r.type, key: r.key ?? r.type }]))
+  const rows = await deps.db
+    .selectFrom('documents')
+    .select(['group_id', 'type', 'key'])
+    .where('deleted_at', 'is', null)
+    .where((eb) =>
+      eb.or(
+        [...wanted.values()].map(({ type, key }) => {
+          const keyed = eb.and([eb('type', '=', type), eb('key', '=', key)])
+          if (key !== type) return keyed
+          const unkeyed = eb.and([eb('type', '=', type), eb('key', 'is', null), eb('kind', 'in', ['singleton', 'global'])])
+          return eb.or([keyed, unkeyed])
+        }),
+      ),
+    )
+    .execute()
+  for (const row of rows) {
+    const id = `${row.type}/${row.key ?? row.type}`
+    if (wanted.has(id)) out.set(id, row.group_id)
+  }
+  return out
+}

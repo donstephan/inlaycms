@@ -11,6 +11,7 @@ import type { MessageId } from '../messages/index.js'
 import { inspectUpload } from '../media/library.js'
 import { markdownToInlineText } from '../richtext/inline.js'
 import { markdownImages, markdownToRichText } from '../richtext/markdown.js'
+import { KEY_HREF } from '../richtext/markdown-text.js'
 import { DEFAULT_RICH_TEXT } from '../richtext/schema.js'
 import type { Registry } from '../registry/registry.js'
 import type { ContentInput, ContentIssue, CoreDeps, IssueCode, PathSegment } from '../types.js'
@@ -33,9 +34,6 @@ export interface PendingFile {
 export type KeyResolver = (ref: ShippedDocumentRef) => string | null
 
 const KINDS: ReadonlySet<string> = new Set(['image', 'file', 'richText', 'inlineText', 'ref', 'link'])
-
-/** The start of a Markdown link target `](inlay:key/<type>` or `](inlay:key/<type>/<key>`; text elsewhere is left alone. */
-const KEY_HREF = /\]\(inlay:key\/([\w-]+)(?:\/([\w-]+))?(?=[\s)])/g
 
 /** `root` with the value at `path` replaced, copying only the containers along the path. */
 function setAt(root: unknown, path: PathSegment[], value: unknown): unknown {

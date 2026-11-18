@@ -76,6 +76,17 @@ describe('example site', () => {
     expect(res.body).toContain('We could not find that page')
   })
 
+  it('serves the colophon from a Markdown file, with its image and link', async () => {
+    const res = await get('/colophon')
+    expect(res.statusCode).toBe(200)
+    expect(res.body).toContain('href="#colophon-how-it-is-built"')
+    expect(res.body).toContain('href="/blog/hello-inlay"')
+    const src = /<img[^>]*src="([^"]+)"/.exec(res.body)?.[1] ?? ''
+    expect(src).toMatch(/^\/media\/files\//)
+    expect((await get(src)).statusCode).toBe(200)
+    expect((await get('/sitemap.xml')).body).toContain('/colophon</loc>')
+  })
+
   it('shows a contact form on the About page that posts to /contact', async () => {
     expect((await get('/about')).body).toMatch(/<form[^>]*action="\/contact"/)
     expect((await get('/blog')).body).not.toContain('action="/contact"')

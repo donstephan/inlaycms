@@ -3,6 +3,7 @@ import { documentRefs } from '../../core/content/schema.js'
 import { findRefs } from '../../core/fields/walk.js'
 import { validateContent } from '../../core/content/validate.js'
 import type { Core } from '../../core/core.js'
+import { InlayError } from '../../core/errors.js'
 import { isRasterImage } from '../../core/media/detect.js'
 import { IMAGE_WIDTHS, type VariantFormat } from '../../core/media/variants.js'
 import type { CollectionDef, GlobalDef, TemplateDef } from '../../core/registry/define.js'
@@ -18,7 +19,9 @@ import type {
 import type { QueryApi } from '../../core/registry/route.js'
 import { richTextToHtml, type RichTextRenderOptions, type RichTextResolver } from '../../core/richtext/html.js'
 import { inlineTextToHtml } from '../../core/richtext/inline.js'
-import type { RichTextDoc } from '../../core/richtext/schema.js'
+import { markdownImages } from '../../core/richtext/markdown.js'
+import { isMediaTarget, KEY_HREF, NO_DOCUMENT, parseMarkdownText } from '../../core/richtext/markdown-text.js'
+import { richTextRefs, type RichTextDoc } from '../../core/richtext/schema.js'
 import { encodePath } from '../../core/site/paths.js'
 import type {
   ContentRef,
@@ -32,6 +35,7 @@ import type {
 } from '../../core/types.js'
 import { publicAssets, type PublicAssets } from './assets.js'
 import { createHeadCollector, type CollectedHead } from './head.js'
+import { markdownFilesFor, type MarkdownFile, type MarkdownFiles } from './markdown-files.js'
 import { createScriptCollector } from './scripts.js'
 import { escapeHtml, raw, type SafeHtml } from '../../jsx/html.js'
 
@@ -42,6 +46,8 @@ export interface RenderContextOptions {
   baseUrl: string
   alternates: RenderContext['alternates']
   assets?: PublicAssets
+  /** Where `markdown` finds its image files; the core's shared index by default. */
+  markdownFiles?: MarkdownFiles
 }
 
 export type PreloadingRenderContext = RenderContext & {
@@ -149,6 +155,7 @@ export function createRenderContext(core: Core, opts: RenderContextOptions): Pre
   const { locale, state } = opts
   const preview = state === 'preview'
   const assets = opts.assets ?? publicAssets(null)
+  const markdownFiles = opts.markdownFiles ?? markdownFilesFor(core)
   const media = new Map<string, MediaInfo | null>()
   const docs = new Map<string, LiveDocument | null>()
   const collections = new Map<string, Promise<LiveDocument[]>>()
@@ -250,6 +257,43 @@ export function createRenderContext(core: Core, opts: RenderContextOptions): Pre
     return raw(doc ? richTextToHtml(doc, resolver, opts) : '')
   }
 
+  async function markdown(text: string, renderOpts?: RichTextRenderOptions): Promise<SafeHtml> {
+    const keyRefs = [...text.matchAll(KEY_HREF)].map((m) => ({ type: m[1]!, key: m[2] ?? null }))
+    const groups = await core.groupIdsByKey(keyRefs)
+    await loadDocs(groups.values())
+    text = text.replace(KEY_HREF, (_href, type: string, key: string | undefined) => {
+      return `](inlay:document/${groups.get(`${type}/${key ?? type}`) ?? NO_DOCUMENT}`
+    })
+    const found = new Map<string, MarkdownFile>()
+    const unusable: Array<{ src: string; line: number }> = []
+    await Promise.all(
+      markdownImages(text).map(async ({ src, line }) => {
+        if (isMediaTarget(src)) return
+        const file = /^file:/i.test(src) ? await markdownFiles.lookup(src) : null
+        if (file) found.set(src, file)
+        else unusable.push({ src, line })
+      }),
+    )
+    const parsed = parseMarkdownText(text, new Map([...found].map(([src, file]) => [src, file.sha])))
+    if (!parsed.ok) {
+      const first = parsed.problems[0]
+      throw new InlayError('definition', 'error.markdownRender', { line: first?.line ?? 1, problem: first?.message ?? '' })
+    }
+    const refused = unusable.sort((a, b) => a.line - b.line)[0]
+    if (refused) throw new InlayError('definition', 'error.markdownRenderImage', refused)
+    const files = new Map([...found.values()].map((file) => [file.sha, file]))
+    await loadRefs(richTextRefs(parsed.doc).filter((ref) => ref.kind !== 'media' || !files.has(ref.id)))
+    const markdownResolver: RichTextResolver = {
+      link: resolver.link,
+      image: (id, alt) => {
+        const file = files.get(id)
+        if (!file) return resolver.image(id, alt)
+        return { src: file.url, srcset: '', alt: alt ?? '', width: null, height: null }
+      },
+    }
+    return raw(richTextToHtml(parsed.doc, markdownResolver, renderOpts))
+  }
+
   function inline(value: RichTextDoc | string | null | undefined): SafeHtml {
     if (value === null || value === undefined) return raw('')
     return raw(typeof value === 'string' ? escapeHtml(value) : inlineTextToHtml(value, resolver))
@@ -339,6 +383,7 @@ export function createRenderContext(core: Core, opts: RenderContextOptions): Pre
     file,
     link,
     richText,
+    markdown,
     inline,
     entries,
     query,

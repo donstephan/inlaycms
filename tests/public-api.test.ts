@@ -351,7 +351,7 @@ it('inlaycms/site exports what a site needs and nothing of the host', async () =
   for (const name of ['defineSite', 'defineSingleton', 'defineCollection', 'defineGlobal', 'defineTemplate', 'defineBlock', 'defineIntegration']) {
     expect(siteApi, name).toHaveProperty(name)
   }
-  for (const name of ['defineContent', 'defineEntries', 'defineRoute', 'defineMigration', 'defineConfig', 'f', 'z', 'richTextHeadings', 'plainText', 'js']) {
+  for (const name of ['defineContent', 'defineEntries', 'defineRoute', 'defineMigration', 'defineConfig', 'f', 'z', 'richTextHeadings', 'markdownHeadings', 'plainText', 'js']) {
     expect(siteApi, name).toHaveProperty(name)
   }
   for (const name of ['inlay', 'createCore', 'openDatabase', 'migrateSystem', 'packRelease', 'readRelease', 'sign', 'bootInlay', 'createTestSite']) {

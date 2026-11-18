@@ -41,6 +41,8 @@ describe('the example site as a release', () => {
     expect(shipped?.path).toMatch(/^content\/[0-9a-f]{64}\.jpg$/)
     expect(loaded.shippedFiles.get(hero)).toBe(join(releaseDir, shipped!.path))
     expect(existsSync(join(releaseDir, shipped!.path))).toBe(true)
+    const colophonImage = pathToFileURL(join(example, 'pages/colophon.png')).href
+    expect(loaded.manifest.content.some((c) => c.source === colophonImage)).toBe(true)
     expect(loaded.publicDir).toBe(join(releaseDir, 'public'))
 
     const text = await readFile(join(releaseDir, 'site.js'), 'utf8')

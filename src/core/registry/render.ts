@@ -132,6 +132,11 @@ export interface RenderContext {
   /** `null` when the target document isn't live. Text is the value's, then the target's title, then the URL. */
   link(v: LinkValue | null | undefined): ResolvedLink | null
   richText(doc: RichTextDoc | null | undefined, opts?: RichTextRenderOptions): SafeHtml
+  /**
+   * Markdown text (an imported `.md` file) as HTML, with every rich text feature and headings 1 to 6. Images next to
+   * the file are served from the site (`/media/files/…`). Throws when the text can't be read as rich text.
+   */
+  markdown(text: string, opts?: RichTextRenderOptions): Promise<SafeHtml>
   /** An inline-text value's first paragraph without its `<p>`, for a heading or a tagline. A string is escaped. */
   inline(value: RichTextDoc | string | null | undefined): SafeHtml
   /** Live entries in the given order; ones that aren't live are skipped. */

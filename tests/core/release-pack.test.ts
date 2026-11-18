@@ -6,13 +6,14 @@ import { join, resolve } from 'node:path'
 import { createRequire } from 'node:module'
 import { pathToFileURL } from 'node:url'
 import * as tar from 'tar'
+import { markdownFilesFor } from '../../src/adapters/site/markdown-files.js'
 import { createCore } from '../../src/core/core.js'
 import { openDatabase } from '../../src/core/db/connection.js'
 import { migrateSystem } from '../../src/core/db/migrate.js'
 import { InlayError } from '../../src/core/errors.js'
 import { bundleSite } from '../../src/core/release/bundle.js'
 import { fingerprint, generateKeyPair, sign } from '../../src/core/release/keys.js'
-import { manifestOfRegistry, manifestSchema, satisfies, type ReleaseManifest } from '../../src/core/release/manifest.js'
+import { contentPath, manifestOfRegistry, manifestSchema, satisfies, type ReleaseManifest } from '../../src/core/release/manifest.js'
 import { packRelease } from '../../src/core/release/pack.js'
 import { INLAY_ENTRIES, loadRelease, openRelease, readRelease } from '../../src/core/release/read.js'
 import { defineSite } from '../../src/core/registry/define.js'
@@ -23,7 +24,7 @@ import { t } from '../../src/core/messages/index.js'
 import { inlayVersion } from '../../src/core/version.js'
 import { loadConfig } from '../../src/config.js'
 import { redirectSite } from '../fixtures/code-redirects.js'
-import { png, sha256 } from '../fixtures/media.js'
+import { jpeg, png, sha256 } from '../fixtures/media.js'
 
 const fixtures = resolve(import.meta.dirname, '../fixtures')
 
@@ -454,12 +455,141 @@ describe('packRelease', () => {
     it('refuses a .md image that leaves the site folder', async () => {
       await writeFile(join(dir, 'outside.png'), await png(5, 5))
       await writePost('![x](../../outside.png)\n')
-      const { config } = await loadConfig(join(siteDir, 'inlay.config.ts'))
-      const e = await rejection(appliedBody(config.site))
-      const issues = e.details.issues as Array<{ message: string }>
-      expect(issues.map((i) => i.message)).toEqual([
-        t('issue.shippedImageOutside', { field: 'Body', line: 1, src: pathToFileURL(join(dir, 'outside.png')).href }),
-      ])
+      const loading = await rejection(loadConfig(join(siteDir, 'inlay.config.ts')))
+      expect(loading.message).toContain(
+        t('error.markdownImageOutside', { file: 'posts/hello.md', line: 1, src: pathToFileURL(join(dir, 'outside.png')).href }),
+      )
+    })
+
+    it('refuses a .md with raw HTML, naming the file and line once', async () => {
+      await writePost('ok\n\n<div>x</div>\n')
+      const loading = await rejection(loadConfig(join(siteDir, 'inlay.config.ts')))
+      const problem = t('richtext.unsupported', { line: 3, feature: t('richtext.feature.html') })
+      expect(problem.startsWith('Line 3: ')).toBe(true)
+      expect(loading.message).toContain(t('error.markdownProblem', { file: 'posts/hello.md', problem }))
+      expect(loading.message).toContain(`posts/hello.md: ${problem}`)
+      expect(loading.message).not.toMatch(/line 3: Line 3/i)
+    })
+
+    describe('refuses a .md image that a release could not show', () => {
+      const refused = async (markdown: string) => {
+        await writePost(markdown)
+        return (await rejection(loadConfig(join(siteDir, 'inlay.config.ts')))).message
+      }
+      const file = 'posts/hello.md'
+
+      it('on another website', async () => {
+        const src = 'https://example.com/a.png'
+        expect(await refused(`Hi\n\n![x](${src})\n`)).toContain(t('error.markdownImageRemote', { file, line: 3, src }))
+      })
+
+      it('named by an address on the site', async () => {
+        expect(await refused('![x](/logo.png)\n')).toContain(t('error.markdownImageRooted', { file, line: 1, src: '/logo.png' }))
+      })
+
+      it('of another scheme, or an inlay: target that is not a media library image', async () => {
+        const data = 'data:image/png;base64,AAAA'
+        expect(await refused(`![x](${data})\n`)).toContain(t('error.markdownImageOther', { file, line: 1, src: data }))
+        expect(await refused('![x](inlay:media/nope)\n')).toContain(
+          t('error.markdownImageOther', { file, line: 1, src: 'inlay:media/nope' }),
+        )
+      })
+
+      it('in SVG, by its name or its bytes', async () => {
+        const svg = '<svg xmlns="http://www.w3.org/2000/svg"></svg>'
+        await mkdir(join(siteDir, 'posts'), { recursive: true })
+        await writeFile(join(siteDir, 'posts/logo.svg'), svg)
+        await writeFile(join(siteDir, 'posts/logo.png'), svg)
+        for (const name of ['logo.svg', 'logo.png']) {
+          const src = pathToFileURL(join(siteDir, 'posts', name)).href
+          expect(await refused(`![x](./${name})\n`)).toContain(t('error.markdownImageSvg', { file, line: 1, src }))
+        }
+      })
+
+      it('whose name ends in an extension not on the list, or none', async () => {
+        await mkdir(join(siteDir, 'posts'), { recursive: true })
+        await writeFile(join(siteDir, 'posts/photo.jfif'), await jpeg(4, 4))
+        await writeFile(join(siteDir, 'posts/photo'), await png(4, 4))
+        const extensions = '.png, .jpg, .jpeg, .gif, .webp, .avif'
+        for (const name of ['photo.jfif', 'photo']) {
+          const src = pathToFileURL(join(siteDir, 'posts', name)).href
+          expect(await refused(`![x](./${name})\n`)).toContain(t('error.markdownImageExtension', { file, line: 1, src, extensions }))
+        }
+      })
+
+      it('whose bytes are not the kind of picture its extension says', async () => {
+        await mkdir(join(siteDir, 'posts'), { recursive: true })
+        await writeFile(join(siteDir, 'posts/photo.jpg'), await png(4, 4))
+        const src = pathToFileURL(join(siteDir, 'posts/photo.jpg')).href
+        expect(await refused('![x](./photo.jpg)\n')).toContain(t('error.markdownImageMismatch', { file, line: 1, src, ext: '.jpg' }))
+      })
+
+      it('but lets a media library image through', async () => {
+        await writePost(`![x](inlay:media/${'a'.repeat(64)})\n`)
+        await expect(loadConfig(join(siteDir, 'inlay.config.ts'))).resolves.toBeDefined()
+      })
+    })
+
+    it('refuses a .md image that is missing', async () => {
+      await writePost('![x](./nope.png)\n')
+      const loading = await rejection(loadConfig(join(siteDir, 'inlay.config.ts')))
+      const src = pathToFileURL(join(siteDir, 'posts/nope.png')).href
+      expect(loading.message).toContain(t('error.markdownImageMissing', { file: 'posts/hello.md', line: 1, src }))
+    })
+
+    it("refuses a .md image that isn't an image", async () => {
+      await writePost('![x](./pic.png)\n')
+      await writeFile(join(siteDir, 'posts/pic.png'), 'just text')
+      const loading = await rejection(loadConfig(join(siteDir, 'inlay.config.ts')))
+      const src = pathToFileURL(join(siteDir, 'posts/pic.png')).href
+      expect(loading.message).toContain(t('error.markdownImageNotImage', { file: 'posts/hello.md', line: 1, src }))
+    })
+
+    it('packs the images of a .md only a template imports', async () => {
+      const beside = await png(6, 3)
+      await mkdir(join(siteDir, 'posts'), { recursive: true })
+      await writeFile(join(siteDir, 'posts/page.md'), '![Pic](./pic.png)\n')
+      await writeFile(join(siteDir, 'posts/pic.png'), beside)
+      await writeFile(join(siteDir, 'extra.ts'), "import page from './posts/page.md'\nexport const text = page\n")
+      const config = await readFile(join(siteDir, 'inlay.config.ts'), 'utf8')
+      await writeFile(join(siteDir, 'inlay.config.ts'), "import './extra.js'\n" + config)
+      const { manifest } = await pack()
+      const source = pathToFileURL(join(siteDir, 'posts/pic.png')).href
+      const path = contentPath('pic.png', beside)
+      expect(manifest.content).toContainEqual({ source, path, markdown: true })
+      expect(manifest.files).toHaveProperty([path])
+    })
+
+    it("lists only .md images as the release's markdown files, so a shipped-only image is never served there", async () => {
+      const own = await png(7, 2)
+      await mkdir(join(siteDir, 'pages'), { recursive: true })
+      await writeFile(join(siteDir, 'pages/own.png'), own)
+      await writeFile(join(siteDir, 'pages/page.md'), '![Own](./own.png)\n')
+      await writeFile(join(siteDir, 'extra.ts'), "import page from './pages/page.md'\nexport const text = page\n")
+      const config = await readFile(join(siteDir, 'inlay.config.ts'), 'utf8')
+      await writeFile(join(siteDir, 'inlay.config.ts'), "import './extra.js'\n" + config)
+      const { manifest } = await pack()
+      const shippedOnly = pathToFileURL(join(siteDir, 'assets/pic.png')).href
+      const mdImage = pathToFileURL(join(siteDir, 'pages/own.png')).href
+      expect(manifest.content.find((c) => c.source === shippedOnly)).not.toHaveProperty('markdown')
+
+      const loaded = await readRelease(out, { dir: releaseDir, trustedKeys: [keys.publicKey] })
+      expect([...loaded.shippedFiles.keys()]).toEqual(expect.arrayContaining([shippedOnly, mdImage]))
+      expect([...loaded.markdownFiles.keys()]).toEqual([mdImage])
+      const core = createCore({ site: loaded.site, db: openDatabase(':memory:'), markdownFiles: loaded.markdownFiles })
+      const files = markdownFilesFor(core)
+      expect(files.get(`${sha256(own)}.png`)).toBeDefined()
+      expect(files.get(`${sha256(pic)}.png`)).toBeUndefined()
+    })
+
+    it('packs an image named by a .md used both ways once', async () => {
+      await writePost('![Pic](./pic.png)\n')
+      await writeFile(join(siteDir, 'posts/pic.png'), await png(6, 3))
+      await writeFile(join(siteDir, 'extra.ts'), "import hello from './posts/hello.md'\nexport const text = hello\n")
+      const config = await readFile(join(siteDir, 'inlay.config.ts'), 'utf8')
+      await writeFile(join(siteDir, 'inlay.config.ts'), "import './extra.js'\n" + config)
+      const { manifest } = await pack()
+      expect(manifest.content.filter((c) => c.source.endsWith('/posts/pic.png'))).toHaveLength(1)
     })
 
     it('applies and packs images in a site loaded through a symlink to its folder', async () => {

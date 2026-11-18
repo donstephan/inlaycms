@@ -55,3 +55,25 @@ defineEntries('posts', [
 
 The whole file is the Markdown: there is no front matter, so the title, dates and other fields stay in your code. An image path in the file is relative to the file itself, so `posts/hello.md` names `posts/chart.png` as `![A chart](chart.png)` or `![A chart](./chart.png)`. The image must still be inside the site's folder, and is checked and packed as above. Write each image inline: an image written as a reference (`![A chart][chart]` with `[chart]: chart.png` further down) is refused, and `inlaycms dev`, `check` and `pack` name the file and line. The types for `.md` imports come with `inlaycms/site`, so TypeScript knows the import is a string.
 
+### Rendering a Markdown file from a template
+
+A `.md` file can also skip the content system and be rendered straight from a template with `await ctx.markdown(text)`. Choose it for text you own and keep in git: there is no edition to bump, and when you drop the file nothing is left behind in the database. The owner doesn't see it in the admin, so use shipped content when the client should be able to edit it.
+
+```tsx
+import colophon from './pages/colophon.md'
+
+defineRoute({
+  method: 'GET',
+  path: '/colophon',
+  handler: (_request, ctx) => ctx.render(Colophon, { fields: { title: 'Colophon' } }),
+})
+
+// in the Colophon template
+render: async (_props, ctx) => <main>{await ctx.markdown(colophon, { headingIds: true })}</main>
+```
+
+Images beside the file are served from the release, at `/media/files/`. `inlay:key/<type>/<key>` links work too: they become links to the live page, and a page that doesn't exist or isn't published is shown as plain text.
+
+Name each image by its path from the file, as above, or as `inlay:media/<id>` for an image already in the media library. Each picture file must end in `.png`, `.jpg`, `.jpeg`, `.gif`, `.webp` or `.avif`, and hold that kind of picture. SVG files are refused.
+
+The Markdown is checked when the site loads, and `inlaycms dev`, `check` and `pack` refuse it, naming the file and the line, for raw HTML or anything else rich text can't hold, and for an image written as a reference, on another website (`https://…`; a release never downloads anything, so download it into the folder), starting with `/` (that is an address on the site, not a file), named any other way (`data:`, say, or an `inlay:` target that isn't a media library image), outside the site's folder, missing, not an image, an SVG file, ending in another extension or none, or holding another kind of picture than its extension says. Text a template passes to `ctx.markdown` that wasn't imported from a `.md` file isn't checked when the site loads: its images must come from the media library, and any other is an error when the page renders. See the [rich text guide](/docs/guides/rich-text#heading-links) for the options.

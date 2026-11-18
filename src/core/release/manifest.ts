@@ -32,8 +32,11 @@ export interface ReleaseManifest {
   secrets: string[]
   /** Every file in the release except the manifest and its signature, to its sha256 (hex). */
   files: Record<string, string>
-  /** Each shipped image or file as the site names it, to where the release keeps it (`content/<sha256><ext>`). */
-  content: Array<{ source: string; path: string }>
+  /**
+   * Each shipped image or file as the site names it, to where the release keeps it (`content/<sha256><ext>`).
+   * `markdown` marks an image a `.md` file the site imports names: only those are served at `/media/files/`.
+   */
+  content: Array<{ source: string; path: string; markdown?: true }>
   /** The JSON Schema of each type's stored data, by type name, as the export manifest has it. */
   schema: Record<string, unknown>
   /**
@@ -64,7 +67,7 @@ export const manifestSchema = z.strictObject({
   inlay: z.strictObject({ version: z.string(), range: z.string() }),
   secrets: z.array(z.string()),
   files: z.record(z.string(), z.string().regex(SHA256)),
-  content: z.array(z.strictObject({ source: z.string(), path: z.string() })),
+  content: z.array(z.strictObject({ source: z.string(), path: z.string(), markdown: z.literal(true).optional() })),
   schema: z.record(z.string(), z.record(z.string(), z.unknown())),
   shipped: z.array(
     z.strictObject({

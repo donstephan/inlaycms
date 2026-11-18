@@ -7,7 +7,7 @@ import { INLAY_BIN } from './bin.js'
 import { ensureDataDir, readHostConfig, type HostConfig } from './config.js'
 import { isPrimaryMessage, isWorkerMessage, type PrimaryMessage, type WorkerMessage } from './ipc.js'
 import { createSupervisor, type WorkerHandle } from './primary.js'
-import { readWorkerEnv, runWorker, type WorkerEnv } from './worker.js'
+import type { WorkerEnv } from './worker.js'
 
 export interface ServeIo {
   out(line: string): void
@@ -63,6 +63,7 @@ async function worker(io: ServeIo): Promise<number> {
   // The primary decides when a worker stops; a signal sent to the whole process group must not cut requests off.
   process.on('SIGINT', () => {})
   process.on('SIGTERM', () => {})
+  const { readWorkerEnv, runWorker } = await import('./worker.js')
   let sent: Promise<unknown> = Promise.resolve()
   const exit = (code: number) => void sent.then(() => process.exit(code))
   const config = readConfig(io)

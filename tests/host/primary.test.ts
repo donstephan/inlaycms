@@ -554,14 +554,40 @@ describe('createSupervisor', () => {
     expect(second.shutdowns()).toBe(1)
     second.exit(0)
 
+    // An activation stops the previews before it forks its worker, and waits for them to leave.
     const third = await previewOf(current, 'rel-4', 'd')
     const activation = sup.activate('rel-5')
+    await vi.waitFor(() => expect(third.shutdowns()).toBe(1))
+    await flush()
+    expect(forks).toHaveLength(4)
+    third.exit(0)
     await forked(5)
-    expect(third.shutdowns()).toBe(0)
     forks[4]!.reply({ type: 'ready', releaseId: 'rel-5', activation: summary })
     await activation
-    expect(third.shutdowns()).toBe(1)
     expect(idleTimers()).toHaveLength(0)
+  })
+
+  it('stops a preview started during an activation once the release is live', async () => {
+    const current = await started('rel-1')
+    const activation = sup.activate('rel-2')
+    await forked(2)
+    const during = await previewOf(current, 'rel-3', 'a')
+    expect(during.shutdowns()).toBe(0)
+    forks[1]!.reply({ type: 'ready', releaseId: 'rel-2', activation: summary })
+    await activation
+    expect(during.shutdowns()).toBe(1)
+  })
+
+  it('a preview that does not leave holds the activation up only for the shutdown grace period', async () => {
+    const current = await started('rel-1')
+    const preview = await previewOf(current, 'rel-2', 'a')
+    const activation = sup.activate('rel-3')
+    await vi.waitFor(() => expect(preview.shutdowns()).toBe(1))
+    expect(fireLast()).toBe(10_000)
+    expect(preview.killed).toBe(true)
+    await forked(3)
+    forks[2]!.reply({ type: 'ready', releaseId: 'rel-3', activation: summary })
+    await activation
   })
 
   it('stop shuts every worker down', async () => {

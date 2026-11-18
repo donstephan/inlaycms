@@ -7,6 +7,7 @@ All notable changes to Inlay are recorded here. The format follows [Keep a Chang
 ### Changed
 
 - **Breaking:** public pages now send a strict Content-Security-Policy (`default-src 'self'` and more) instead of only `frame-ancestors 'self'`. An inline `<script>` in a template is now blocked unless it is written with `ctx.script`, and a font, image, frame or other source outside the site must be declared in `defineSite({ csp })`. A site that sets its own `content-security-policy` header keeps it as it is. The release diff shows changes to what a site may load.
+- `inlaycms serve` uses less memory: the supervising process loads only what it needs (about 55 MB instead of 190 MB), and activating a release stops the open previews before it starts the new release, so a swap no longer runs a preview, the old release and the new one at once.
 
 ### Added
 

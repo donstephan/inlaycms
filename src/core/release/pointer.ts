@@ -1,7 +1,6 @@
 import { randomUUID } from 'node:crypto'
 import { readFile, rename, rm, writeFile } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
-import { z } from 'zod'
 import { InlayError } from '../errors.js'
 
 /** What `current.json` holds: the release activation last made current. */
@@ -11,7 +10,13 @@ export interface CurrentPointer {
   activatedAt: string
 }
 
-const pointerSchema = z.strictObject({ id: z.string().min(1), name: z.string(), activatedAt: z.string() })
+function isPointer(value: unknown): value is CurrentPointer {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) return false
+  const keys = Object.keys(value).sort()
+  if (keys.length !== 3 || keys[0] !== 'activatedAt' || keys[1] !== 'id' || keys[2] !== 'name') return false
+  const { id, name, activatedAt } = value as Record<string, unknown>
+  return typeof id === 'string' && id !== '' && typeof name === 'string' && typeof activatedAt === 'string'
+}
 
 const POINTER = 'current.json'
 
@@ -36,7 +41,10 @@ export async function readCurrentPointer(releasesDir: string): Promise<CurrentPo
     throw e
   }
   try {
-    return pointerSchema.parse(JSON.parse(text))
+    const value: unknown = JSON.parse(text)
+    if (!isPointer(value)) throw new Error('not a pointer')
+    const { id, name, activatedAt } = value
+    return { id, name, activatedAt }
   } catch {
     throw new InlayError('release', 'error.releasePointerInvalid', { file })
   }

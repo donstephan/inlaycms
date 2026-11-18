@@ -1,7 +1,7 @@
 import { createHash, randomUUID } from 'node:crypto'
 import { createReadStream, existsSync } from 'node:fs'
 import { copyFile, mkdir, rm } from 'node:fs/promises'
-import { basename, dirname, join, resolve } from 'node:path'
+import { join } from 'node:path'
 import { sql, type Kysely, type Selectable } from 'kysely'
 import type { Database, ReleasesTable } from '../core/db/schema.js'
 import { InlayError } from '../core/errors.js'
@@ -16,11 +16,6 @@ export {
   writeCurrentPointer,
   type CurrentPointer,
 } from '../core/release/pointer.js'
-
-/** Whether `dir` is a push's scratch folder: `.push-*` right inside the releases folder. */
-export function isScratchDir(releasesDir: string, dir: string): boolean {
-  return resolve(dirname(dir)) === resolve(releasesDir) && /^\.push-[A-Za-z0-9_-]+$/.test(basename(dir))
-}
 
 /** A `releases` row with its secret names parsed. `schema` stays the JSON text it was stored as. */
 export interface ReleaseRow extends Omit<Selectable<ReleasesTable>, 'secrets'> {

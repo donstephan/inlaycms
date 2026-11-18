@@ -10,9 +10,9 @@ import { t, type MessageId } from '../core/messages/index.js'
 import { loadRelease, type LoadedRelease } from '../core/release/read.js'
 import { createSiteApp } from './app.js'
 import type { HostConfig } from './config.js'
-import { previewSocket, toIpcError } from './ipc.js'
+import { isScratchDir, previewSocket, toIpcError } from './ipc.js'
 import type { ContentDiff } from './push.js'
-import { getRelease, isScratchDir, releaseDir, type ReleaseRow } from './store.js'
+import { getRelease, releaseDir, type ReleaseRow } from './store.js'
 import type { WorkerIo } from './worker.js'
 
 /** A staged release's preview: its app on a copy of the live database, listening on a Unix socket. */

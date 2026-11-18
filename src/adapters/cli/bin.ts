@@ -1,7 +1,6 @@
 #!/usr/bin/env node
 import { createInterface } from 'node:readline'
 import { Writable } from 'node:stream'
-import { runCli } from './main.js'
 
 async function readSecret(prompt: string): Promise<string> {
   if (process.stdin.isTTY) {
@@ -32,9 +31,16 @@ async function readSecret(prompt: string): Promise<string> {
   }
 }
 
-process.exitCode = await runCli(process.argv.slice(2), {
+const argv = process.argv.slice(2)
+const io = {
   cwd: process.cwd(),
   out: console.log,
   err: console.error,
   readSecret,
-})
+}
+
+// `serve` skips main.js so the primary and every worker load only what serving needs, not the whole CLI.
+process.exitCode =
+  argv.length === 1 && argv[0] === 'serve'
+    ? await (await import('../../host/serve.js')).serve([], io)
+    : await (await import('./main.js')).runCli(argv, io)

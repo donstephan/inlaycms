@@ -152,6 +152,12 @@ describe('usage errors', () => {
     expect((await run()).code).toBe(2)
   })
 
+  it('serve with an argument prints the usage', async () => {
+    const r = await run('serve', 'extra')
+    expect(r.code).toBe(2)
+    expect(r.err).toContain(t('cli.usage').split('\n')[0])
+  })
+
   it('exits 2 with a message when the config file does not load', async () => {
     await writeConfig('export default {\n')
     const r = await run('check')

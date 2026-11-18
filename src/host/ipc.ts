@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto'
-import { join } from 'node:path'
+import { basename, dirname, join, resolve } from 'node:path'
 import { InlayError, type ErrorCode } from '../core/errors.js'
 import { en } from '../core/messages/en.js'
 import type { MessageId } from '../core/messages/index.js'
@@ -122,4 +122,9 @@ export function activationError(error: IpcError): InlayError {
 export function toIpcError(e: unknown): IpcError {
   if (e instanceof InlayError) return { code: e.code, message: e.message, messageId: e.messageId, params: e.params }
   return { code: 'release', message: e instanceof Error ? e.message : String(e) }
+}
+
+/** Whether `dir` is a push's scratch folder: `.push-*` right inside the releases folder. */
+export function isScratchDir(releasesDir: string, dir: string): boolean {
+  return resolve(dirname(dir)) === resolve(releasesDir) && /^\.push-[A-Za-z0-9_-]+$/.test(basename(dir))
 }

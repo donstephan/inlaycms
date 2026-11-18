@@ -169,6 +169,28 @@ describe('the current pointer', () => {
     const e = await rejection(readCurrentPointer(releasesDir))
     expect(e.messageId).toBe('error.releasePointerInvalid')
   })
+
+  it('refuses a pointer of the wrong shape', async () => {
+    for (const text of [
+      'null',
+      '[]',
+      '42',
+      '{"name":"a","activatedAt":"b"}',
+      '{"id":"","name":"a","activatedAt":"b"}',
+      '{"id":"r1","name":1,"activatedAt":"b"}',
+      '{"id":"r1","name":"a","activatedAt":null}',
+      '{"id":"r1","name":"a","activatedAt":"b","extra":true}',
+    ]) {
+      await writeFile(join(releasesDir, 'current.json'), text)
+      const e = await rejection(readCurrentPointer(releasesDir))
+      expect(e.messageId, text).toBe('error.releasePointerInvalid')
+    }
+  })
+
+  it('reads a pointer with surrounding whitespace', async () => {
+    await writeFile(join(releasesDir, 'current.json'), '\n  {"id":"r1","name":"a","activatedAt":"b"}\n')
+    expect(await readCurrentPointer(releasesDir)).toEqual({ id: 'r1', name: 'a', activatedAt: 'b' })
+  })
 })
 
 describe('openCurrentRelease', () => {

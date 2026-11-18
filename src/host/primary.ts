@@ -1,9 +1,11 @@
 import { InlayError } from '../core/errors.js'
 import { t, type MessageId } from '../core/messages/index.js'
+import { readCurrentPointer } from '../core/release/pointer.js'
 import type { HostConfig } from './config.js'
 import {
   ACTIVATION_TIMEOUT_MS,
   activationError,
+  isScratchDir,
   PREVIEW_IDLE_MS,
   PREVIEW_START_TIMEOUT_MS,
   previewSocket,
@@ -13,7 +15,6 @@ import {
   type PrimaryMessage,
   type WorkerMessage,
 } from './ipc.js'
-import { isScratchDir, readCurrentPointer } from './store.js'
 
 /** One worker process as the supervisor sees it; `serve` wraps a `cluster` worker, tests a fake. */
 export interface WorkerHandle {
@@ -300,9 +301,14 @@ export function createSupervisor(config: HostConfig, deps: SupervisorDeps): Supe
     void shutdown(preview.tracked)
   }
 
-  /** Previews run on a copy of the database made when they started: after an activation every one is out of date. */
-  function stopPreviews(): void {
+  /**
+   * Previews run on a copy of the database made when they started: after an activation every one is out of date.
+   * Resolves once they have all exited.
+   */
+  function stopPreviews(): Promise<void> {
+    const exits = [...previews.values()].map((preview) => preview.tracked.exited)
     for (const releaseId of [...previews.keys()]) stopPreview(releaseId)
+    return Promise.all(exits).then(() => {})
   }
 
   /**
@@ -353,6 +359,10 @@ export function createSupervisor(config: HostConfig, deps: SupervisorDeps): Supe
 
   async function swap(releaseId: string, onSwapped: (activation: ActivationSummary) => void): Promise<ActivationSummary> {
     if (stopping) throw new InlayError('invalid_operation', 'error.hostStopping')
+    // The previews go first, even if the activation then fails (the next request starts them again): with them
+    // running, a swap would hold a whole worker more in memory for each.
+    await stopPreviews()
+    if (stopping) throw new InlayError('invalid_operation', 'error.hostStopping')
     const next = spawn(workerEnv({ release: releaseId, activate: true }))
     next.expected = true
     const activation = await whenReady(next, releaseId)
@@ -368,7 +378,8 @@ export function createSupervisor(config: HostConfig, deps: SupervisorDeps): Supe
     }
     firstReady?.resolve()
     firstReady = null
-    stopPreviews()
+    // Any started during the swap.
+    void stopPreviews()
     onSwapped(activation)
     if (old) void shutdown(old)
     return activation

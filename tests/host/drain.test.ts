@@ -1,4 +1,4 @@
-import { createServer, type RequestListener } from 'node:http'
+import { Agent, createServer, request, type RequestListener } from 'node:http'
 import type { AddressInfo } from 'node:net'
 import { drainable } from '../../src/host/drain.js'
 
@@ -12,6 +12,18 @@ async function start(handler: RequestListener, graceMs?: number) {
   return { server, drain, url }
 }
 
+/** A GET through `agent`, telling whether it went down a reused keep-alive socket, which `fetch` can't. */
+function get(url: string, agent: Agent) {
+  return new Promise<{ status: number; reused: boolean }>((resolve, reject) => {
+    const req = request(url, { agent }, (res) => {
+      res.resume()
+      res.on('end', () => resolve({ status: res.statusCode ?? 0, reused: req.reusedSocket }))
+    })
+    req.on('error', (error) => reject(Object.assign(error, { reused: req.reusedSocket })))
+    req.end()
+  })
+}
+
 describe('drainable', () => {
   // Clients that keep reusing their keep-alive sockets while the server shuts down, as visitors (or a proxy) do while
   // `inlaycms serve` swaps releases. Closing the server outright resets a request already on its way down an idle
@@ -21,19 +33,21 @@ describe('drainable', () => {
     const failures: string[] = []
     for (let round = 0; round < 30; round++) {
       const { server, drain, url } = await start((_req, res) => res.end('ok'))
+      const agent = new Agent({ keepAlive: true })
       let running = true
       let draining = false
       const loops = Array.from({ length: 8 }, async () => {
         while (running) {
           try {
-            const res = await fetch(url)
-            await res.text()
+            const res = await get(url, agent)
             if (res.status === 200) ok++
             else failures.push(`status ${res.status}`)
           } catch (e) {
-            const code = (e as { cause?: { code?: string } }).cause?.code
-            // Once the server stops accepting, a new connection is refused; under `serve` it goes to the new worker.
-            if (!(draining && code === 'ECONNREFUSED')) failures.push(String(code ?? e))
+            const { code, reused } = e as { code?: string; reused: boolean }
+            // Once the server stops accepting, a new connection is refused, or reset if it was still waiting to be
+            // accepted when the server closed (a slow event loop). Under `serve` the cluster primary owns the
+            // listening socket and hands both to the new worker; only a reused keep-alive socket is drain's to keep.
+            if (!(draining && !reused)) failures.push(`${code ?? e}${reused ? ' on a reused socket' : ''}`)
           }
           await new Promise((done) => setTimeout(done, Math.random() * 3))
         }
@@ -43,6 +57,7 @@ describe('drainable', () => {
       await drain()
       running = false
       await Promise.all(loops)
+      agent.destroy()
       server.closeAllConnections()
     }
     expect(ok).toBeGreaterThan(0)

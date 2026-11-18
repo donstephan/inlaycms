@@ -22,12 +22,13 @@ jobs:
       - uses: pnpm/action-setup@v4
         with:
           package_json_file: website/package.json
-      - uses: actions/setup-node@v5
+      - uses: actions/setup-node@v7
         with:
           node-version: 24
           cache: pnpm
           cache-dependency-path: website/pnpm-lock.yaml
-      - run: pnpm --dir website install --frozen-lockfile
+      # setup-node asks for the pnpm store from the repo root, not website/: install into that store so its cache save finds it.
+      - run: pnpm --dir website install --frozen-lockfile --store-dir "$(pnpm store path --silent)"
       - run: pnpm --dir website run build
       - run: pnpm --dir website run check
       - uses: actions/configure-pages@v5

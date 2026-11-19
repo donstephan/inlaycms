@@ -4,6 +4,8 @@ All notable changes to Inlay are recorded here. The format follows [Keep a Chang
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-11-19
+
 ### Changed
 
 - **Breaking:** public pages now send a strict Content-Security-Policy (`default-src 'self'` and more) instead of only `frame-ancestors 'self'`. An inline `<script>` in a template is now blocked unless it is written with `ctx.script`, and a font, image, frame or other source outside the site must be declared in `defineSite({ csp })`. A site that sets its own `content-security-policy` header keeps it as it is. The release diff shows changes to what a site may load.
@@ -17,7 +19,6 @@ All notable changes to Inlay are recorded here. The format follows [Keep a Chang
 - Consent: an integration can name a category (`analytics`, `marketing`, `functional`) and stays inert until the visitor agrees, through `window.inlay.consent` (`grant`, `revoke`, `get`) and the `inlay:consent` event. The site builds its own banner; the example site has one.
 - A `pattern` (and `patternHint`) option on `f.text` and `f.textarea`.
 - `defineSite({ csp })` to declare the sources a site's pages may load from, and `inlaycms check` warnings for `'unsafe-inline'`, `'unsafe-eval'` and a whole-policy override beside integrations.
-
 - Code blocks in rich text: Markdown fences (three or more backticks or tildes) with an optional language, `<pre><code class="language-ts">` in HTML, and a Code block button and language box in the admin editor. A fence that is never closed is refused with its line. On by default; a field that lists its `features` gets them only by listing `'codeBlock'`. As with inline code in 0.4.0, every rich-text field that doesn't list its own `features` shows as changed in the first release diff after upgrading, because the features it allows now include code blocks.
 - A `highlight` option on `ctx.richText` to highlight code blocks with a highlighter of the site's choosing.
 - A `headingIds` option on `ctx.richText` that gives headings ids to link to, and `richTextHeadings` to list a rich-text value's headings for an on-page contents list.
@@ -96,7 +97,8 @@ All notable changes to Inlay are recorded here. The format follows [Keep a Chang
 
 First release.
 
-[Unreleased]: https://github.com/donstephan/inlaycms/compare/v0.4.1...HEAD
+[Unreleased]: https://github.com/donstephan/inlaycms/compare/v0.5.0...HEAD
+[0.5.0]: https://github.com/donstephan/inlaycms/compare/v0.4.1...v0.5.0
 [0.4.1]: https://github.com/donstephan/inlaycms/compare/v0.4.0...v0.4.1
 [0.4.0]: https://github.com/donstephan/inlaycms/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/donstephan/inlaycms/compare/v0.2.0...v0.3.0

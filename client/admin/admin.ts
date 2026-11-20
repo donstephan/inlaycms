@@ -1,6 +1,7 @@
 import 'htmx.org'
 import './picker.js'
 import { initDataTables, initDropdowns } from './data-table.js'
+import { initCopyButtons } from './copy.js'
 import { initLengthCounters } from './length.js'
 import { initPublishDialog } from './publish.js'
 import { initSheets } from './sheet.js'
@@ -17,6 +18,7 @@ document.addEventListener('DOMContentLoaded', () => {
   initPublishDialog(document)
   initSheets(document)
   initNotice()
+  initCopyButtons()
 })
 document.addEventListener('htmx:afterSwap', (event) => {
   const target = event.target

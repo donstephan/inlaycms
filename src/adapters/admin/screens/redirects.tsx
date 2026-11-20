@@ -119,7 +119,9 @@ export function registerRedirects(scope: FastifyInstance, ctx: AdminContext): vo
             const to = 'path' in r.to ? r.to.path : 'url' in r.to ? r.to.url : (docs.get(r.to.document)?.title ?? '')
             return [r.from, to, r.note ?? ''].some((s) => s.toLowerCase().includes(needle))
           })
-    const values = form.values ?? {}
+    const asked = typeof query.to_path === 'string' ? query.to_path : ''
+    const seeded: Record<string, string> = { to_mode: 'path', ...(asked !== '' && { to_path: asked }), ...(query.status === '302' && { status: '302' }) }
+    const values: Record<string, string> = form.values ?? (sheets.add === undefined && (asked !== '' || query.status === '302') ? seeded : {})
     const mode = values.to_mode === 'document' ? 'document' : 'path'
     const chosen = values.to_document ? docs.get(values.to_document)?.title : undefined
     const picker = `/admin/pick/documents?${new URLSearchParams({ locale: core.registry.defaultLocale }).toString()}`

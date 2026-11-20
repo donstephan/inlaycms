@@ -381,6 +381,14 @@ export const en = {
   'error.packForbidden':
     "{file} uses {what}, which a release can't include. Site code can't reach the server's process, load code by a computed name or run code from text. This check catches mistakes; what makes a release trusted is its signature.",
   'error.packBundle': "The site code couldn't be bundled into a release: {problem}",
+  'error.publicReserved':
+    'The file public/{file} would also be served at {path}, which belongs to Inlay itself. Rename or move the file.',
+  'error.publicRoute':
+    'The file public/{file} would also be served at {path}, where the site already has a route. Rename the file or change the route.',
+  'error.publicRedirect':
+    'The file public/{file} would also be served at {path}, where the site already has a redirect. Rename the file or change the redirect.',
+  'error.publicPage':
+    "The file public/{file} would also be served at {path}, which is already the address of a page. Rename the file or change the page's path.",
   'error.packFile': 'The shipped content names the file {path}, but there is no file there.',
   'error.markdownImageReference':
     "{file}, line {line}: this image is written as a reference ([alt][name]), which Inlay can't follow in a Markdown file. Write the image inline instead, such as ![A chart](images/chart.png).",
@@ -776,6 +784,8 @@ export const en = {
   'admin.search.recent': 'Recently changed',
   'admin.search.seeAll': 'See all {count} in {label}',
   'admin.search.results': 'Search results',
+  'admin.copy': 'Copy',
+  'admin.copied': 'Copied',
   'admin.breadcrumbs': 'You are here',
   'admin.time.utc': '{time} UTC',
   'admin.forbidden.title': "You can't open this page",
@@ -1400,6 +1410,8 @@ export const en = {
   'admin.media.dimensionsValue': '{width} x {height}',
   'admin.media.uploadedBy': 'Uploaded by',
   'admin.media.uploadedByValue': '{name}, {time}',
+  'admin.media.address': 'Address',
+  'admin.media.addressHint': 'Link to the file with this address. Uploading a new version gives it a new address.',
   'admin.media.download': 'Download the file',
   'admin.media.altHeading': 'Description of the image',
   'admin.media.alt': 'Default description (alt text)',
@@ -1412,6 +1424,12 @@ export const en = {
   'admin.media.usage.draft': 'in the draft',
   'admin.media.usage.published': 'on the live site',
   'admin.media.usage.both': 'in the draft and on the live site',
+  'admin.media.redirectsHeading': 'Friendly addresses',
+  'admin.media.redirectsNone': 'No friendly addresses point to this file yet.',
+  'admin.media.redirectsHint':
+    "A friendly address like /privacy-policy.pdf sends visitors to this file. It's added as a temporary redirect, so you can point it at a new version later without browsers holding on to the old file.",
+  'admin.media.redirectsAdd': 'Add a friendly address',
+  'admin.media.delete.redirects': 'These addresses point to this file and will stop working:',
   'admin.media.delete': 'Delete',
   'admin.media.delete.title': 'Delete {filename}?',
   'admin.media.delete.confirm': 'This removes "{filename}" from the media library. This cannot be undone.',

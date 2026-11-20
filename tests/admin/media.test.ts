@@ -117,6 +117,70 @@ describe('admin media library', () => {
     expect(await core.listMedia()).toHaveLength(1)
   })
 
+  it('shows the file address with a copy button', async () => {
+    const { media } = await core.addMedia({ data: await jpeg(40, 30), filename: 'photo.jpg' }, owner)
+    const doc = parseHtml((await eddie.get(`/admin/media/${media.id}`)).body)
+    const input = doc.querySelector('input#media-address')
+    expect(input?.getAttribute('value')).toBe(`https://example.com/media/${media.id}`)
+    expect(input?.hasAttribute('readonly')).toBe(true)
+    expect(input?.getAttribute('aria-describedby')).toBe('media-address-hint')
+    const button = doc.querySelector('button[data-copy="media-address"]')
+    expect(button?.textContent.trim()).toBe('Copy')
+    expect(button?.getAttribute('data-copied')).toBe('Copied')
+  })
+
+  describe('friendly addresses', () => {
+    const fileWithRedirect = async () => {
+      const { media } = await core.addMedia({ data: await jpeg(40, 30), filename: 'photo.jpg' }, owner)
+      await core.createRedirect({ from: '/privacy-policy.pdf', to: `/media/${media.id}` }, owner)
+      await core.createRedirect({ from: '/other', to: '/' }, owner)
+      return media
+    }
+
+    it('lists the redirects that point at the file', async () => {
+      const media = await fileWithRedirect()
+      const doc = parseHtml((await eddie.get(`/admin/media/${media.id}`)).body)
+      const section = doc.querySelector('section[aria-labelledby="redirects-heading"]')
+      expect(section?.textContent).toContain('Friendly addresses')
+      expect(section?.textContent).toContain('/privacy-policy.pdf')
+      expect(section?.textContent).not.toContain('/other')
+      expect(section?.querySelector('li a')?.getAttribute('href')).toBe('/admin/redirects')
+    })
+
+    it('lists a redirect written as the file\'s full address', async () => {
+      const { media } = await core.addMedia({ data: await jpeg(40, 30), filename: 'photo.jpg' }, owner)
+      await core.createRedirect({ from: '/privacy-policy.pdf', to: `https://example.com/media/${media.id}` }, owner)
+      const detail = parseHtml((await eddie.get(`/admin/media/${media.id}`)).body)
+      expect(detail.querySelector('section[aria-labelledby="redirects-heading"]')?.textContent).toContain('/privacy-policy.pdf')
+      const del = parseHtml((await eddie.get(`/admin/media/${media.id}/delete`)).body)
+      expect(del.querySelector('#delete-redirects')?.textContent).toContain('/privacy-policy.pdf')
+    })
+
+    it('says when no redirect points at the file', async () => {
+      const { media } = await core.addMedia({ data: await jpeg(40, 30), filename: 'photo.jpg' }, owner)
+      expect(textOf((await eddie.get(`/admin/media/${media.id}`)).body)).toContain('No friendly addresses point to this file yet.')
+    })
+
+    it('links to a redirect form filled in for the file', async () => {
+      const { media } = await core.addMedia({ data: await jpeg(40, 30), filename: 'photo.jpg' }, owner)
+      const doc = parseHtml((await eddie.get(`/admin/media/${media.id}`)).body)
+      const link = [...doc.querySelectorAll('a')].find((a) => a.getAttribute('href')?.startsWith('/admin/redirects?'))
+      const url = new URL(link?.getAttribute('href') ?? '', 'http://x')
+      expect(url.pathname).toBe('/admin/redirects')
+      expect(url.searchParams.get('sheet')).toBe('add')
+      expect(url.searchParams.get('to_path')).toBe(`/media/${media.id}`)
+      expect(url.searchParams.get('status')).toBe('302')
+    })
+
+    it('warns on delete about addresses that point at the file', async () => {
+      const media = await fileWithRedirect()
+      const text = textOf((await eddie.get(`/admin/media/${media.id}/delete`)).body)
+      expect(text).toContain('These addresses point to this file and will stop working:')
+      expect(text).toContain('/privacy-policy.pdf')
+      expect(text).not.toContain('/other')
+    })
+  })
+
   it('says so when no file was chosen', async () => {
     const res = await eddie.upload('/admin/media', [], { x: 'y' })
     expect(res.statusCode).toBe(400)

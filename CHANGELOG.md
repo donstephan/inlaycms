@@ -4,6 +4,15 @@ All notable changes to Inlay are recorded here. The format follows [Keep a Chang
 
 ## [Unreleased]
 
+### Changed
+
+- **Breaking:** `inlaycms check` and `inlaycms pack` refuse a file in `public/` whose address at the site root (see below) would clash with one of Inlay's own paths (`/admin`, `/media`, `/public`, `/robots.txt`, `/sitemap.xml` and the rest), a route, a redirect in the site's code or a singleton page's path, naming the file and what it clashes with. A site with, say, `public/robots.txt` or `public/media/logo.png` has to rename or move it before it packs.
+
+### Added
+
+- Files in a site's `public/` folder are also served at the same path from the site root: `public/privacy-policy.pdf` at `/privacy-policy.pdf`, `public/legal/terms.pdf` at `/legal/terms.pdf`, with the same headers as under `/public/`, which keeps working. Only files with a dot in their name get a root address, so a file can never hide a page. Unlike `/public/`, these addresses are behind the site password while the site is locked. A root file wins over a redirect from the same path made in the admin. Releases packed with 0.7.0 or later get this; older ones are served as before.
+- The admin's media page shows the file's address with a Copy button, and a "Friendly addresses" section listing the redirects that point at the file, with a button to add one, such as `/privacy-policy.pdf`, that opens the redirect form filled in as a temporary redirect (so it can later point at a new version without browsers holding on to the old file). Deleting a file lists the addresses that will stop working.
+
 ## [0.6.0] - 2026-11-20
 
 ### Changed

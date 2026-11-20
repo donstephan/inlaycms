@@ -1,10 +1,12 @@
 import { createHash } from 'node:crypto'
-import { mkdir, mkdtemp, rm, symlink, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, rm, stat, symlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import Fastify, { type FastifyInstance } from 'fastify'
 import { afterEach, beforeEach } from 'vitest'
+import { defineSite } from '../../src/core/registry/define.js'
 import { inlay } from '../../src/adapters/site/plugin.js'
+import { webSite } from '../fixtures/web.js'
 import { appOptions, makeApp } from '../helpers/app.js'
 
 const DEFAULT_CSP =
@@ -155,5 +157,120 @@ describe('/public/*', () => {
     const res = await app.inject('/public/site.css')
     expect(res.statusCode).toBe(404)
     expect(res.body).not.toContain('body{color:red}')
+  })
+})
+
+describe('public files at the site root', () => {
+  const PDF = '%PDF-1.4 privacy'
+
+  async function rootSetup(rootPublicFiles = true) {
+    await mkdir(join(dir, 'legal'))
+    await writeFile(join(dir, 'privacy-policy.pdf'), PDF)
+    await writeFile(join(dir, 'legal', 'terms.pdf'), 'terms')
+    await writeFile(join(dir, 'Privacy Policy.pdf'), 'spaced')
+    await writeFile(join(dir, 'CNAME'), 'example.com')
+    await writeFile(`${dir}-outside.txt`, 'outside')
+    await symlink(`${dir}-outside.txt`, join(dir, 'link.pdf'))
+    const made = await makeApp({ withOwner: true, publicDir: dir, rootPublicFiles })
+    open.push(made.app)
+    return made
+  }
+
+  it('serves a file at its path from the root', async () => {
+    const { app } = await rootSetup()
+    const res = await app.inject('/privacy-policy.pdf')
+    expect(res.statusCode).toBe(200)
+    expect(res.headers['content-type']).toBe('application/pdf')
+    expect(res.headers['cache-control']).toBe('public, max-age=3600')
+    expect(res.headers['x-content-type-options']).toBe('nosniff')
+    expect(res.body).toBe(PDF)
+  })
+
+  it('serves nested and encoded names', async () => {
+    const { app } = await rootSetup()
+    expect((await app.inject('/legal/terms.pdf')).statusCode).toBe(200)
+    expect((await app.inject('/Privacy%20Policy.pdf')).statusCode).toBe(200)
+  })
+
+  it('answers HEAD', async () => {
+    const { app } = await rootSetup()
+    const res = await app.inject({ method: 'HEAD', url: '/privacy-policy.pdf' })
+    expect(res.statusCode).toBe(200)
+    expect(res.headers['content-length']).toBe(String((await stat(join(dir, 'privacy-policy.pdf'))).size))
+  })
+
+  it('still serves the file under /public/', async () => {
+    const { app } = await rootSetup()
+    expect((await app.inject('/public/privacy-policy.pdf')).statusCode).toBe(200)
+  })
+
+  it('serves a name without a dot only under /public/', async () => {
+    const { app } = await rootSetup()
+    expect((await app.inject('/CNAME')).statusCode).toBe(404)
+    expect((await app.inject('/public/CNAME')).statusCode).toBe(200)
+  })
+
+  it('falls through to the 404 page for a missing, hidden or escaping path', async () => {
+    const { app } = await rootSetup()
+    for (const url of ['/nothing.pdf', '/.env', '/..%2fsecret.txt', '/%2e%2e/secret.txt', '/link.pdf']) {
+      const res = await app.inject(url)
+      expect(res.statusCode, url).toBe(404)
+      expect(res.headers['content-type'], url).toMatch(/^text\/html/)
+      expect(res.body, url).toContain('Page not found')
+      expect(res.body, url).not.toContain('outside')
+      expect(res.body, url).not.toContain('SECRET=1')
+    }
+  })
+
+  it('beats an editor redirect from the same path', async () => {
+    const { app, core, owner } = await rootSetup()
+    await core.createRedirect({ from: '/privacy-policy.pdf', to: '/' }, owner)
+    const res = await app.inject('/privacy-policy.pdf')
+    expect(res.statusCode).toBe(200)
+    expect(res.headers['content-type']).toBe('application/pdf')
+  })
+
+  it('answers 304 to a matching If-None-Match', async () => {
+    const { app } = await rootSetup()
+    const first = await app.inject('/privacy-policy.pdf')
+    const etag = first.headers.etag as string
+    expect(etag).toBeTruthy()
+    const again = await app.inject({ url: '/privacy-policy.pdf', headers: { 'if-none-match': etag } })
+    expect(again.statusCode).toBe(304)
+  })
+
+  it('serves SVG under the same policy as /public/', async () => {
+    await writeFile(join(dir, 'logo.svg'), '<svg xmlns="http://www.w3.org/2000/svg"><script>alert(1)</script></svg>')
+    const { app } = await rootSetup()
+    const res = await app.inject('/logo.svg')
+    expect(res.statusCode).toBe(200)
+    expect(res.headers['content-security-policy']).toBe("default-src 'none'; style-src 'unsafe-inline'")
+  })
+
+  it('is never stored in a forced preview', async () => {
+    await writeFile(join(dir, 'privacy-policy.pdf'), PDF)
+    const app = Fastify()
+    open.push(app)
+    await app.register(inlay, { ...(await appOptions({ publicDir: dir, rootPublicFiles: true })), preview: 'forced' })
+    const res = await app.inject('/privacy-policy.pdf')
+    expect(res.statusCode).toBe(200)
+    expect(res.headers['cache-control']).toBe('no-store')
+    expect(res.headers.etag).toBeUndefined()
+    const again = await app.inject({ url: '/privacy-policy.pdf', headers: { 'if-none-match': '"anything"' } })
+    expect(again.statusCode).toBe(200)
+  })
+
+  it("is served, not redirected, with trailingSlash 'always'", async () => {
+    await writeFile(join(dir, 'privacy-policy.pdf'), PDF)
+    const { app } = await makeApp({ site: defineSite({ ...webSite, trailingSlash: 'always' }), publicDir: dir, rootPublicFiles: true })
+    open.push(app)
+    const res = await app.inject('/privacy-policy.pdf')
+    expect(res.statusCode).toBe(200)
+    expect(res.body).toBe(PDF)
+  })
+
+  it('serves nothing at the root without the option', async () => {
+    const { app } = await rootSetup(false)
+    expect((await app.inject('/privacy-policy.pdf')).statusCode).toBe(404)
   })
 })

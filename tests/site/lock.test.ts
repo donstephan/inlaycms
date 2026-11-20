@@ -1,5 +1,8 @@
+import { mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { request as httpRequest } from 'node:http'
 import type { AddressInfo } from 'node:net'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import Fastify, { type FastifyInstance } from 'fastify'
 import { inlay } from '../../src/adapters/site/plugin.js'
 import { passwordHasher } from '../../src/core/auth/auth.js'
@@ -116,6 +119,21 @@ describe('site lock gate', () => {
       expectScreen(res)
       expect(res.body, url).not.toContain('<nav')
       expect(res.body, url).not.toContain('Page not found')
+    }
+  })
+
+  it('locks public files at the root but not under /public/', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'inlay-lock-public-'))
+    try {
+      await writeFile(join(dir, 'privacy-policy.pdf'), '%PDF-1.4')
+      const made = await makeApp({ withOwner: true, publicDir: dir, rootPublicFiles: true })
+      open.push(made.app)
+      await made.core.setSitePassword(PASSWORD, made.owner)
+      await made.core.setSiteLock(true, made.owner)
+      expectScreen(await made.app.inject('/privacy-policy.pdf'))
+      expect((await made.app.inject('/public/privacy-policy.pdf')).statusCode).toBe(200)
+    } finally {
+      await rm(dir, { recursive: true, force: true })
     }
   })
 

@@ -136,6 +136,31 @@ describe('createSiteApp with a release', () => {
     expect((await app.inject({ method: 'GET', url: '/admin/setup' })).statusCode).toBe(200)
   })
 
+  it('serves public files at the root only for releases packed with 0.7.0 or later', async () => {
+    const loaded = await activated()
+    const packedWith = (version: string): LoadedRelease => ({
+      ...loaded,
+      manifest: { ...loaded.manifest, inlay: { ...loaded.manifest.inlay, version } },
+    })
+    const newer = await createSiteApp(config, packedWith('0.7.0'), { content: 'none', now })
+    app = newer.app
+    expect((await app.inject({ method: 'GET', url: '/site.css' })).statusCode).toBe(200)
+    await app.close()
+
+    const older = await createSiteApp(config, packedWith('0.6.0'), { content: 'none', now })
+    app = older.app
+    expect((await app.inject({ method: 'GET', url: '/site.css' })).statusCode).toBe(404)
+    expect((await app.inject({ method: 'GET', url: '/public/site.css' })).statusCode).toBe(200)
+  })
+
+  it('serves public files at the root for a source with no manifest, as inlaycms dev does', async () => {
+    const loaded = await activated()
+    const { manifest: _manifest, ...source } = loaded
+    const made = await createSiteApp(config, source, { content: 'none', now })
+    app = made.app
+    expect((await app.inject({ method: 'GET', url: '/site.css' })).statusCode).toBe(200)
+  })
+
   it('gives boot no time limit, so a large shipped-content set can be applied', async () => {
     const made = await createSiteApp(config, null, { content: 'none', now })
     app = made.app

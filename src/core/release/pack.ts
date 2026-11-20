@@ -12,6 +12,7 @@ import { realInsideSync } from '../content/shipped-images.js'
 import { InlayError } from '../errors.js'
 import { buildRegistry } from '../registry/registry.js'
 import { bundleSite } from './bundle.js'
+import { publicClashes, publicClashError } from './public-files.js'
 import { sign } from './keys.js'
 import { contentPath, manifestOfRegistry, sha256Hex, type ReleaseManifest } from './manifest.js'
 
@@ -86,6 +87,8 @@ export async function packRelease(opts: {
 
     const publicDir = join(dir, 'public')
     if (existsSync(publicDir)) {
+      const [clash] = await publicClashes(publicDir, registry)
+      if (clash) throw publicClashError(clash)
       for (const path of await listFiles(publicDir, true)) {
         await mkdir(dirname(join(tmp, 'public', path)), { recursive: true })
         await copyFile(join(publicDir, path), join(tmp, 'public', path))

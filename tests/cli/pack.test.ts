@@ -63,6 +63,16 @@ describe('inlaycms pack', () => {
   })
 })
 
+describe('inlaycms pack public files', () => {
+  it('pack refuses a public file that clashes with a root address', async () => {
+    await writeFile(join(dir, 'public/robots.txt'), 'User-agent: *\n')
+    const r = await run('pack', '--key', 'inlay.key', '--name', 'r1')
+    expect(r.code).toBe(1)
+    expect(r.out + r.err).toContain('public/robots.txt')
+    expect(existsSync(join(dir, 'r1.tgz'))).toBe(false)
+  })
+})
+
 describe('inlaycms pack type check', () => {
   // The site's own TypeScript, found as Node finds the package (no node_modules/.bin), and run with the running Node.
   beforeEach(async () => {
@@ -107,6 +117,14 @@ describe('inlaycms check without a database', () => {
   it('check passes a site that bundles', async () => {
     const r = await run('check')
     expect(r.code).toBe(0)
+  })
+
+  it('check reports a public file that clashes with a root address', async () => {
+    await writeFile(join(dir, 'public/robots.txt'), 'User-agent: *\n')
+    const r = await run('check', '--json')
+    expect(r.code).not.toBe(0)
+    const report = JSON.parse(r.out) as { problems: { code: string; message: string }[] }
+    expect(report.problems).toContainEqual(expect.objectContaining({ code: 'public_clash', message: expect.stringContaining('public/robots.txt') }))
   })
 
   it('check refuses a definition error', async () => {

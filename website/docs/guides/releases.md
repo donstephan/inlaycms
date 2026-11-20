@@ -26,6 +26,8 @@ npx inlaycms pack --key keys/release.key --out release.tgz
 
 `pack` type-checks the site first when a `tsconfig.json` sits next to the config (`--no-typecheck` skips that). The key can also come from `INLAY_SIGNING_KEY`, as the key itself or a path to it.
 
+Files in `public/` are served under `/public/` and, when the file name has a dot, also at the same path from the site root: `public/privacy-policy.pdf` is at `/privacy-policy.pdf` as well, for releases packed with 0.7.0 or later. A root address that would clash with one of Inlay's own paths, with `robots.txt` or `sitemap.xml`, or with one of the site's routes stops `check` and `pack`.
+
 Site code imports Inlay from `inlaycms/site` (and JSX from `inlaycms/jsx-runtime`), never from `inlaycms` itself, which is the host's side. `pack` refuses a site that imports anything else it can't bundle, such as Node's built-in modules or `inlaycms`, and site code that uses `process`, `require`, `eval` or `Function` (also as `globalThis.eval` and the like) or an `import()` of a computed name. An `import()` of a template under a relative folder, such as ``import(`./locales/${lang}.js`)``, is fine: every matching file is bundled. Those checks catch mistakes; they don't make a release safe to run. What makes a release trusted is its signature: a host runs only releases signed with a key it trusts, so trust a key only if you trust everyone who can sign with it.
 
 The example site in `example/` commits a key pair in `example/keys/` (`dev.key`, `dev.pub`) so `pnpm run example:pack` works out of the box. It is for development only: never trust `example/keys/dev.pub` on a real host.

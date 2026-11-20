@@ -48,6 +48,7 @@ export interface MakeAppOptions {
   baseUrl?: string
   uploads?: UploadLimits
   publicDir?: string
+  rootPublicFiles?: boolean
   /** better-auth's login rate limit; off by default. */
   rateLimit?: boolean
   /** The admin's Releases screen: the releases folder, the keys an upload must be signed with, the host's hooks. */
@@ -89,6 +90,7 @@ export async function makeApp(opts: MakeAppOptions = {}): Promise<MadeApp & { ow
     ...(opts.cdn && { cdn: opts.cdn }),
     ...(opts.uploads && { uploads: opts.uploads }),
     ...(opts.publicDir && { publicDir: opts.publicDir }),
+    ...(opts.rootPublicFiles !== undefined && { rootPublicFiles: opts.rootPublicFiles }),
     ...(opts.rateLimit !== undefined && { rateLimit: opts.rateLimit }),
     ...(opts.releasesDir !== undefined && { releasesDir: opts.releasesDir }),
     ...(opts.readOnly !== undefined && { readOnly: opts.readOnly }),

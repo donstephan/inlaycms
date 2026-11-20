@@ -37,7 +37,7 @@ import { startBackupSchedule, type BackupSchedule } from './backup-schedule.js'
 import { isLockedRequest, registerSiteLockGate, registerUnlockRoute } from './lock.js'
 import { codeFilesFor, registerCodeFileRoutes } from './code-files.js'
 import { registerMediaRoutes } from './media-routes.js'
-import { registerPublicRoutes } from './public.js'
+import { registerPublicRoutes, rootPublicPath, sendPublicFile } from './public.js'
 import { previewLink, readPreview, registerPreviewRoutes } from './preview.js'
 import { catalogPage, renderPageResult, type RenderedPage } from './render.js'
 import { registerReleaseRoutes } from './routes.js'
@@ -105,6 +105,8 @@ export interface InlayOptions {
   trustedKeys?: readonly string[]
   /** What the admin's Releases screen can ask of `inlaycms serve` (preview, activate, push checks). */
   adminHost?: AdminHostHooks
+  /** Also serves the files in `publicDir` whose names have a dot at the site root, such as `/privacy-policy.pdf`. */
+  rootPublicFiles?: boolean
 }
 
 /** What a site running under `inlaycms serve` can ask of the server. */
@@ -259,6 +261,7 @@ function registerSiteRoutes(
     /** The name of the release a forced preview shows. */
     release?: string
     assets: PublicAssets
+    rootPublic?: { dir: string; maxAge: number }
   },
 ): void {
   const { registry } = core
@@ -333,6 +336,13 @@ function registerSiteRoutes(
 
   async function handle(request: FastifyRequest, reply: FastifyReply): Promise<FastifyReply> {
     const { path, search } = splitUrl(request.url)
+    if (opts.rootPublic !== undefined) {
+      const rootPath = rootPublicPath(request.raw.url ?? '')
+      if (rootPath !== null) {
+        const sent = await sendPublicFile(request, reply, { ...opts.rootPublic, autoHead: true }, rootPath)
+        if (sent !== null) return sent
+      }
+    }
     const state = opts.preview === 'forced' ? 'preview' : stateOf(request)
     const preview = state === 'preview'
     if (preview) reply.header('cache-control', 'no-store').header('x-robots-tag', 'noindex')
@@ -630,6 +640,7 @@ const plugin: FastifyPluginAsync<InlayOptions> = async (app, opts) => {
     secret,
     now,
     assets: siteAssets,
+    ...(opts.publicDir !== undefined && opts.rootPublicFiles && { rootPublic: { dir: opts.publicDir, maxAge: opts.publicMaxAge ?? 3600 } }),
     ...(opts.cdn && { cdn: opts.cdn }),
     ...(opts.noSite && { noSite: opts.noSite }),
     ...(opts.preview && { preview: opts.preview }),

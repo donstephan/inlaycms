@@ -11,6 +11,8 @@ import type { Database } from '../core/db/schema.js'
 import { InlayError } from '../core/errors.js'
 import { t } from '../core/messages/index.js'
 import { defineSite, type SiteDefinition } from '../core/registry/define.js'
+import { atLeastVersion } from '../core/release/window.js'
+import { ROOT_PUBLIC_FILES_SINCE } from '../core/version.js'
 import type { HostConfig } from './config.js'
 import { PREVIEW_RELEASE_HEADER, registerPreviewProxy } from './preview-proxy.js'
 import { adminHostHooks } from './hooks.js'
@@ -32,6 +34,8 @@ export interface SiteSource {
   shippedFiles?: ReadonlyMap<string, string>
   /** As `shippedFiles`, only the images `.md` files the site imports name. */
   codeFiles?: ReadonlyMap<string, string>
+  /** The release manifest; absent for a site run from its code, which always serves public files at the root. */
+  manifest?: { inlay: { version: string } }
 }
 
 /** The source of a site run from its code (`inlaycms dev` and `inlaycms/testing`): its `public/` folder, if it has one. */
@@ -129,6 +133,8 @@ export async function createSiteApp(
       cdn: config.cdn,
       publicMaxAge: config.publicMaxAge,
       ...(source?.publicDir != null && { publicDir: source.publicDir }),
+      rootPublicFiles:
+        source?.manifest === undefined || atLeastVersion(source.manifest.inlay.version, ROOT_PUBLIC_FILES_SINCE),
       secrets: config.secrets(source?.site.secrets ?? []),
       ...(opts.fetch && { fetch: opts.fetch }),
       content: opts.content,

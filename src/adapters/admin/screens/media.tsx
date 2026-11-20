@@ -4,7 +4,8 @@ import { isRasterImage, typeLabel } from '../../../core/media/detect.js'
 import { formatSize } from '../../../core/media/labels.js'
 import { sanitizeFilename } from '../../../core/media/library.js'
 import { t } from '../../../core/messages/index.js'
-import type { Actor, Ctx, MediaInfo, Usage } from '../../../core/types.js'
+import type { Actor, Ctx, MediaInfo, Redirect, Usage } from '../../../core/types.js'
+import type { Core } from '../../../core/core.js'
 import { adminActor, formOf, HTML, noticeOf, notFound, type AdminContext } from '../context.js'
 import { Icon } from '../views/icons.js'
 import { Alert, adminPage, Time } from '../views/layout.js'
@@ -115,6 +116,36 @@ function UsageList({ usages }: { usages: Usage[] }) {
             {u.title}
           </a>{' '}
           ({u.locale}, {usageState(u)})
+        </li>
+      ))}
+    </ul>
+  )
+}
+
+const normalUrl = (url: string): string | null => {
+  try {
+    return new URL(url).href
+  } catch {
+    return null
+  }
+}
+
+/** The redirects that send visitors to a media file, sorted by their address. */
+export async function mediaRedirects(core: Core, id: string, baseUrl: string): Promise<Redirect[]> {
+  const to = `/media/${id}`
+  const full = normalUrl(`${baseUrl.replace(/\/+$/, '')}${to}`)
+  const hits = (r: Redirect) => ('path' in r.to ? r.to.path === to : full !== null && 'url' in r.to && normalUrl(r.to.url) === full)
+  return (await core.listRedirects()).filter(hits).sort((a, b) => (a.from < b.from ? -1 : a.from > b.from ? 1 : 0))
+}
+
+function RedirectList({ redirects }: { redirects: Redirect[] }) {
+  return (
+    <ul class="list-disc pl-6">
+      {redirects.map((r) => (
+        <li>
+          <a href="/admin/redirects" class="link">
+            <code>{r.from}</code>
+          </a>
         </li>
       ))}
     </ul>
@@ -269,6 +300,7 @@ export function registerMedia(scope: FastifyInstance, ctx: AdminContext): void {
   ): Promise<FastifyReply> {
     const usages = opts.usages ?? (await core.findUsages({ kind: 'media', id: media.id }))
     const id = encodeURIComponent(media.id)
+    const redirects = await mediaRedirects(core, media.id, ctx.baseUrl)
     const body = (
       <div class="flex flex-col gap-8">
         <div>
@@ -296,6 +328,28 @@ export function registerMedia(scope: FastifyInstance, ctx: AdminContext): void {
             {media.createdBy}, <Time iso={media.createdAt} />
           </dd>
         </dl>
+        <div class="flex flex-col gap-1">
+          <label for="media-address" class="text-sm font-medium">
+            {t('admin.media.address')}
+          </label>
+          <div class="flex gap-2">
+            <input
+              id="media-address"
+              type="text"
+              readonly
+              value={`${ctx.baseUrl.replace(/\/+$/, '')}/media/${id}`}
+              class="input input-bordered w-full font-mono"
+              aria-describedby="media-address-hint"
+              autocomplete="off"
+            />
+            <button type="button" class="btn" data-copy="media-address" data-copied={t('admin.copied')} aria-live="polite">
+              {t('admin.copy')}
+            </button>
+          </div>
+          <p id="media-address-hint" class="text-sm">
+            {t('admin.media.addressHint')}
+          </p>
+        </div>
         <form method="post" action={`/admin/media/${id}/alt`} class="flex flex-col gap-2">
           <label for="alt" class="text-sm font-medium">
             {t('admin.media.alt')}
@@ -315,6 +369,18 @@ export function registerMedia(scope: FastifyInstance, ctx: AdminContext): void {
             {t('admin.media.usageHeading')}
           </h2>
           {usages.length === 0 ? <p>{t('admin.media.unused')}</p> : <UsageList usages={usages} />}
+        </section>
+        <section aria-labelledby="redirects-heading" class="flex flex-col gap-2">
+          <h2 id="redirects-heading" class="text-lg font-semibold">
+            {t('admin.media.redirectsHeading')}
+          </h2>
+          {redirects.length === 0 ? <p>{t('admin.media.redirectsNone')}</p> : <RedirectList redirects={redirects} />}
+          <p class="text-sm">{t('admin.media.redirectsHint')}</p>
+          <div>
+            <a href={href('/admin/redirects', { sheet: 'add', to_path: `/media/${media.id}`, status: '302' })} class="btn">
+              {t('admin.media.redirectsAdd')}
+            </a>
+          </div>
         </section>
         <div>
           <a href={`/admin/media/${id}/delete`} class="btn btn-error btn-outline">
@@ -340,6 +406,7 @@ export function registerMedia(scope: FastifyInstance, ctx: AdminContext): void {
   async function confirmDelete(reply: FastifyReply, status: number, actor: Actor, media: MediaInfo, error?: InlayError) {
     const usages = error?.details.usages ?? []
     const id = encodeURIComponent(media.id)
+    const redirects = await mediaRedirects(core, media.id, ctx.baseUrl)
     const body = (
       <div class="flex flex-col gap-4">
         {error && (
@@ -348,6 +415,12 @@ export function registerMedia(scope: FastifyInstance, ctx: AdminContext): void {
           </Alert>
         )}
         {usages.length > 0 && <UsageList usages={usages} />}
+        {redirects.length > 0 && (
+          <div id="delete-redirects" class="flex flex-col gap-2">
+            <p>{t('admin.media.delete.redirects')}</p>
+            <RedirectList redirects={redirects} />
+          </div>
+        )}
         <p>{t('admin.media.delete.confirm', { filename: media.filename })}</p>
         <form method="post" action={`/admin/media/${id}/delete`} class="flex gap-4">
           <button type="submit" class="btn btn-error">

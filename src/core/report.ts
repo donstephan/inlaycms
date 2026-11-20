@@ -2,7 +2,7 @@ import type { ShippedReport } from './content/shipped.js'
 import { t } from './messages/index.js'
 import type { ContentIssue } from './types.js'
 
-export type ProblemCode = 'shipped_content' | 'release_import' | 'release_forbidden'
+export type ProblemCode = 'shipped_content' | 'release_import' | 'release_forbidden' | 'public_clash'
 
 /** One thing that stops the database from being brought up to date. `message` is written for the developer. */
 export interface CheckProblem {

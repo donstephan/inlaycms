@@ -36,6 +36,20 @@ describe('admin redirects', () => {
     expect(page.querySelector('[data-shown-when="to_mode=document"]')?.hasAttribute('hidden')).toBe(true)
   })
 
+  it('fills in the add form from the query', async () => {
+    const page = parseHtml((await eddie.get('/admin/redirects?sheet=add&to_path=/media/abc&status=302')).body)
+    expect(page.querySelector('dialog#add-redirect')?.hasAttribute('data-sheet-autoopen')).toBe(true)
+    expect(page.querySelector('input#to_path')?.getAttribute('value')).toBe('/media/abc')
+    expect(page.querySelector('select[name="status"] option[value="302"]')?.hasAttribute('selected')).toBe(true)
+    expect(page.querySelector('input[name="to_mode"][value="path"]')?.hasAttribute('checked')).toBe(true)
+  })
+
+  it('ignores an unknown status in the query', async () => {
+    const page = parseHtml((await eddie.get('/admin/redirects?sheet=add&to_path=/x&status=307')).body)
+    expect(page.querySelector('select[name="status"] option[value="301"]')?.hasAttribute('selected')).toBe(true)
+    expect(page.querySelector('select[name="status"] option[value="302"]')?.hasAttribute('selected')).toBe(false)
+  })
+
   it('adds a redirect to a path', async () => {
     const res = await add({ from: '/old', to_path: '/about' })
     expect(res.statusCode).toBe(303)

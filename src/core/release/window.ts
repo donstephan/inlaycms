@@ -37,6 +37,13 @@ export function releaseFit(packed: string, window: ReleaseWindow = runningWindow
   return 'ok'
 }
 
+/** Whether `version` is `min` or later, ignoring a prerelease suffix. False when `version` doesn't parse. */
+export function atLeastVersion(version: string, min: string): boolean {
+  const have = parts(version)
+  const want = parts(min)
+  return have !== null && want !== null && compare(have, want) >= 0
+}
+
 /** A stored release's `inlay_range` without its leading caret. */
 export function packedVersion(range: string): string {
   return range.startsWith('^') ? range.slice(1) : range

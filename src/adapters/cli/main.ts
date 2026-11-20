@@ -25,6 +25,7 @@ import { formatReport } from '../../core/report.js'
 import type { SiteDefinition } from '../../core/registry/define.js'
 import { buildRegistry } from '../../core/registry/registry.js'
 import { generateKeyPair, publicKeyOf } from '../../core/release/keys.js'
+import { publicClashes, publicClashMessage } from '../../core/release/public-files.js'
 import { packRelease, releaseName } from '../../core/release/pack.js'
 import { loadRelease } from '../../core/release/read.js'
 import { loadConfig, type InlayConfig } from '../../config.js'
@@ -942,8 +943,9 @@ export async function runCli(argv: string[], io: CliIo): Promise<number> {
       return printImportReport(io, await dryRunImport(config.site, resolve(io.cwd, rest[0] ?? '')), values.json)
     }
     if (command === 'check') {
+      let registry: ReturnType<typeof buildRegistry>
       try {
-        buildRegistry(config.site)
+        registry = buildRegistry(config.site)
       } catch (e) {
         if (!(e instanceof InlayError) || e.code !== 'definition') throw e
         io.err(e.message)
@@ -956,6 +958,12 @@ export async function runCli(argv: string[], io: CliIo): Promise<number> {
       if (problems.length > 0) {
         report.problems.push(...problems)
         report.ok = false
+      }
+      if (existsSync(join(dir, 'public'))) {
+        for (const c of await publicClashes(join(dir, 'public'), registry)) {
+          report.problems.push({ code: 'public_clash', message: publicClashMessage(c) })
+          report.ok = false
+        }
       }
       if (values.json) io.out(JSON.stringify(report, null, 2))
       else for (const line of formatReport(report)) io.out(line)

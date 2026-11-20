@@ -1,4 +1,4 @@
-import { packedVersion, releaseFit } from '../../src/core/release/window.js'
+import { atLeastVersion, packedVersion, releaseFit } from '../../src/core/release/window.js'
 import { inlayVersion } from '../../src/core/version.js'
 
 const w = (version: string, oldest = '0.5.0', nextOldest: string | null = null) => ({ version, oldest, nextOldest })
@@ -38,5 +38,12 @@ describe('packedVersion', () => {
   it('drops the caret', () => {
     expect(packedVersion('^0.5.0')).toBe('0.5.0')
     expect(packedVersion('0.5.0')).toBe('0.5.0')
+  })
+})
+
+describe('atLeastVersion', () => {
+  it('atLeastVersion compares packed versions', () => {
+    for (const v of ['0.7.0', '0.7.0-beta.1', '1.0.0']) expect(atLeastVersion(v, '0.7.0')).toBe(true)
+    for (const v of ['0.6.9', 'junk']) expect(atLeastVersion(v, '0.7.0')).toBe(false)
   })
 })

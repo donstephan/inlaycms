@@ -335,7 +335,7 @@ export async function editorPage(ctx: AdminContext, actor: Actor, doc: DocumentV
         data-view="edit"
         class={pane ? 'grid min-h-0 flex-1 grid-cols-1 lg:grid-cols-[minmax(24rem,5fr)_7fr]' : 'grid min-h-0 flex-1 grid-cols-1'}
       >
-        <div id="form-pane" class="min-h-0 overflow-y-auto">
+        <div id="form-pane" data-keep-scroll class="min-h-0 overflow-y-auto">
           {/* `data-save-errors`: the page shows a failed save, which Save and publish sends the ordinary way to clear. */}
           <form
             id="editor-form"

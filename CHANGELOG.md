@@ -8,6 +8,9 @@ All notable changes to Inlay are recorded here. The format follows [Keep a Chang
 
 - Upgrading Inlay keeps the live site up. A host now runs any release packed with Inlay 0.5.0 or later, as long as it wasn't packed with a newer minor than the host's, instead of only releases from its own minor version. A patch difference is always fine. A release outside that window is refused when it is pushed or activated, with a message saying it is too old (pack the site again) or too new (upgrade Inlay on the server). A live release outside it shows the "temporarily unavailable" page, and the server log says which.
 - A redirect that comes after a default-locale prefix, a trailing slash or a mixed-case path now goes straight to the rule's target in one 301. Before, `/en/old`, `/old/` and `/EN/Company/Team` first went to `/old` or `/company/team` and only then to the target.
+- Moving between admin screens no longer flashes a blank page: in browsers that support it, the page crossfades and the menu and top bar stay in place.
+- After a save or another action in the admin, its confirmation appears as a notice in the top corner that hides itself, instead of a bar that pushed the page down, and the page keeps your place: where you had scrolled to and, in the editor, which sections were open. Reloading the page doesn't show the notice again.
+- The admin no longer keeps blank strips beside the menu and at the window's right edge for scrollbars. A long menu now scrolls inside its column.
 
 ### Added
 

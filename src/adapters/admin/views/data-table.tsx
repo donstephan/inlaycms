@@ -202,9 +202,12 @@ export function DataTable<Row>(props: DataTableProps<Row>): Renderable {
             const link = href({ status: tab.key })
             const active = tab.key === query.status
             return (
-              <a href={link} {...swapTo(id, link)} class={active ? 'tab tab-active gap-1.5' : 'tab gap-1.5'} aria-current={active ? 'true' : undefined}>
-                {tab.label}
-                <span class="text-xs text-base-content/60 tabular-nums">{tab.count}</span>
+              <a href={link} {...swapTo(id, link)} class={active ? 'tab tab-active' : 'tab'} aria-current={active ? 'true' : undefined}>
+                {/* One line of text, so the smaller count sits on the label's baseline rather than centred above it. */}
+                <span>
+                  {tab.label}
+                  <span class="ml-1.5 text-xs text-base-content/60 tabular-nums">{tab.count}</span>
+                </span>
               </a>
             )
           })}

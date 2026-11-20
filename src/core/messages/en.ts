@@ -791,6 +791,7 @@ export const en = {
     'What you sent is too large for the site to accept. Go back, make it smaller (for example, fewer or smaller images, or less text), and try again.',
   'admin.error.badRequest.title': "This couldn't be sent",
   'admin.error.badRequest': "The site couldn't read what your browser sent. Go back, reload the page and try again.",
+  'admin.notice.dismiss': 'Dismiss',
   'admin.notice.saved': 'Your changes are saved.',
   'admin.notice.unchanged': 'Nothing had changed, so there was nothing to save.',
   'admin.notice.created': 'Created.',

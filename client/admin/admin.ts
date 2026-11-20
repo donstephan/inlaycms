@@ -5,6 +5,7 @@ import { initLengthCounters } from './length.js'
 import { initPublishDialog } from './publish.js'
 import { initSheets } from './sheet.js'
 import { initGlobalSearch } from './search.js'
+import { initNotice } from './notice.js'
 import { localiseTimes } from './time.js'
 
 document.addEventListener('DOMContentLoaded', () => {
@@ -15,6 +16,7 @@ document.addEventListener('DOMContentLoaded', () => {
   initGlobalSearch(document)
   initPublishDialog(document)
   initSheets(document)
+  initNotice()
 })
 document.addEventListener('htmx:afterSwap', (event) => {
   const target = event.target

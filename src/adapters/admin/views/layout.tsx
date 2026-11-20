@@ -2,7 +2,7 @@ import { t } from '../../../core/messages/index.js'
 import type { Actor } from '../../../core/types.js'
 import { raw, renderToString, type Renderable } from '../../../jsx/html.js'
 import type { AssetName } from '../assets.js'
-import type { AdminContext, Section } from '../context.js'
+import { NOTICES, type AdminContext, type Section } from '../context.js'
 import { Icon, type IconName } from './icons.js'
 import { Badge, badgeClass } from './status.js'
 
@@ -33,6 +33,29 @@ function Head({ ctx, title, scripts }: { ctx: AdminContext; title: string; scrip
         <script type="module" src={ctx.assets.url(script)}></script>
       ))}
     </head>
+  )
+}
+
+/**
+ * What a redirect asked to say (`?notice=`), as a toast over the page rather than a bar in it, so the page doesn't
+ * move. `client/admin/notice.ts` hides it after a while, puts the scroll back where the form was sent from and takes
+ * `data-notice-query` out of the address, so reloading doesn't show it again.
+ */
+function Notice({ text }: { text: string }) {
+  const query = ['notice', ...new Set(Object.values(NOTICES).flatMap((n) => n.params ?? []))]
+  return (
+    <div
+      id="admin-notice"
+      data-notice-query={query.join(' ')}
+      class="alert alert-success fixed left-4 right-4 top-18 z-50 shadow-lg transition-opacity duration-300 motion-reduce:transition-none sm:left-auto sm:max-w-sm"
+    >
+      <Icon name="check-circle" />
+      <span role="status">{text}</span>
+      <button type="button" class="btn btn-ghost btn-xs btn-square" data-notice-dismiss>
+        <Icon name="x" />
+        <span class="sr-only">{t('admin.notice.dismiss')}</span>
+      </button>
+    </div>
   )
 }
 
@@ -243,7 +266,7 @@ function PrivateBadge({ owner }: { owner: boolean }) {
 /** The bar along the top: the menu button on small screens, the search box, the private-site badge, View site and Publish. */
 function TopBar({ pending, locked, owner }: { pending: number; locked: boolean; owner: boolean }) {
   return (
-    <div class="sticky top-0 z-30 flex h-14 items-center gap-3 border-b border-base-300 bg-base-100 px-4 lg:px-6">
+    <div id="admin-top" class="sticky top-0 z-30 flex h-14 items-center gap-3 border-b border-base-300 bg-base-100 px-4 lg:px-6">
       <label for="admin-nav-toggle" class="btn btn-ghost btn-sm btn-square lg:hidden">
         <Icon name="menu" />
         <span class="sr-only">{t('admin.nav.open')}</span>
@@ -446,11 +469,6 @@ export async function adminPage(ctx: AdminContext, opts: AdminPageOptions, body:
               <noscript>
                 <p class={workspace ? `alert alert-warning ${BAR}` : 'alert alert-warning mb-4'}>{t('admin.noscript')}</p>
               </noscript>
-              {notice !== undefined && (
-                <div role="status" class={workspace ? `alert alert-success ${BAR}` : 'alert alert-success mb-4'}>
-                  {notice}
-                </div>
-              )}
               {workspace ? <div class="flex min-h-0 flex-1 flex-col">{body}</div> : body}
             </main>
           </div>
@@ -458,7 +476,7 @@ export async function adminPage(ctx: AdminContext, opts: AdminPageOptions, body:
             <label for="admin-nav-toggle" aria-label={t('admin.nav.close')} class="drawer-overlay">
               <span class="sr-only">{t('admin.nav.close')}</span>
             </label>
-            <aside class="flex min-h-full w-64 flex-col border-r border-base-300 bg-base-100">
+            <aside class="flex min-h-full w-64 flex-col border-r border-base-300 bg-base-100 lg:w-full lg:border-r-0">
               <header class="flex h-14 shrink-0 items-center border-b border-base-300 px-4">
                 <a href="/admin" class="inline-flex min-w-0 items-center">
                   <Brand ctx={ctx} size="h-7 max-w-40" />
@@ -470,6 +488,7 @@ export async function adminPage(ctx: AdminContext, opts: AdminPageOptions, body:
         </div>
         <PickerDialog />
         <PublishDialog />
+        {notice !== undefined && <Notice text={notice} />}
       </body>
     </html>
   )

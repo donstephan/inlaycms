@@ -232,7 +232,7 @@ describe('the Releases screen', () => {
     expect(res.headers.location).toBe(`/admin/releases/${staged.id}?notice=releaseActivated`)
     expect(hooks.requestActivation).toHaveBeenCalledWith(staged.id)
     const page = parseHtml((await olivia.get(res.headers.location as string)).body)
-    expect(page.querySelector('div[role="status"].alert-success')?.textContent).toContain(t('admin.notice.releaseActivated'))
+    expect(page.querySelector('#admin-notice [role="status"]')?.textContent).toContain(t('admin.notice.releaseActivated'))
   })
 
   it('shows why an activation failed', async () => {

@@ -41,7 +41,7 @@ async function Layout({ ctx, children }: { ctx: RenderContext; children?: Render
           </nav>
           <span class="locales">
             {other.map((a) => (
-              <a href={a.path} hreflang={a.locale}>
+              <a href={a.url} hreflang={a.locale}>
                 {a.locale.toUpperCase()}
               </a>
             ))}

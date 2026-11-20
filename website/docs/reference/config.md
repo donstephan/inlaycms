@@ -49,6 +49,7 @@ export const site = defineSite({
 | `collections` | Content types with many entries, from `defineCollection`. | `[]` |
 | `globals` | Single documents shared by every page, from `defineGlobal`. | `[]` |
 | `translationFallback` | Serve the default language's page when a translation is missing. | `true` |
+| `trailingSlash` | `'always'` serves page URLs with a trailing slash (`/about/`) and writes them that way in links, the canonical link, the sitemap and redirect targets; `'never'` leaves them as they are. See [Moving from a site with trailing slashes](/docs/guides/seo#moving-from-a-site-with-trailing-slashes). Needs Inlay 0.6.0 on the host. | `'never'` |
 | `content` | Shipped content, from `defineContent` and `defineEntries`. See [Shipped content](/docs/guides/shipped-content). | `[]` |
 | `guide` | Notes for assistants about the site: who reads it, its voice, its pages. Sent to every assistant that connects over MCP. | none |
 | `admin` | The admin's `name`, `logo` (a URL path under `/public/`) and `theme`. See [Branding](/docs/guides/admin#branding). | `{}` |

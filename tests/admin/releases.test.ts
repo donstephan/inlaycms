@@ -167,6 +167,7 @@ describe('the Releases screen', () => {
     expect(rows).toHaveLength(2)
     expect(rows.find((r) => r.includes('first'))).toContain(t('admin.releases.state.current'))
     expect(rows.find((r) => r.includes('second'))).toContain(t('admin.releases.state.staged'))
+    expect(res.body).not.toContain(t('admin.releases.packAgainBadge'))
     expect(doc.querySelector('nav a[href="/admin/releases"]')?.getAttribute('aria-current')).toBe('page')
     expect(doc.querySelector('dialog#upload-release form[action="/admin/releases/upload"][enctype="multipart/form-data"]')).not.toBeNull()
 
@@ -200,6 +201,7 @@ describe('the Releases screen', () => {
     expect(res.statusCode).toBe(200)
     const doc = parseHtml(res.body)
     expect(doc.querySelector('#hidden-heading')).not.toBeNull()
+    expect(doc.querySelector('#pack-again')).toBeNull()
     expect(textOf(res.body)).toContain(t('admin.releases.hiddenNone'))
     expect(doc.querySelector('form[action$="/activate"]')).toBeNull()
     expect(doc.querySelector('form[action$="/delete"]')).toBeNull()

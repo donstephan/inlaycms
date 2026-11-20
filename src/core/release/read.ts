@@ -11,8 +11,9 @@ import type { SiteDefinition } from '../registry/define.js'
 import { buildRegistry } from '../registry/registry.js'
 import { inlayVersion as currentVersion } from '../version.js'
 import { fingerprint, verify } from './keys.js'
-import { manifestSchema, satisfies, sha256Hex, type ReleaseManifest } from './manifest.js'
+import { manifestSchema, sha256Hex, type ReleaseManifest } from './manifest.js'
 import { SITE_DIR_EXPORT } from './site-dir.js'
+import { releaseFit, runningWindow } from './window.js'
 
 export interface LoadedRelease {
   manifest: ReleaseManifest
@@ -103,16 +104,12 @@ function releasePath(path: string): boolean {
   return path === 'site.js' || path.startsWith('content/') || path.startsWith('public/')
 }
 
-/** `1.x` or, before 1.0, `0.3.x`: the versions a caret range accepts. */
-function series(range: string): { need: string; series: string } {
-  const need = range.replace(/^\^/, '')
-  const [major = '', minor = ''] = need.split('.')
-  return { need, series: major === '0' ? `0.${minor}.x` : `${major}.x` }
-}
-
-/** Throws `error.releaseVersion` when Inlay `version` (default: the running one) isn't in a release's `range`. */
-export function checkInlayVersion(range: string, version: string = currentVersion()): void {
-  if (!satisfies(version, range)) throw new InlayError('release', 'error.releaseVersion', { range, version, ...series(range) })
+/** Throws `error.releaseTooOld` or `error.releaseTooNew` when a release packed with Inlay `packed` doesn't run on Inlay `version` (default: the running one). */
+export function checkInlayVersion(packed: string, version: string = currentVersion()): void {
+  const window = { ...runningWindow(), version }
+  const fit = releaseFit(packed, window)
+  if (fit === 'tooOld') throw new InlayError('release', 'error.releaseTooOld', { packed, version, oldest: window.oldest })
+  if (fit === 'tooNew') throw new InlayError('release', 'error.releaseTooNew', { packed, version })
 }
 
 /** The manifest and signature are small; anything bigger is refused before the signature is checked. */
@@ -207,7 +204,7 @@ async function checkRelease(
   } catch {
     throw invalid()
   }
-  checkInlayVersion(manifest.inlay.range, opts.inlayVersion)
+  checkInlayVersion(manifest.inlay.version, opts.inlayVersion)
   const listed = Object.keys(manifest.files)
   if (!Object.hasOwn(manifest.files, 'site.js') || !listed.every(releasePath)) throw invalid()
   if (!manifest.content.every((c) => Object.hasOwn(manifest.files, c.path) && c.path.startsWith('content/'))) {

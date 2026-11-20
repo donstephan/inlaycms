@@ -12,7 +12,7 @@ import type { Actor } from '../../../core/types.js'
 import type { Renderable } from '../../../jsx/html.js'
 import { formatDiff, structuralDiff } from '../../../host/diff.js'
 import type { ContentDiffResult } from '../../../host/hooks.js'
-import { currentManifest, pendingMigrations, PUSH_MAX_BYTES, RELEASE_NAME_MAX } from '../../../host/push.js'
+import { currentManifest, packAgainWarning, pendingMigrations, PUSH_MAX_BYTES, RELEASE_NAME_MAX } from '../../../host/push.js'
 import { deleteRelease, getRelease, listReleases, releaseDir, storeRelease, type ReleaseRow } from '../../../host/store.js'
 import { previewLink } from '../../site/preview.js'
 import { adminActor, forbidden, HTML, noticeOf, notFound, type AdminContext } from '../context.js'
@@ -120,7 +120,20 @@ function releaseRoutes(scope: FastifyInstance, ctx: AdminContext, db: Kysely<Dat
                 </a>
               ),
             },
-            { key: 'state', label: t('admin.releases.state'), cell: (r) => <StateBadge state={r.state} /> },
+            {
+              key: 'state',
+              label: t('admin.releases.state'),
+              cell: (r) => (
+                <>
+                  <StateBadge state={r.state} />
+                  {packAgainWarning(r) !== null && (
+                    <Badge tone="warning" class="ml-2">
+                      {t('admin.releases.packAgainBadge')}
+                    </Badge>
+                  )}
+                </>
+              ),
+            },
             { key: 'pushedBy', label: t('admin.releases.pushedBy'), cell: (r) => pushedBy(r, names) },
             { key: 'pushedAt', label: t('admin.releases.pushedAt'), cell: (r) => <Time iso={r.pushed_at} relative /> },
             { key: 'activatedAt', label: t('admin.releases.activatedAt'), cell: activated },
@@ -269,6 +282,7 @@ function releaseRoutes(scope: FastifyInstance, ctx: AdminContext, db: Kysely<Dat
         <dd>{value}</dd>
       </div>
     )
+    const packAgain = packAgainWarning(row)
     const body = (
       <div class="flex flex-col gap-8">
         {error !== undefined && (
@@ -289,6 +303,11 @@ function releaseRoutes(scope: FastifyInstance, ctx: AdminContext, db: Kysely<Dat
             )}
           </dl>
         </Section>
+        {packAgain !== null && (
+          <Alert kind="warning" id="pack-again">
+            {packAgain}
+          </Alert>
+        )}
         {row.state === 'deleted' && <p>{t('admin.releases.deletedNote')}</p>}
         {row.state !== 'deleted' && manifest === null && (
           <Alert kind="warning" id="files-missing">

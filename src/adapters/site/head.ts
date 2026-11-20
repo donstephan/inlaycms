@@ -3,7 +3,7 @@ import { isSafeUrl } from '../../core/fields/define.js'
 import type { OgType } from '../../core/registry/define.js'
 import { scriptJson } from '../../core/registry/js.js'
 import type { HeadApi, HeadLink } from '../../core/registry/render.js'
-import { encodePath } from '../../core/site/paths.js'
+import { encodePath, presentHref, type TrailingSlash } from '../../core/site/paths.js'
 import { escapeHtml, raw, type SafeHtml } from '../../jsx/html.js'
 
 export interface HeadInput {
@@ -20,6 +20,7 @@ export interface HeadInput {
   alternates: Array<{ locale: string; path: string }>
   defaultLocale: string
   baseUrl: string
+  trailingSlash: TrailingSlash
   preview: boolean
   /** What the render added through `ctx.head`. */
   collected?: CollectedHead
@@ -70,25 +71,25 @@ type HeadTag =
   | { tag: 'link'; attrs: Record<string, string> }
   | { tag: 'script'; json: string }
 
-function absolute(baseUrl: string, path: string): string {
+function absolute(baseUrl: string, path: string, mode: TrailingSlash): string {
   const [p = '', query] = path.split('?')
-  return `${baseUrl}${p === '/' ? '/' : encodePath(p)}${query === undefined ? '' : `?${query}`}`
+  return `${baseUrl}${p === '/' ? '/' : presentHref(encodePath(p), mode)}${query === undefined ? '' : `?${query}`}`
 }
 
 const meta = (attr: 'name' | 'property', key: string, content: string): HeadTag => ({ tag: 'meta', attr, key, content })
 
 /** Inlay's own tags for the page, before any Twitter tags. */
 function inlayTags(input: HeadInput): HeadTag[] {
-  const url = input.canonical === null ? null : absolute(input.baseUrl, input.canonical)
+  const url = input.canonical === null ? null : absolute(input.baseUrl, input.canonical, input.trailingSlash)
   const tags: HeadTag[] = [{ tag: 'title', text: input.title }]
   if (input.description) tags.push(meta('name', 'description', input.description))
   if (url !== null) tags.push({ tag: 'link', attrs: { rel: 'canonical', href: url } })
   if (input.alternates.length >= 2) {
     for (const a of input.alternates) {
-      tags.push({ tag: 'link', attrs: { rel: 'alternate', hreflang: a.locale, href: absolute(input.baseUrl, a.path) } })
+      tags.push({ tag: 'link', attrs: { rel: 'alternate', hreflang: a.locale, href: absolute(input.baseUrl, a.path, input.trailingSlash) } })
     }
     const def = input.alternates.find((a) => a.locale === input.defaultLocale)
-    if (def) tags.push({ tag: 'link', attrs: { rel: 'alternate', hreflang: 'x-default', href: absolute(input.baseUrl, def.path) } })
+    if (def) tags.push({ tag: 'link', attrs: { rel: 'alternate', hreflang: 'x-default', href: absolute(input.baseUrl, def.path, input.trailingSlash) } })
   }
   tags.push(meta('property', 'og:type', input.ogType))
   tags.push(meta('property', 'og:title', input.title))

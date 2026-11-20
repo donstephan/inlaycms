@@ -73,3 +73,21 @@ Values are escaped, so `ctx.head` can only add tags to the head. For a script, u
 
 `defineRoute({ method: 'GET', path, sitemap: true, handler })` lists the route in the sitemap. The pages its `ctx.render` returns get a canonical link and can be indexed. Other routes stay `noindex`.
 
+## Moving from a site with trailing slashes
+
+If your old site's URLs ended in a slash (`/about/`), set `trailingSlash: 'always'` in `defineSite` so the URLs, and the search rankings behind them, stay the same. The default is `'never'`. It needs Inlay 0.6.0 on the host.
+
+```ts
+defineSite({
+  trailingSlash: 'always',
+  // …
+})
+```
+
+- **What gets the slash.** Page URLs: `/about` is served and written as `/about/`, in links, the canonical link, `hreflang` alternates, `og:url` and the sitemap. A request without the slash is redirected to the one with it. Exempt: the root `/`, paths whose last segment looks like a file (`/feed.xml`), `/public` and `/media`, the sitemap and `robots.txt`, and the admin.
+- **A last segment with a dot is served without the slash.** Inlay can't tell `/version-2.0` from a file, so a page whose last segment contains a dot stays slashless: an old WordPress URL such as `/version-2.0/` redirects to `/version-2.0`.
+- **Use `url` in templates, not `path`.** The template's `page.url` (from `render({ page }, ctx)`), `ctx.alternates[].url`, `entry.url` and the `href` from `ctx.link` carry the slash, encoded and ready for an `href`. A language switcher built on `a.url` links straight to `/es/`, while one built on `a.path` costs a redirect. Compare against `.url` too: `page.path` and `alternates[].path` stay without the slash.
+- **Paths in code stay as they are.** A page's `path`, a route's `path` and the paths in the admin are still written without the slash.
+- **Redirects work either way.** Write `from` and `to` with or without the slash: they are stored without it, and an old URL in either form goes to the slashed page in one hop.
+- **POST routes keep their exact path.** A form's `action` should use the route's `path` (`route.path`), not a slashed copy of it.
+- **Link URLs typed by hand are emitted as written.** A link an editor types as `/about` in a rich text field isn't rewritten, so it redirects to `/about/`. Pick the page from the list instead where you can.

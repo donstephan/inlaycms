@@ -687,3 +687,10 @@ describe('integrations', () => {
     }
   })
 })
+
+describe('trailingSlash option', () => {
+  it("defaults to 'never' and passes 'always' through", () => {
+    expect(defineSite({ locales: ['en'], defaultLocale: 'en' }).trailingSlash).toBe('never')
+    expect(defineSite({ locales: ['en'], defaultLocale: 'en', trailingSlash: 'always' }).trailingSlash).toBe('always')
+  })
+})

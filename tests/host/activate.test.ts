@@ -15,6 +15,7 @@ import { InlayError } from '../../src/core/errors.js'
 import { generateKeyPair } from '../../src/core/release/keys.js'
 import { packRelease } from '../../src/core/release/pack.js'
 import { loadRelease } from '../../src/core/release/read.js'
+import { inlayVersion } from '../../src/core/version.js'
 import { activateRelease, summarize } from '../../src/host/activate.js'
 import { deleteRelease, getRelease, readCurrentPointer, releaseDir, storeRelease, type ReleaseRow } from '../../src/host/store.js'
 import { appOptions } from '../helpers/app.js'
@@ -252,8 +253,21 @@ describe('activateRelease', () => {
     await db.updateTable('releases').set({ inlay_range: '^99.0.0' }).where('id', '=', b.id).execute()
     const before = await dump()
     const e = await rejection(activate(b))
-    expect(e.messageId).toBe('error.releaseVersion')
-    expect(e.params).toMatchObject({ range: '^99.0.0', need: '99.0.0', series: '99.x' })
+    expect(e.messageId).toBe('error.releaseTooNew')
+    expect(e.params).toEqual({ packed: '99.0.0', version: inlayVersion() })
+    expect(await listBackups(backupsDir)).toEqual([])
+    expect(await dump()).toEqual(before)
+  })
+
+  it('refuses a previous release packed with a version older than the oldest supported before the backup', async () => {
+    const a = await store('a')
+    const b = await store('b')
+    await activate(a)
+    await db.updateTable('releases').set({ inlay_range: '^0.4.1' }).where('id', '=', b.id).execute()
+    const before = await dump()
+    const e = await rejection(activate(b))
+    expect(e.messageId).toBe('error.releaseTooOld')
+    expect(e.params).toEqual({ packed: '0.4.1', version: inlayVersion(), oldest: '0.5.0' })
     expect(await listBackups(backupsDir)).toEqual([])
     expect(await dump()).toEqual(before)
   })
@@ -357,7 +371,9 @@ describe('activateRelease', () => {
     const a = await store('a')
     await activate(a)
     await db.updateTable('releases').set({ inlay_range: '^99.0.0' }).where('id', '=', a.id).execute()
-    expect((await rejection(activate(a))).messageId).toBe('error.releaseVersion')
+    const e = await rejection(activate(a))
+    expect(e.messageId).toBe('error.releaseTooNew')
+    expect(e.params).toEqual({ packed: '99.0.0', version: inlayVersion() })
   })
 
   it('a pointer that cannot be written after the commit is reported, not thrown, and repaired by a retry', async () => {

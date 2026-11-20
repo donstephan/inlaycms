@@ -368,6 +368,9 @@ it('inlaycms/site exports what a site needs and nothing of the host', async () =
     height: 30,
   }
   expect(image.kind).toBe('codeImage')
+  const slash: import('../src/site.js').TrailingSlash = 'always'
+  const input: import('../src/site.js').SiteInput = { locales: ['en'], defaultLocale: 'en', trailingSlash: slash }
+  expect(input.trailingSlash).toBe('always')
 })
 
 it('inlaycms/testing exports createTestSite and nothing else', async () => {

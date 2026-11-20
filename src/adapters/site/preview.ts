@@ -1,6 +1,6 @@
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify'
 import { createPreviewToken, verifyPreviewToken } from '../../core/preview.js'
-import { encodePath, normalizePath } from '../../core/site/paths.js'
+import { encodePath, normalizePath, presentHref, type TrailingSlash } from '../../core/site/paths.js'
 import type { LiveState } from '../../core/types.js'
 import { catalogPage, PREVIEW_EXIT_PATH } from './render.js'
 
@@ -47,11 +47,14 @@ export function previewState(request: FastifyRequest, secret: string, now: Date)
   return readPreview(request, secret, now).state
 }
 
-/** `raw` when it's a clean, encoded site-relative path, otherwise `/`. */
-function safeTarget(raw: unknown): string {
+/** `raw` in its presented form when it's a clean, encoded site-relative path, otherwise `/`. */
+function safeTarget(raw: unknown, mode: TrailingSlash): string {
   if (typeof raw !== 'string') return '/'
   const normalized = normalizePath(raw)
-  return normalized !== null && encodePath(normalized) === raw ? raw : '/'
+  if (normalized === null) return '/'
+  const encoded = encodePath(normalized)
+  const presented = presentHref(encoded, mode)
+  return raw === encoded || raw === presented ? presented : '/'
 }
 
 /** Turns preview off for this browser. */
@@ -71,8 +74,9 @@ function setCookie(reply: FastifyReply, value: string, maxAge: number, secure: b
  */
 export function registerPreviewRoutes(
   app: FastifyInstance,
-  opts: { secret: string; baseUrl: string; now: () => Date },
+  opts: { secret: string; baseUrl: string; now: () => Date; trailingSlash?: TrailingSlash },
 ): void {
+  const mode = opts.trailingSlash ?? 'never'
   const secure = opts.baseUrl.startsWith('https:')
 
   app.get(PREVIEW_PATH, async (request, reply) => {
@@ -88,7 +92,7 @@ export function registerPreviewRoutes(
         .send(catalogPage('preview.expired.title', 'preview.expired'))
     }
     setCookie(reply, token, Math.ceil((valid.expiresAt.getTime() - now.getTime()) / 1000), secure)
-    return reply.redirect(safeTarget(query.path), 302)
+    return reply.redirect(safeTarget(query.path, mode), 302)
   })
 
   app.get(PREVIEW_EXIT_PATH, async (_request, reply) => {

@@ -411,6 +411,24 @@ describe('a server that answers oddly', () => {
     expect(r.err).toMatch(new RegExp(`^Something went wrong while talking to the server at ${address.replace(/\./g, '\\.')}: `))
     expect(r.err).not.toContain('    at ')
   })
+
+  it('prints a row from a server that sends no warning field, and one that sends it as given', async () => {
+    const row = { id: 'r1', name: 'old', state: 'current', pushed_at: 'then', activated_at: 'later' }
+    await fake((_req, res) =>
+      res
+        .writeHead(200, { 'content-type': 'application/json' })
+        .end(JSON.stringify({ releases: [row, { ...row, id: 'r2', warning: 'Pack again.' }], current: 'r1' })),
+    )
+    const r = await run(packDir, 'releases', address, '--token', 'any')
+    expect(r.code).toBe(0)
+    const lines = r.out.split('\n')
+    expect(lines).toHaveLength(3)
+    expect(lines[0]).toContain('r1')
+    expect(lines[2]).toBe('    Pack again.')
+    const json = JSON.parse((await run(packDir, 'releases', address, '--token', 'any', '--json')).out)
+    expect(json[0]).not.toHaveProperty('warning')
+    expect(json[1].warning).toBe('Pack again.')
+  })
 })
 
 describe('inlaycms activate <host> <id> and inlaycms releases <host>', () => {
@@ -422,9 +440,11 @@ describe('inlaycms activate <host> <id> and inlaycms releases <host>', () => {
     expect(r.code).toBe(0)
     expect(r.out).toContain(row!.id)
     expect(r.out).toContain(t('cli.releaseState.staged'))
+    expect(r.out.split('\n').filter((l) => l.startsWith('    '))).toEqual([])
 
     const json = await run(packDir, 'releases', host, '--token', tokens.push, '--json')
     expect(JSON.parse(json.out)).toEqual([expect.objectContaining({ id: row!.id, name: 'test-1', state: 'staged' })])
+    expect(JSON.parse(json.out)[0]).not.toHaveProperty('warning')
   })
 
   it('makes a release on the server live', async () => {

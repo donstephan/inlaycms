@@ -4,6 +4,17 @@ All notable changes to Inlay are recorded here. The format follows [Keep a Chang
 
 ## [Unreleased]
 
+### Changed
+
+- Upgrading Inlay keeps the live site up. A host now runs any release packed with Inlay 0.5.0 or later, as long as it wasn't packed with a newer minor than the host's, instead of only releases from its own minor version. A patch difference is always fine. A release outside that window is refused when it is pushed or activated, with a message saying it is too old (pack the site again) or too new (upgrade Inlay on the server). A live release outside it shows the "temporarily unavailable" page, and the server log says which.
+- A redirect that comes after a default-locale prefix, a trailing slash or a mixed-case path now goes straight to the rule's target in one 301. Before, `/en/old`, `/old/` and `/EN/Company/Team` first went to `/old` or `/company/team` and only then to the target.
+
+### Added
+
+- A "pack again" warning when the next Inlay version won't run a release, decided by the host and shown in the `inlaycms serve` log, `push` output, `inlaycms releases` (offline and remote) and the admin's Releases screen.
+- `defineSite({ trailingSlash: 'always' })` makes `/path/` the canonical form of every page, for sites moving from one that uses trailing slashes, such as WordPress. `/path/` answers 200 and `/path` redirects to it once. The canonical link, `og:url`, `hreflang` links, sitemap, `ctx.link`, rich-text links, `entry.url`, MCP URLs and the editor's preview pane all carry the slash. Redirects reach their target in one 301 either way. The home page, paths whose last segment has a dot (such as `/feed.xml`), `/public/`, `/media/`, the sitemap, `robots.txt` and the admin are left as they are, and so are POST routes and link URLs typed by hand. Paths in site code and the admin are still written without the slash. The default, `'never'`, serves pages exactly as before.
+- `page.url` in templates, and `url` on each of `ctx.alternates`: the page's encoded URL, with the trailing slash when the site asks for it. Use it for language switchers and to compare against `entry.url`; `path` is unchanged.
+
 ## [0.5.0] - 2026-11-19
 
 ### Changed

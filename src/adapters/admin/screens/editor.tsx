@@ -4,6 +4,7 @@ import { validateContent } from '../../../core/content/validate.js'
 import { InlayError } from '../../../core/errors.js'
 import { t } from '../../../core/messages/index.js'
 import { designedInCode } from '../../../core/registry/designed.js'
+import { presentPath } from '../../../core/site/paths.js'
 import type { Actor, ContentInput, ContentIssue, DocumentData, DocumentSummary, DocumentView, LiveDocument } from '../../../core/types.js'
 import type { Renderable } from '../../../jsx/html.js'
 import { loadAgentRefs } from '../../mcp/agent-refs.js'
@@ -211,6 +212,7 @@ function DeviceButton({ device, icon, pressed }: { device: 'desktop' | 'tablet' 
 }
 
 /** The live preview: a toolbar over the page itself, which loads the saved draft and is then rewritten as the form changes. */
+/** `live.path` is the presented path. */
 function PreviewPane({ id, live }: { id: string; live: LiveDocument & { path: string } }) {
   const src = panePath(id)
   return (
@@ -297,7 +299,8 @@ export async function editorPage(ctx: AdminContext, actor: Actor, doc: DocumentV
     paneDocument(ctx, doc),
     doc.publishedRev === null ? undefined : core.listGaps({ ids: [doc.id] }).then((gaps) => gaps[0]),
   ])
-  const pane = live !== null && live.path !== null ? { ...live, path: live.path } : null
+  const pane =
+    live !== null && live.path !== null ? { ...live, path: presentPath(live.path, registry.site.trailingSlash) } : null
   const hints = publishHints(ctx, doc.type, state.data)
   const formCtx: FormContext = {
     registry,

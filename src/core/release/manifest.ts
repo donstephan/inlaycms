@@ -100,29 +100,6 @@ export const manifestSchema = z.strictObject({
   ),
 }) satisfies z.ZodType<ReleaseManifest>
 
-const VERSION = /^(\d+)\.(\d+)\.(\d+)(?:[-+].*)?$/
-
-function parts(version: string): [number, number, number] | null {
-  const m = VERSION.exec(version)
-  return m ? [Number(m[1]), Number(m[2]), Number(m[3])] : null
-}
-
-/**
- * Whether `version` falls in `range`, which is `^MAJOR.MINOR.PATCH`: for major 0, the same minor and a patch at
- * least as high; otherwise the same major and a minor and patch at least as high.
- */
-export function satisfies(version: string, range: string): boolean {
-  if (!range.startsWith('^')) return false
-  const want = parts(range.slice(1))
-  const have = parts(version)
-  if (!want || !have) return false
-  const [major, minor, patch] = want
-  const [hMajor, hMinor, hPatch] = have
-  if (hMajor !== major) return false
-  if (major === 0) return hMinor === minor && hPatch >= patch
-  return hMinor > minor || (hMinor === minor && hPatch >= patch)
-}
-
 export function sha256Hex(bytes: Uint8Array): string {
   return createHash('sha256').update(bytes).digest('hex')
 }

@@ -13,7 +13,7 @@ import { externalTarget } from '../../core/redirects/rule.js'
 import type { SiteDefinition } from '../../core/registry/define.js'
 import { buildRegistry, type Registry } from '../../core/registry/registry.js'
 import type { Entry, QueryOptions, QueryResult } from '../../core/registry/render.js'
-import { encodePath, normalizePath, splitLocale } from '../../core/site/paths.js'
+import { encodePath, normalizePath, presentHref, splitLocale } from '../../core/site/paths.js'
 import type { LiveState, UploadLimits } from '../../core/types.js'
 import type { AdminHostHooks } from '../../host/hooks.js'
 import type { ActivationSummary } from '../../host/ipc.js'
@@ -262,7 +262,8 @@ function registerSiteRoutes(
   },
 ): void {
   const { registry } = core
-  const { notFound } = registry.site
+  const { notFound, trailingSlash: mode } = registry.site
+  const always = mode === 'always'
   const { baseUrl, cdn, assets } = opts
   const banner = opts.release === undefined ? {} : { release: opts.release }
 
@@ -341,7 +342,8 @@ function registerSiteRoutes(
       if (pageParam !== null && !PAGE.test(pageParam)) return await missing(request, reply, localeOf(path), state)
       const pageNumber = Number(pageParam ?? 1)
       const normalized = normalizePath(path)
-      const canonical = normalized !== null && encodePath(normalized) === path
+      const presented = normalized === null ? null : presentHref(encodePath(normalized), mode)
+      const canonical = presented !== null && presented === path
       const key =
         preview || normalized === null || !canonical
           ? null
@@ -351,16 +353,21 @@ function registerSiteRoutes(
       const hit = key === null ? undefined : cache?.get(key)
       if (hit) return send(request, reply, hit, true)
       const generation = cache?.generation ?? 0
-      const match = await core.resolvePath(path, { state })
+      if (always && presented !== null && !canonical && registry.getRoutePaths.has(normalized ?? '')) {
+        return reply.redirect(`${presented}${search}`, 301)
+      }
+      const lookup = always && path.length > 1 && path.endsWith('/') ? path.slice(0, -1) : path
+      const match = await core.resolvePath(lookup, { state })
       if (match.kind === 'redirect') {
         if (match.external === true && externalTarget(match.location) === match.location) {
           return reply.redirect(match.location, match.status)
         }
         if (match.external !== true && match.location.startsWith('/') && !match.location.startsWith('//')) {
-          return reply.redirect(`${match.location}${search}`, match.status)
+          return reply.redirect(`${presentHref(match.location, mode)}${search}`, match.status)
         }
       }
       if (match.kind === 'page') {
+        if (always && !canonical && presented !== null) return reply.redirect(`${presented}${search}`, 301)
         const page = await renderPageResult(core, match.document, { state, page: pageNumber, baseUrl, assets, integrations, ...banner })
         if (preview) return await sendPreview(reply, 200, page)
         const res = await pageResponse(200, page)
@@ -390,7 +397,7 @@ function registerSiteRoutes(
     opts.noSite === 'unavailable'
       ? unavailable(request, reply)
       : cached(request, reply, 'sitemap.xml', async () =>
-          response(200, renderSitemap(await core.sitemapEntries(), baseUrl), 'application/xml'),
+          response(200, renderSitemap(await core.sitemapEntries(), baseUrl, core.registry.site.trailingSlash), 'application/xml'),
         ),
   )
   app.get('/robots.txt', async (request, reply) => {
@@ -617,7 +624,7 @@ const plugin: FastifyPluginAsync<InlayOptions> = async (app, opts) => {
   registerCodeFileRoutes(app, codeFilesFor(core), core)
   if (opts.publicDir !== undefined) registerPublicRoutes(app, { dir: opts.publicDir, maxAge: opts.publicMaxAge ?? 3600 })
   registerReleaseRoutes(app, { core, registry, baseUrl, assets: siteAssets, integrations: siteIntegrations, secrets: opts.secrets ?? {}, fetch: opts.fetch ?? ((input, init) => globalThis.fetch(input, init)), log: app.log, preview: opts.preview === 'forced' })
-  registerPreviewRoutes(app, { secret, baseUrl, now })
+  registerPreviewRoutes(app, { secret, baseUrl, now, trailingSlash: registry.site.trailingSlash })
   registerSiteRoutes(app, core, cache, siteIntegrations, {
     baseUrl,
     secret,

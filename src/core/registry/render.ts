@@ -44,7 +44,7 @@ export interface Entry<F = Record<string, unknown>> {
   /** The locale whose content is shown. */
   locale: string
   fallback: boolean
-  /** The encoded site path, or `null` for data entries. */
+  /** The encoded page URL, with the trailing slash when the site asks for it, or `null` for data entries. */
   url: string | null
   title: string
   slug: string | null
@@ -79,6 +79,8 @@ export interface PageInfo {
   fallback: boolean
   /** The decoded site path; `''` for a page without one. */
   path: string
+  /** The encoded page URL, with the trailing slash when the site asks for it; `''` for a page without one. */
+  url: string
   /** When Inlay first published the page's document; `null` for a route or a never-published draft. */
   publishedAt: string | null
   page: number
@@ -126,7 +128,14 @@ export interface RenderContext {
   head: HeadApi
   /** A `<script>` for the page, to put in the template's output; inline code is allowed by the page's CSP by its hash. */
   script: ScriptApi
-  alternates: Array<{ locale: string; path: string; fallback: boolean }>
+  alternates: Array<{
+    locale: string
+    /** The decoded site path. */
+    path: string
+    /** The encoded page URL, with the trailing slash when the site asks for it. */
+    url: string
+    fallback: boolean
+  }>
   /**
    * An image the site imports (`import hero from './hero.jpg'`), served from the site with its variants. Alt is
    * `opts.alt`, then `''`.

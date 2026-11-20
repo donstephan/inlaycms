@@ -191,7 +191,16 @@ describe('a current worker', () => {
     const { res, sent, logs } = await serveOnce()
     expect(res?.status).toBe(503)
     expect(sent).toEqual([{ type: 'ready', releaseId: row.id }])
-    expect(logs).toContain('host.releaseVersion')
+    expect(logs).toContain('host.releaseTooNew')
+  })
+
+  it('serves "temporarily unavailable" when the live release is older than the oldest supported', async () => {
+    const row = await activated()
+    await withDb((db) => db.updateTable('releases').set({ inlay_range: '^0.4.1' }).execute())
+    const { res, sent, logs } = await serveOnce()
+    expect(res?.status).toBe(503)
+    expect(sent).toEqual([{ type: 'ready', releaseId: row.id }])
+    expect(logs).toContain('host.releaseTooOld')
   })
 
   it('serves "temporarily unavailable" when the primary says so', async () => {
@@ -220,7 +229,7 @@ describe('an activation worker', () => {
     const { res, sent, exit } = await serveOnce({ releaseId: row.id, activate: true })
     expect(res).toBeNull()
     expect(exit).toBe(1)
-    expect(sent).toEqual([{ type: 'failed', error: expect.objectContaining({ messageId: 'error.releaseVersion' }) }])
+    expect(sent).toEqual([{ type: 'failed', error: expect.objectContaining({ messageId: 'error.releaseTooNew' }) }])
     expect(existsSync(join(config.paths.releases, 'current.json'))).toBe(false)
   })
 })

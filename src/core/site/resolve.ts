@@ -182,16 +182,12 @@ function lookupLocales(deps: CoreDeps, locale: string): string[] {
 export async function resolvePath(deps: CoreDeps, rawPath: string, opts: LiveOpts = {}): Promise<RouteMatch> {
   const res = await resolveSite(deps, rawPath, opts)
   if (res.kind === 'canonical') {
-    // A mixed-case path that would 404 once canonical goes where the lowercase fallback lands, in one 301.
     const { canonical } = res
+    const at = await atCanonical(deps, canonical, opts)
+    if (at?.kind === 'redirect') return at
+    // A mixed-case path that would 404 once canonical goes where the lowercase fallback lands, in one 301.
     const lower = lowercaseFallback(canonical)
-    if (
-      lower !== null &&
-      !deps.registry.getRoutePaths.has(canonical) &&
-      (await resolveRules(deps, encodePath(canonical), opts)).kind === 'not_found'
-    ) {
-      return (await landing(deps, lower, opts)) ?? redirect(canonical)
-    }
+    if (lower !== null && at?.kind === 'not_found') return (await landing(deps, lower, opts)) ?? redirect(canonical)
     return redirect(canonical)
   }
   if (res.kind !== 'rules') return res
@@ -218,6 +214,14 @@ async function resolveRules(deps: CoreDeps, rawPath: string, opts: LiveOpts): Pr
 }
 
 /**
+ * What steps 1–7b answer at the target of a step 2–3 redirect, so a rule there is reached in the
+ * same 301; `null` at a GET code route, which no rule can shadow.
+ */
+async function atCanonical(deps: CoreDeps, canonical: string, opts: LiveOpts): Promise<RouteMatch | null> {
+  return deps.registry.getRoutePaths.has(canonical) ? null : resolveRules(deps, encodePath(canonical), opts)
+}
+
+/**
  * Where the lowercase fallback for a request lands, given its lowercase form `lower`: a GET code
  * route or a page there, a redirect that steps 2–6 or a rule would give, or `null` when nothing
  * answers there. A step 2–3 redirect lands only when something answers at its canonical path.
@@ -226,7 +230,11 @@ async function landing(deps: CoreDeps, lower: string, opts: LiveOpts): Promise<R
   if (deps.registry.getRoutePaths.has(lower)) return redirect(lower)
   const res = await resolveSite(deps, encodePath(lower), opts)
   if (res.kind === 'page') return redirect(lower)
-  if (res.kind === 'canonical') return (await answers(deps, res.canonical, opts)) ? redirect(res.canonical) : null
+  if (res.kind === 'canonical') {
+    const at = await atCanonical(deps, res.canonical, opts)
+    if (at?.kind === 'redirect') return at
+    return (await answers(deps, res.canonical, opts)) ? redirect(res.canonical) : null
+  }
   if (res.kind === 'redirect') return res
   if (res.kind !== 'rules') return null
   const rule = await matchRedirect(deps, res, opts)

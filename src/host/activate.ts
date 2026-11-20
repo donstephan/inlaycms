@@ -11,6 +11,7 @@ import { fileMediaStore } from '../core/media/store.js'
 import type { ReleaseMigration } from '../core/registry/migration.js'
 import { buildRegistry } from '../core/registry/registry.js'
 import { checkInlayVersion, type LoadedRelease } from '../core/release/read.js'
+import { packedVersion } from '../core/release/window.js'
 import type { CoreDeps, Ctx } from '../core/types.js'
 import type { ActivationSummary } from './ipc.js'
 import { currentRelease, getRelease, readCurrentPointer, writeCurrentPointer, type ReleaseRow } from './store.js'
@@ -141,7 +142,7 @@ export async function activateRelease(deps: ActivationDeps, releaseId: string): 
   const row = await getRelease(deps.db, releaseId)
   if (row === null) throw new InlayError('not_found', 'error.releaseUnknown', { id: releaseId })
   if (row.state === 'deleted') throw new InlayError('release', 'error.releaseDeleted', { name: row.name })
-  checkInlayVersion(row.inlay_range)
+  checkInlayVersion(packedVersion(row.inlay_range))
   if (row.state === 'current') {
     // A retry after a commit whose pointer write was lost: the database already says it's current.
     const pointer = await readCurrentPointer(deps.releasesDir).catch(() => null)

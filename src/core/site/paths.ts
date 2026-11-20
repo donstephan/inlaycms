@@ -81,3 +81,34 @@ export function routeRegExp(route: string): RegExp {
 export function routePath(route: string, slug: string): string {
   return route.replace(':slug', slug)
 }
+
+export type TrailingSlash = 'always' | 'never'
+
+function slashable(path: string): boolean {
+  if (path === '/' || path.endsWith('/') || isReserved(path)) return false
+  return !(path.split('/').at(-1) ?? '').includes('.')
+}
+
+/** A decoded, normalized path (optionally with a `?query`) in the form the site presents. */
+export function presentPath(path: string, mode: TrailingSlash): string {
+  if (mode !== 'always') return path
+  const q = path.indexOf('?')
+  const bare = q === -1 ? path : path.slice(0, q)
+  if (!slashable(bare)) return path
+  return `${bare}/${q === -1 ? '' : path.slice(q)}`
+}
+
+/** The same for an encoded site-relative href; other hrefs come back unchanged. */
+export function presentHref(href: string, mode: TrailingSlash): string {
+  if (mode !== 'always' || !href.startsWith('/') || href.startsWith('//')) return href
+  const q = href.indexOf('?')
+  const bare = q === -1 ? href : href.slice(0, q)
+  let decoded: string
+  try {
+    decoded = decodeURIComponent(bare)
+  } catch {
+    return href
+  }
+  if (!slashable(decoded)) return href
+  return `${bare}/${q === -1 ? '' : href.slice(q)}`
+}

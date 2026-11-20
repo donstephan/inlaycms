@@ -7,6 +7,7 @@ import { openDatabase } from '../core/db/connection.js'
 import { InlayError } from '../core/errors.js'
 import { t, type MessageId } from '../core/messages/index.js'
 import { checkInlayVersion, loadRelease, type LoadedRelease } from '../core/release/read.js'
+import { packedVersion, releaseFit } from '../core/release/window.js'
 import { activateRelease, summarize } from './activate.js'
 import { createSiteApp } from './app.js'
 import type { HostConfig } from './config.js'
@@ -120,10 +121,11 @@ async function chooseRelease(config: HostConfig, log: NonNullable<WorkerIo['log'
     log('host.pointerRepaired', { name: row.name })
   }
   try {
-    checkInlayVersion(row.inlay_range)
+    checkInlayVersion(packedVersion(row.inlay_range))
   } catch (e) {
-    if (!(e instanceof InlayError) || e.messageId !== 'error.releaseVersion') throw e
-    log('host.releaseVersion', { ...e.params, name: row.name })
+    if (!(e instanceof InlayError)) throw e
+    if (e.messageId !== 'error.releaseTooOld' && e.messageId !== 'error.releaseTooNew') throw e
+    log(e.messageId === 'error.releaseTooOld' ? 'host.releaseTooOld' : 'host.releaseTooNew', { ...e.params, name: row.name })
     return { page: 'unavailable', id: row.id }
   }
   const opened = await openCurrentRelease({ releasesDir: config.paths.releases })
@@ -131,6 +133,8 @@ async function chooseRelease(config: HostConfig, log: NonNullable<WorkerIo['log'
     log('host.releaseMissing', { name: row.name })
     return { page: 'unavailable', id: row.id }
   }
+  const packed = packedVersion(row.inlay_range)
+  if (releaseFit(packed) === 'warn') log('host.releasePackAgain', { name: row.name, packed })
   return { loaded: opened.loaded, id: row.id, name: row.name }
 }
 

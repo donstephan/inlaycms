@@ -13,7 +13,7 @@ import { migrateSystem } from '../../src/core/db/migrate.js'
 import { InlayError } from '../../src/core/errors.js'
 import { bundleConfig, bundleSite } from '../../src/core/release/bundle.js'
 import { fingerprint, generateKeyPair, sign } from '../../src/core/release/keys.js'
-import { contentPath, manifestOfRegistry, manifestSchema, satisfies, type ReleaseManifest } from '../../src/core/release/manifest.js'
+import { contentPath, manifestOfRegistry, manifestSchema, type ReleaseManifest } from '../../src/core/release/manifest.js'
 import { packRelease } from '../../src/core/release/pack.js'
 import { INLAY_ENTRIES, loadRelease, openRelease, readRelease } from '../../src/core/release/read.js'
 import { defineSite } from '../../src/core/registry/define.js'
@@ -799,15 +799,31 @@ describe('readRelease', () => {
     await pack()
     await repack(out, async (d) => {
       const manifest = JSON.parse(await readFile(join(d, 'manifest.json'), 'utf8')) as ReleaseManifest
-      manifest.inlay.range = '^99.0.0'
+      manifest.inlay.version = '99.0.0'
       const bytes = Buffer.from(JSON.stringify(manifest, null, 2))
       await writeFile(join(d, 'manifest.json'), bytes)
       await writeFile(join(d, 'manifest.sig'), sign(keys.privateKey, bytes))
     })
     const e = await rejection(readRelease(out, { dir: releaseDir, trustedKeys: [keys.publicKey] }))
-    expect(e.messageId).toBe('error.releaseVersion')
-    expect(e.params).toEqual({ range: '^99.0.0', need: '99.0.0', series: '99.x', version: inlayVersion() })
-    expect(e.message).toBe(`This release needs Inlay 99.0.0 or a later 99.x version, but this server runs Inlay ${inlayVersion()}.`)
+    expect(e.messageId).toBe('error.releaseTooNew')
+    expect(e.params).toEqual({ packed: '99.0.0', version: inlayVersion() })
+    expect(e.message).toBe(
+      `This release was packed with Inlay 99.0.0, which is newer than the Inlay ${inlayVersion()} on this server. Upgrade Inlay on the server, then push it again.`,
+    )
+  })
+
+  it('refuses a release packed with a version older than the oldest supported', async () => {
+    await pack()
+    await repack(out, async (d) => {
+      const manifest = JSON.parse(await readFile(join(d, 'manifest.json'), 'utf8')) as ReleaseManifest
+      manifest.inlay.version = '0.4.1'
+      const bytes = Buffer.from(JSON.stringify(manifest, null, 2))
+      await writeFile(join(d, 'manifest.json'), bytes)
+      await writeFile(join(d, 'manifest.sig'), sign(keys.privateKey, bytes))
+    })
+    const e = await rejection(readRelease(out, { dir: releaseDir, trustedKeys: [keys.publicKey] }))
+    expect(e.messageId).toBe('error.releaseTooOld')
+    expect(e.params).toEqual({ packed: '0.4.1', version: inlayVersion(), oldest: '0.5.0' })
   })
 
   it('opens without loading, and loads after opening', async () => {
@@ -927,17 +943,5 @@ describe('readRelease', () => {
       await db.destroy()
       await rm(media, { recursive: true, force: true })
     }
-  })
-})
-
-describe('satisfies', () => {
-  it('reads caret ranges', () => {
-    expect(satisfies('0.3.5', '^0.3.1')).toBe(true)
-    expect(satisfies('0.3.0', '^0.3.1')).toBe(false)
-    expect(satisfies('0.4.0', '^0.3.1')).toBe(false)
-    expect(satisfies('1.9.9', '^1.2.0')).toBe(true)
-    expect(satisfies('1.1.9', '^1.2.0')).toBe(false)
-    expect(satisfies('2.0.0', '^1.2.0')).toBe(false)
-    expect(satisfies('1.2.0', '1.2.0')).toBe(false)
   })
 })

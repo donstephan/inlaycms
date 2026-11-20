@@ -101,7 +101,7 @@ async function describeDone(deps: McpDeps, action: Action, ids: string[]) {
       out.push(item)
       continue
     }
-    out.push({ ...item, url: pageUrl(deps.baseUrl, await livePath(deps, doc, 'published')) })
+    out.push({ ...item, url: pageUrl(deps.baseUrl, await livePath(deps, doc, 'published'), deps.core.registry.site.trailingSlash) })
   }
   return out
 }

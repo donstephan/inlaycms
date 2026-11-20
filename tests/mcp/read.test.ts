@@ -227,6 +227,21 @@ describe('get_document', () => {
     expect(json.previewUrl).toMatch(/&path=%2Fblog%2Frenamed$/)
   })
 
+  it("gives the address with a trailing slash when the site asks for one", async () => {
+    await mcp.close()
+    ;({ core, owner, editor } = await makeCore({ site: { ...site, trailingSlash: 'always' } }))
+    await core.applyShippedContent()
+    mcp = await mcpClient({ core, actor: editor.actor })
+    const created = await core.createEntry(
+      'posts',
+      { slug: 'hello', fields: { title: 'Hello', date: '2026-01-02', body: markdownDoc('Hi there.') } },
+      owner,
+    )
+    await core.publish([created.id], owner)
+    const { json } = await mcp.call('get_document', { id: created.id })
+    expect(json.url).toBe('https://example.com/blog/hello/')
+  })
+
   it('reads the version in the language asked for, given the id of another', async () => {
     const home = (await core.findSingleton('home'))!
     const es = (await core.findSingleton('home', 'es'))!

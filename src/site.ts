@@ -39,6 +39,7 @@ export {
   type SlotDef,
   type TemplateDef,
   type TemplateRenderProps,
+  type TrailingSlash,
   type TypeDef,
 } from './core/registry/define.js'
 export {

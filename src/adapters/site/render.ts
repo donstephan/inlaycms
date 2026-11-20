@@ -6,10 +6,11 @@ import { fieldMeta } from '../../core/fields/define.js'
 import { t, type MessageId } from '../../core/messages/index.js'
 import type { TemplateDef } from '../../core/registry/define.js'
 import type { PageInfo } from '../../core/registry/render.js'
+import { presentPath } from '../../core/site/paths.js'
 import type { ContentIssue, DocumentData, ImageValue, LiveDocument, LiveState } from '../../core/types.js'
 import { escapeHtml, raw, renderToString, toHtml, type SafeHtml } from '../../jsx/html.js'
 import type { PublicAssets } from './assets.js'
-import { createRenderContext, type PreloadingRenderContext } from './context.js'
+import { createRenderContext, pageUrl, type PreloadingRenderContext } from './context.js'
 import { buildHead, injectHead } from './head.js'
 import { injectIntegrations, type IntegrationPageInfo, type SiteIntegrations } from './integrations.js'
 import { isHomePath, mediaShareImage, pageTitle, resolveSeoDefaults } from './seo.js'
@@ -187,6 +188,7 @@ async function renderTemplate(
     contentLocale: doc.contentLocale,
     fallback: doc.fallback,
     path: doc.path ?? '',
+    url: pageUrl(doc.path ?? '', core.registry.site.trailingSlash),
     publishedAt: doc.publishedAt,
     page: opts.page,
   }
@@ -208,6 +210,7 @@ async function renderTemplate(
     alternates: doc.fallback ? [] : alternates.filter((a) => !a.fallback),
     defaultLocale: core.registry.defaultLocale,
     baseUrl: opts.baseUrl,
+    trailingSlash: core.registry.site.trailingSlash,
     preview: opts.state === 'preview',
     collected: ctx.headTags(),
   })
@@ -216,7 +219,7 @@ async function renderTemplate(
     const open = HEAD_OPEN.exec(out)
     if (open) {
       const at = open.index + open[0].length
-      out = `${out.slice(0, at)}<base href="${escapeHtml(doc.path)}">${out.slice(at)}`
+      out = `${out.slice(0, at)}<base href="${escapeHtml(presentPath(doc.path, core.registry.site.trailingSlash))}">${out.slice(at)}`
     }
   }
   if (!internal.pane) {
@@ -275,6 +278,7 @@ export async function renderTemplateResult(
     contentLocale: opts.locale,
     fallback: false,
     path: opts.path,
+    url: pageUrl(opts.path, core.registry.site.trailingSlash),
     publishedAt: null,
     page: 1,
   }
@@ -291,6 +295,7 @@ export async function renderTemplateResult(
     alternates: [],
     defaultLocale: core.registry.defaultLocale,
     baseUrl: opts.baseUrl,
+    trailingSlash: core.registry.site.trailingSlash,
     preview: opts.preview === true,
     collected: ctx.headTags(),
   })

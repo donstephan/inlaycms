@@ -127,6 +127,7 @@ beforeAll(async () => {
   tooNew = join(packDir, 'too-new.tgz')
   await remanifest(file, tooNew, keys.privateKey, (m) => {
     m.inlay.range = '^99.0.0'
+    m.inlay.version = '99.0.0'
   })
   needsSecret = join(packDir, 'needs-secret.tgz')
   await remanifest(file, needsSecret, keys.privateKey, (m) => {

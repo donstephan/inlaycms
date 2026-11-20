@@ -1,11 +1,11 @@
 import { agentRefsNeeded, type AgentRefs } from '../../core/agent/format.js'
-import { encodePath } from '../../core/site/paths.js'
+import { encodePath, presentHref, type TrailingSlash } from '../../core/site/paths.js'
 import type { DocumentData } from '../../core/types.js'
 import type { McpDeps } from './server.js'
 
 /** The absolute URL of a decoded site path, or `null` for a document without a page. */
-export function pageUrl(baseUrl: string, path: string | null): string | null {
-  return path === null ? null : `${baseUrl}${encodePath(path)}`
+export function pageUrl(baseUrl: string, path: string | null, trailingSlash: TrailingSlash): string | null {
+  return path === null ? null : `${baseUrl}${presentHref(encodePath(path), trailingSlash)}`
 }
 
 /** The absolute URL of a media file. */
@@ -27,7 +27,7 @@ export async function loadAgentRefs(
   return {
     document(groupId) {
       const doc = documents.get(groupId)
-      return doc ? { title: doc.title, url: pageUrl(baseUrl, doc.path) } : null
+      return doc ? { title: doc.title, url: pageUrl(baseUrl, doc.path, core.registry.site.trailingSlash) } : null
     },
     media: (id) => media.get(id) ?? { status: 'unknown' },
     mediaUrl: (id) => mediaUrl(baseUrl, id),

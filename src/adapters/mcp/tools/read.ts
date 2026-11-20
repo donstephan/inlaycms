@@ -77,7 +77,7 @@ async function describeSite(deps: McpDeps) {
     const urls: Record<string, string | null> = {}
     for (const locale of locales) {
       const path = singletonPath(def, locale, defaultLocale)
-      if (path !== null) urls[locale] = pageUrl(baseUrl, withLocale(registry, locale, path))
+      if (path !== null) urls[locale] = pageUrl(baseUrl, withLocale(registry, locale, path), registry.site.trailingSlash)
     }
     singletons.push({
       type: def.name,
@@ -227,7 +227,7 @@ async function getDocument(deps: McpDeps, args: z.infer<typeof getDocumentInput>
     revisionId: doc.revision.id,
     publishedRevisionId: doc.publishedRev,
     hasUnpublishedChanges: doc.publishedRev !== doc.headRev,
-    url: pageUrl(baseUrl, await livePath(deps, doc, 'published')),
+    url: pageUrl(baseUrl, await livePath(deps, doc, 'published'), deps.core.registry.site.trailingSlash),
     previewUrl: previewLink(deps, path ?? '/'),
     content: toAgent(registry, doc.type, doc.data, refs),
     links: agentLinks(registry, doc.type, doc.data, refs),

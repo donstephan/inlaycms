@@ -229,8 +229,10 @@ describe('inlaycms releases', () => {
       expect(r.out).toContain(row.activated_at!)
     }
     expect(r.out.indexOf('second')).toBeLessThan(r.out.indexOf('first'))
+    expect(r.out.split('\n').filter((l) => l.startsWith('    '))).toEqual([])
 
     const json = await run('releases', '--json')
+    for (const entry of JSON.parse(json.out)) expect(entry).not.toHaveProperty('warning')
     expect(JSON.parse(json.out)).toEqual(
       listed.map((row) => ({
         id: row.id,
@@ -332,9 +334,9 @@ describe('backups with the current release', () => {
     await expect(untrusted).rejects.toThrow(/trusted key/)
     expect(existsSync(paths().db)).toBe(false)
 
-    const newer = restoreInto('newer', { inlayVersion: '99.0.0' })
-    await expect(newer).rejects.toMatchObject({ messageId: 'error.backupRelease' })
-    await expect(newer).rejects.toThrow(/99\.0\.0/)
+    const older = restoreInto('older', { inlayVersion: '0.4.0' })
+    await expect(older).rejects.toMatchObject({ messageId: 'error.backupRelease' })
+    await expect(older).rejects.toThrow(/0\.4\.0/)
     expect(existsSync(paths().db)).toBe(false)
   })
 

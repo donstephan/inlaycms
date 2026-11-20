@@ -17,6 +17,7 @@ import type { Database } from '../core/db/schema.js'
 import { InlayError } from '../core/errors.js'
 import { t, type MessageId } from '../core/messages/index.js'
 import { manifestOfRegistry, manifestSchema, type ReleaseManifest } from '../core/release/manifest.js'
+import { packedVersion, releaseFit } from '../core/release/window.js'
 import type { Registry } from '../core/registry/registry.js'
 import type { Actor } from '../core/types.js'
 import type { HostConfig } from './config.js'
@@ -82,11 +83,19 @@ const DIFF_TIMEOUT_MS = 60_000
 const problemOf = (e: unknown) => (e instanceof Error ? e.message : String(e))
 
 /** A release row as the push API sends it: without the schema JSON, which is only kept for the record. */
-export type ReleaseInfo = Omit<ReleaseRow, 'schema'>
+export type ReleaseInfo = Omit<ReleaseRow, 'schema'> & { warning?: string }
+
+/** The advance "pack again" warning for a release packed with the version in `row.inlay_range`, or null. */
+export function packAgainWarning(row: Pick<ReleaseRow, 'inlay_range' | 'state'>): string | null {
+  if (row.state === 'deleted') return null
+  const packed = packedVersion(row.inlay_range)
+  return releaseFit(packed) === 'warn' ? t('release.packAgain', { packed }) : null
+}
 
 export function releaseInfo(row: ReleaseRow): ReleaseInfo {
   const { schema: _schema, ...info } = row
-  return info
+  const warning = packAgainWarning(row)
+  return warning === null ? info : { ...info, warning }
 }
 
 async function readManifest(file: string): Promise<ReleaseManifest> {
@@ -239,11 +248,13 @@ export async function pushRelease(
 
     const staged = await readManifest(join(releaseDir(work, row.id), 'manifest.json'))
     const structural = structuralDiff(await currentManifest(opts), staged)
+    const packed = staged.inlay.version
+    const packAgain = releaseFit(packed) === 'warn' ? [t('push.packAgain', { packed })] : []
     if (push.dryRun) {
-      if (opts.host?.startPreview === undefined) return { release: null, diff: { structural, content: null }, warnings: [] }
+      if (opts.host?.startPreview === undefined) return { release: null, diff: { structural, content: null }, warnings: packAgain }
       try {
         const { content, warnings } = await contentDiff(opts, row.id, { dir: work })
-        return { release: null, diff: { structural, content }, warnings }
+        return { release: null, diff: { structural, content }, warnings: [...warnings, ...packAgain] }
       } finally {
         await opts.host.stopPreview?.(row.id).catch(() => {})
       }
@@ -266,7 +277,7 @@ export async function pushRelease(
     }
     structural.migrations = await pendingMigrations(opts.db, row.id, structural.migrations)
     const { content, warnings } = await contentDiff(opts, row.id, push.activate ? { deadlineMs: opts.activateDiffTimeoutMs ?? ACTIVATE_DIFF_TIMEOUT_MS } : {})
-    return { release: row, diff: { structural, content }, warnings }
+    return { release: row, diff: { structural, content }, warnings: [...warnings, ...packAgain] }
   } finally {
     await scratch.destroy()
     await rm(work, { recursive: true, force: true })
@@ -327,7 +338,8 @@ function statusOf(e: InlayError): number {
   switch (e.messageId) {
     case 'error.releaseSignature':
       return 403
-    case 'error.releaseVersion':
+    case 'error.releaseTooOld':
+    case 'error.releaseTooNew':
     case 'error.releaseSecretsMissing':
     case 'error.releaseCurrent':
     case 'error.releaseDeleted':

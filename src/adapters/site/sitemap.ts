@@ -1,5 +1,5 @@
 import { escapeHtml } from '../../jsx/html.js'
-import { encodePath } from '../../core/site/paths.js'
+import { encodePath, presentHref, type TrailingSlash } from '../../core/site/paths.js'
 
 interface Item {
   path: string
@@ -7,8 +7,8 @@ interface Item {
   alternates: Array<{ locale: string; path: string }>
 }
 
-export function renderSitemap(entries: readonly Item[], baseUrl: string): string {
-  const url = (path: string) => escapeHtml(`${baseUrl}${path === '/' ? '/' : encodePath(path)}`)
+export function renderSitemap(entries: readonly Item[], baseUrl: string, trailingSlash: TrailingSlash): string {
+  const url = (path: string) => escapeHtml(`${baseUrl}${path === '/' ? '/' : presentHref(encodePath(path), trailingSlash)}`)
   const items = entries.map((e) => {
     const links = e.alternates.map(
       (a) => `<xhtml:link rel="alternate" hreflang="${escapeHtml(a.locale)}" href="${url(a.path)}"/>`,

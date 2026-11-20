@@ -1,6 +1,6 @@
 import type { FastifyInstance, FastifyReply } from 'fastify'
 import { InlayError } from '../../core/errors.js'
-import { encodePath } from '../../core/site/paths.js'
+import { encodePath, presentHref } from '../../core/site/paths.js'
 import { t } from '../../core/messages/index.js'
 import type { Actor, ContentIssue, Ctx, DocumentSummary } from '../../core/types.js'
 import { html, type SafeHtml } from '../../jsx/html.js'
@@ -237,7 +237,7 @@ export function registerPublishRoutes(scope: FastifyInstance, opts: AdminContext
           ? (await core.liveDocuments([doc.groupId], doc.locale, { state: 'published' })).get(doc.groupId)
           : undefined
       const path = live && live.documentId === id ? live.path : null
-      items.push(html`<li>${path === null ? itemTitle(doc) : html`<a href="${encodePath(path)}" class="link">${itemTitle(doc)}</a>`}</li>`)
+      items.push(html`<li>${path === null ? itemTitle(doc) : html`<a href="${presentHref(encodePath(path), core.registry.site.trailingSlash)}" class="link">${itemTitle(doc)}</a>`}</li>`)
     }
     const body = html`<p>${t(COPY[action].done)}</p><ul class="list-disc pl-6">${items}</ul>${backLink(back)}`
     return page(reply, 200, await sectionPage(opts, actor, t(COPY[action].doneTitle), 'done', body))

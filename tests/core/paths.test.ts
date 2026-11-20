@@ -9,6 +9,8 @@ import {
   encodePath,
   lowercaseFallback,
   normalizePath,
+  presentHref,
+  presentPath,
   singletonPath,
   splitLocale,
   withLocale,
@@ -260,4 +262,27 @@ describe('slugs shared between collections', () => {
 
 describe('seo marker', () => {
   it('marks f.seo()', () => expect(fieldMeta(f.seo())?.seo).toBe(true))
+})
+
+describe('presentPath and presentHref', () => {
+  const inputs = ['/pricing', '/', '/es', '/blog/a b', '/blog?page=2', '/pricing/', '/feed.xml', '/public/x', '/admin', '/sitemap.xml']
+
+  it("leaves every input alone for 'never'", () => {
+    for (const p of inputs) {
+      expect(presentPath(p, 'never')).toBe(p)
+      expect(presentHref(p, 'never')).toBe(p)
+    }
+  })
+
+  it("adds the slash to slashable paths for 'always'", () => {
+    const expected = ['/pricing/', '/', '/es/', '/blog/a b/', '/blog/?page=2', '/pricing/', '/feed.xml', '/public/x', '/admin', '/sitemap.xml']
+    expect(inputs.map((p) => presentPath(p, 'always'))).toEqual(expected)
+  })
+
+  it('presents encoded hrefs', () => {
+    expect(presentHref('/blog/a%20b', 'always')).toBe('/blog/a%20b/')
+    expect(presentHref('/x?page=3', 'always')).toBe('/x/?page=3')
+    expect(presentHref('https://e.com/x', 'always')).toBe('https://e.com/x')
+    expect(presentHref('//e.com/x', 'always')).toBe('//e.com/x')
+  })
 })

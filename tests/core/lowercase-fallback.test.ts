@@ -40,6 +40,16 @@ describe('the lowercase fallback', () => {
     expect(await core.resolvePath('/OLD')).toEqual({ kind: 'redirect', location: '/new', status: 302 })
   })
 
+  it("sends a default-locale prefix or a trailing slash straight to a rule's target", async () => {
+    const { core } = await world()
+    for (const p of ['/en/old', '/en/old/', '/old/']) {
+      expect(await core.resolvePath(p)).toEqual({ kind: 'redirect', location: '/new', status: 302 })
+    }
+    expect(await core.resolvePath('/en/company/team')).toEqual(to301('/team'))
+    expect(await core.resolvePath('/en/about')).toEqual(to301('/about'))
+    expect(await core.resolvePath('/en/contact')).toEqual(to301('/contact'))
+  })
+
   it('reaches code routes', async () => {
     const { core } = await world()
     expect(await core.resolvePath('/Contact')).toEqual(to301('/contact'))
@@ -63,7 +73,7 @@ describe('the lowercase fallback', () => {
     const { core } = await world()
     expect(await core.resolvePath('/EN/Nope')).toEqual({ kind: 'not_found', locale: 'en' })
     expect(await core.resolvePath('/EN/Nope/')).toEqual(to301('/EN/Nope'))
-    expect(await core.resolvePath('/EN/Company/Team')).toEqual(to301('/company/team'))
+    expect(await core.resolvePath('/EN/Company/Team')).toEqual(to301('/team'))
     expect(await core.resolvePath('/EN/Contact')).toEqual(to301('/contact'))
   })
 

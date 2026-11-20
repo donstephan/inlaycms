@@ -70,7 +70,7 @@ async function created(deps: McpDeps, doc: DocumentSummary) {
     groupId: doc.groupId,
     revisionId: doc.headRev,
     title: doc.title,
-    url: pageUrl(deps.baseUrl, await livePath(deps, doc, 'published')),
+    url: pageUrl(deps.baseUrl, await livePath(deps, doc, 'published'), deps.core.registry.site.trailingSlash),
     previewUrl: previewLink(deps, path ?? '/'),
   }
 }

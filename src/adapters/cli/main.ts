@@ -34,6 +34,7 @@ import { ensureDataDir, hostPaths, readDataDir, readHostConfig, readTrustedKeys,
 import { dev } from '../../host/dev.js'
 import { formatDiff } from '../../host/diff.js'
 import type { ActivationSummary } from '../../host/ipc.js'
+import { releaseInfo, type ReleaseInfo } from '../../host/push.js'
 import { serve } from '../../host/serve.js'
 import { currentRelease, getRelease, listReleases, releaseDir, storeRelease, type ReleaseRow } from '../../host/store.js'
 import { activateRemote, checkTransport, isRemote, listRemoteReleases, pushFile } from './remote.js'
@@ -380,12 +381,19 @@ async function releases(io: CliIo, flags: { data: string | undefined; json: bool
       await db.destroy()
     }
   }
-  printReleases(io, rows, flags.json)
+  printReleases(io, rows.map(releaseInfo), flags.json)
   return 0
 }
 
-function printReleases(io: CliIo, rows: readonly Omit<ReleaseRow, 'schema'>[], json: boolean): void {
-  const listed = rows.map((r) => ({ id: r.id, name: r.name, state: r.state, pushedAt: r.pushed_at, activatedAt: r.activated_at }))
+function printReleases(io: CliIo, rows: readonly ReleaseInfo[], json: boolean): void {
+  const listed = rows.map((r) => ({
+    id: r.id,
+    name: r.name,
+    state: r.state,
+    pushedAt: r.pushed_at,
+    activatedAt: r.activated_at,
+    ...(r.warning !== undefined && { warning: r.warning }),
+  }))
   if (json) return io.out(JSON.stringify(listed, null, 2))
   if (listed.length === 0) io.out(t('cli.releasesNone'))
   for (const r of listed) {
@@ -398,6 +406,7 @@ function printReleases(io: CliIo, rows: readonly Omit<ReleaseRow, 'schema'>[], j
         activatedAt: r.activatedAt ?? t('cli.releaseNeverLive'),
       }),
     )
+    if (r.warning !== undefined) io.out(t('cli.releaseWarning', { warning: r.warning }))
   }
 }
 

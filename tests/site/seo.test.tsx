@@ -135,6 +135,7 @@ describe('head tags', () => {
       alternates: [],
       defaultLocale: 'en',
       baseUrl,
+      trailingSlash: 'never',
       preview: false,
     })
     expect(injectHead('<head></HEAD><head></head>', head).startsWith('<head><title>T</title>')).toBe(true)
@@ -168,7 +169,7 @@ describe('sitemap', () => {
   })
 
   it('leaves out lastmod for an entry without updatedAt', () => {
-    const xml = renderSitemap([{ path: '/calc', alternates: [] }], 'https://example.com')
+    const xml = renderSitemap([{ path: '/calc', alternates: [] }], 'https://example.com', 'never')
     expect(xml).toContain('<url><loc>https://example.com/calc</loc></url>')
     expect(xml).not.toContain('lastmod')
   })
@@ -183,6 +184,7 @@ describe('sitemap', () => {
         },
       ],
       baseUrl,
+      'never',
     )
     expect(xml).toContain('xmlns:xhtml="http://www.w3.org/1999/xhtml"')
     expect(xml).toContain('<loc>https://example.com/a%26b</loc>')

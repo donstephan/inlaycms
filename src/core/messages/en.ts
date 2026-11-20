@@ -415,8 +415,10 @@ export const en = {
     "This page's Markdown couldn't be shown. Line {line}: the image {src} can't be used. Use an image from the media library, or put the Markdown in a .md file the site imports and name the picture by its path from there.",
   'error.releaseSignature': "This release isn't signed by a trusted key, so it wasn't opened.",
   'error.releaseInvalid': "This release file is damaged or wasn't made by inlaycms pack.",
-  'error.releaseVersion':
-    'This release needs Inlay {need} or a later {series} version, but this server runs Inlay {version}.',
+  'error.releaseTooOld':
+    'This release was packed with Inlay {packed}. Inlay {version} runs releases packed with Inlay {oldest} or later. Pack the site again with this version and push it.',
+  'error.releaseTooNew':
+    'This release was packed with Inlay {packed}, which is newer than the Inlay {version} on this server. Upgrade Inlay on the server, then push it again.',
   'error.releaseNoSite': "The site code in this release doesn't export a site as its default export.",
   'error.releaseDirNotEmpty': 'The folder {dir} to open the release into must be empty.',
   'error.releaseDirMissing': "The folder {dir} to open the release into doesn't exist.",
@@ -455,6 +457,10 @@ export const en = {
   'error.pushContentType': 'Send the release file as the request body, with the content type application/gzip.',
   'error.pushTooLarge': 'This release file is larger than {mb} MB, so it wasn\'t accepted.',
   'error.pushFailed': 'The release couldn\'t be received: {problem}',
+  'release.packAgain':
+    'Packed with Inlay {packed}. The next version of Inlay that changes what sites use won\'t run it: pack the site again with this version and push it.',
+  'push.packAgain':
+    'This release was packed with Inlay {packed}. The next version of Inlay that changes what sites use won\'t run it: pack the site again with this version.',
   'push.diffUnavailable':
     "What this release would change in your existing content couldn't be worked out: {reason} The rest of the report is complete.",
   'error.pushDiffTimeout': 'The preview of the release took more than {seconds} seconds to answer.',
@@ -545,6 +551,7 @@ export const en = {
   'cli.activateNotFound': "There's no release file at {path} and no release with the ID {id}.",
   'cli.activateName': '--name names a release file as it is stored. Leave it out when activating a stored release by its ID.',
   'cli.releasesNone': 'There are no releases on this server yet.',
+  'cli.releaseWarning': '    {warning}',
   'cli.releaseLine': '{id}  {name}  {state}  pushed {pushedAt}  made live {activatedAt}',
   'cli.releaseNeverLive': 'never',
   'cli.releaseState.staged': 'not live yet',
@@ -874,6 +881,7 @@ export const en = {
   'admin.notice.releaseDeleted': 'The release is deleted.',
   'admin.releases.title': 'Releases',
   'admin.releases.intro': 'A release is a version of the site\'s design and code. Upload or push a new one, check what it changes, then activate it to make it live.',
+  'admin.releases.packAgainBadge': 'Pack again',
   'admin.releases.table': 'Releases',
   'admin.releases.empty': 'No releases yet. Push one from the command line or upload a release file.',
   'admin.releases.name': 'Name',
@@ -1659,8 +1667,12 @@ export const en = {
     'Even the page shown while the site is down kept stopping, so the server has stopped. Look at the messages above for the cause.',
   'host.releaseMissing':
     'The live release {name} is missing from this server, so visitors see the "temporarily unavailable" page. Make it live again with inlaycms activate <file> to bring the site back.',
-  'host.releaseVersion':
-    'The live release {name} needs Inlay {need} or a later {series} version, but this server runs Inlay {version}, so visitors see the "temporarily unavailable" page. Run a matching version of Inlay, or make another release live.',
+  'host.releaseTooOld':
+    'The live release {name} was packed with Inlay {packed}, and Inlay {version} runs releases packed with Inlay {oldest} or later, so visitors see the "temporarily unavailable" page. Pack the site again with this version and push it, or make another release live.',
+  'host.releasePackAgain':
+    'The live release {name} was packed with Inlay {packed}. The next version of Inlay that changes what sites use won\'t run it: pack the site again with this version and push it.',
+  'host.releaseTooNew':
+    'The live release {name} was packed with Inlay {packed}, which is newer than the Inlay {version} on this server, so visitors see the "temporarily unavailable" page. Upgrade Inlay on the server, or make another release live.',
   'host.servingUnavailable':
     'The site is running at {url}, but visitors see the "temporarily unavailable" page until the problem above is fixed.',
   'host.pointerRepaired': 'The note of which release is live was out of date. It now names {name} again, as the database does.',

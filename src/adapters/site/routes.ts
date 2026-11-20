@@ -6,7 +6,7 @@ import { t, type MessageId } from '../../core/messages/index.js'
 import type { TemplateDef } from '../../core/registry/define.js'
 import type { Registry } from '../../core/registry/registry.js'
 import type { RouteContext, RouteDef, RouteRequest, RouteResponse } from '../../core/registry/route.js'
-import { encodePath } from '../../core/site/paths.js'
+import { encodePath, presentPath } from '../../core/site/paths.js'
 import { publicAssets, type PublicAssets } from './assets.js'
 import { queryApi } from './context.js'
 import type { SiteIntegrations } from './integrations.js'
@@ -123,9 +123,10 @@ export function registerReleaseRoutes(app: FastifyInstance, opts: ReleaseRouteOp
   })
 
   function register(scope: FastifyInstance, route: RouteDef): void {
+    const url = route.method === 'GET' ? presentPath(route.path, registry.site.trailingSlash) : route.path
     scope.route({
       method: route.method,
-      url: route.path,
+      url,
       handler: async (request, reply) => {
         const query = plainQuery(request.url)
         const type = request.headers['content-type'] ?? ''
@@ -146,7 +147,7 @@ export function registerReleaseRoutes(app: FastifyInstance, opts: ReleaseRouteOp
           async render(template, data = {}, o = {}) {
             const read = templateRegistry(registry, template)
             const doc = readData(read, template.name, normalizeContent(read, template.name, data), { fill: true }).data
-            const canonical = route.sitemap === true && request.url.split('?')[0] === encodePath(route.path) ? route.path : null
+            const canonical = route.sitemap === true && request.url.split('?')[0] === encodePath(url) ? route.path : null
             const rendered = await renderTemplateResult(core, template, doc, { locale, path: route.path, baseUrl, canonical, assets, preview: opts.preview === true, ...(opts.integrations && { integrations: opts.integrations }) })
             const csp = (await opts.integrations?.policy(rendered.scriptHashes)) ?? null
             const headers: Record<string, string> = { 'content-type': HTML }

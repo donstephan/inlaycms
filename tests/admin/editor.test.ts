@@ -4,6 +4,7 @@ import { t } from '../../src/core/messages/index.js'
 import type { Ctx, DocumentData, DocumentSummary } from '../../src/core/types.js'
 import { defineCollection, defineSite } from '../../src/core/registry/define.js'
 import { adminSite, Kitchen } from '../fixtures/admin.js'
+import { webSite } from '../fixtures/web.js'
 import { jpeg, pdf } from '../fixtures/media.js'
 import { makeApp } from '../helpers/app.js'
 import { parseHtml, signIn, submittedForm, type AdminClient } from '../helpers/admin.js'
@@ -604,5 +605,35 @@ describe('admin editor (every field kind)', () => {
     expect(parseHtml(res.body).querySelector('#f-fields-at')!.getAttribute('aria-invalid')).toBe('true')
     expect(({} as Record<string, unknown>).x).toBeUndefined()
     expect(({} as Record<string, unknown>).y).toBeUndefined()
+  })
+})
+
+describe('admin editor preview pane (trailingSlash)', () => {
+  let app: FastifyInstance | undefined
+  afterEach(() => app?.close())
+
+  async function pane(trailingSlash: 'always' | 'never', singleton: string) {
+    const made = await makeApp({ site: defineSite({ ...webSite, trailingSlash }), withOwner: true })
+    app = made.app
+    await app.ready()
+    const eddie = await signIn(app, 'editor@example.com')
+    const summary = (await made.core.findSingleton(singleton, 'en'))!
+    const doc = parseHtml((await eddie.get(editorUrl(summary.id))).body)
+    return {
+      address: doc.querySelector('#preview-pane .rounded-field span.truncate')!.textContent,
+      pagePath: doc.querySelector('iframe#preview-frame')!.getAttribute('data-page-path'),
+    }
+  }
+
+  it("shows and keeps the page's slashed path under 'always'", async () => {
+    expect(await pane('always', 'about')).toEqual({ address: '/about/', pagePath: '/about/' })
+  })
+
+  it("leaves the home page at the root under 'always'", async () => {
+    expect(await pane('always', 'home')).toEqual({ address: '/', pagePath: '/' })
+  })
+
+  it("keeps the slashless path under 'never'", async () => {
+    expect(await pane('never', 'about')).toEqual({ address: '/about', pagePath: '/about' })
   })
 })

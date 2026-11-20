@@ -23,7 +23,7 @@ import { inlineTextToHtml } from '../../core/richtext/inline.js'
 import { markdownImages } from '../../core/richtext/markdown.js'
 import { isMediaTarget, KEY_HREF, NO_DOCUMENT, parseMarkdownText } from '../../core/richtext/markdown-text.js'
 import { richTextRefs, type RichTextDoc } from '../../core/richtext/schema.js'
-import { encodePath } from '../../core/site/paths.js'
+import { encodePath, presentHref, type TrailingSlash } from '../../core/site/paths.js'
 import type {
   ContentRef,
   DocumentData,
@@ -40,12 +40,15 @@ import { codeFilesFor, type CodeFile, type CodeFiles } from './code-files.js'
 import { createScriptCollector } from './scripts.js'
 import { escapeHtml, raw, type SafeHtml } from '../../jsx/html.js'
 
+/** The encoded URL of the decoded site path `path`, in the form the site presents; `''` for `''`. */
+export const pageUrl = (path: string, mode: TrailingSlash): string => presentHref(encodePath(path), mode)
+
 export interface RenderContextOptions {
   locale: string
   state: LiveState
   page: number
   baseUrl: string
-  alternates: RenderContext['alternates']
+  alternates: Array<Omit<RenderContext['alternates'][number], 'url'>>
   assets?: PublicAssets
   /** Where `markdown` finds its image files; the core's shared index by default. */
   codeFiles?: CodeFiles
@@ -137,13 +140,13 @@ function richTextImage(img: ResolvedImage) {
   return { src: img.src(width), srcset: img.srcset(), alt: img.alt, width: img.width, height: img.height }
 }
 
-function toEntry<F>(doc: LiveDocument): Entry<F> {
+function toEntry<F>(doc: LiveDocument, mode: TrailingSlash): Entry<F> {
   return {
     id: doc.groupId,
     type: doc.type,
     locale: doc.contentLocale,
     fallback: doc.fallback,
-    url: doc.path === null ? null : encodePath(doc.path),
+    url: doc.path === null ? null : presentHref(encodePath(doc.path), mode),
     title: doc.title,
     slug: doc.slug,
     updatedAt: doc.updatedAt,
@@ -278,7 +281,7 @@ export function createRenderContext(core: Core, opts: RenderContextOptions): Pre
   function documentHref(groupId: string): { href: string; title: string } | null {
     const doc = docs.get(groupId)
     if (!doc || doc.path === null) return null
-    return { href: encodePath(doc.path), title: doc.title }
+    return { href: presentHref(encodePath(doc.path), registry.site.trailingSlash), title: doc.title }
   }
 
   function link(v: LinkValue | null | undefined): ResolvedLink | null {
@@ -354,7 +357,7 @@ export function createRenderContext(core: Core, opts: RenderContextOptions): Pre
       return doc ? [doc] : []
     })
     await preload(found)
-    return found.map((doc) => toEntry<F>(doc))
+    return found.map((doc) => toEntry<F>(doc, registry.site.trailingSlash))
   }
 
   function liveCollection(name: string): Promise<LiveDocument[]> {
@@ -377,7 +380,7 @@ export function createRenderContext(core: Core, opts: RenderContextOptions): Pre
     type F = z.output<T['fields']>
     const name = typeof collection === 'string' ? collection : collection.name
     const live = await liveCollection(name)
-    const all = live.map((doc) => toEntry<F>(doc))
+    const all = live.map((doc) => toEntry<F>(doc, registry.site.trailingSlash))
     const filtered = queryOpts.filter ? all.filter(queryOpts.filter) : all
     const sorted = sortEntries(filtered, queryOpts.sort)
     const total = sorted.length
@@ -423,7 +426,7 @@ export function createRenderContext(core: Core, opts: RenderContextOptions): Pre
     asset: (path) => assets.url(path),
     head: head.api,
     script: scripts.api,
-    alternates: opts.alternates,
+    alternates: opts.alternates.map((a) => ({ ...a, url: pageUrl(a.path, registry.site.trailingSlash) })),
     image,
     file,
     link,

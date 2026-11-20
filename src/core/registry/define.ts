@@ -6,6 +6,9 @@ import type { ShippedContent } from './content.js'
 import type { ReleaseMigration } from './migration.js'
 import type { PageInfo, RenderContext } from './render.js'
 import type { RouteDef } from './route.js'
+import type { TrailingSlash } from '../site/paths.js'
+
+export type { TrailingSlash }
 
 export interface BlockDef<S extends z.ZodObject = z.ZodObject> {
   kind: 'block'
@@ -181,6 +184,8 @@ export interface SiteDefinition {
   globals: GlobalDef[]
   /** Serve the default-locale page when a translation is missing (default `true`). */
   translationFallback: boolean
+  /** `'always'` serves and writes page URLs with a trailing slash (default `'never'`). */
+  trailingSlash: TrailingSlash
   /** Content shipped with the site, activated by editions. */
   content: ShippedContent[]
   guide?: string
@@ -217,6 +222,7 @@ export interface SiteInput {
   collections?: CollectionDef[]
   globals?: GlobalDef[]
   translationFallback?: boolean
+  trailingSlash?: TrailingSlash
   content?: ShippedContent[]
   guide?: string
   admin?: AdminSettings
@@ -239,6 +245,7 @@ export function defineSite(def: SiteInput): SiteDefinition {
     collections: def.collections ?? [],
     globals: def.globals ?? [],
     translationFallback: def.translationFallback ?? true,
+    trailingSlash: def.trailingSlash ?? 'never',
     content: def.content ?? [],
     admin: def.admin ?? {},
     seo: def.seo ?? {},

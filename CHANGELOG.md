@@ -4,6 +4,8 @@ All notable changes to Inlay are recorded here. The format follows [Keep a Chang
 
 ## [Unreleased]
 
+## [0.6.0] - 2026-11-20
+
 ### Changed
 
 - Upgrading Inlay keeps the live site up. A host now runs any release packed with Inlay 0.5.0 or later, as long as it wasn't packed with a newer minor than the host's, instead of only releases from its own minor version. A patch difference is always fine. A release outside that window is refused when it is pushed or activated, with a message saying it is too old (pack the site again) or too new (upgrade Inlay on the server). A live release outside it shows the "temporarily unavailable" page, and the server log says which.
@@ -111,7 +113,8 @@ All notable changes to Inlay are recorded here. The format follows [Keep a Chang
 
 First release.
 
-[Unreleased]: https://github.com/donstephan/inlaycms/compare/v0.5.0...HEAD
+[Unreleased]: https://github.com/donstephan/inlaycms/compare/v0.6.0...HEAD
+[0.6.0]: https://github.com/donstephan/inlaycms/compare/v0.5.0...v0.6.0
 [0.5.0]: https://github.com/donstephan/inlaycms/compare/v0.4.1...v0.5.0
 [0.4.1]: https://github.com/donstephan/inlaycms/compare/v0.4.0...v0.4.1
 [0.4.0]: https://github.com/donstephan/inlaycms/compare/v0.3.0...v0.4.0

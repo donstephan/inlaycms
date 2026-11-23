@@ -1527,6 +1527,9 @@ export const en = {
   'mcp.tool.search_entries.title': 'Find entries',
   'mcp.tool.search_entries.description':
     'Finds entries of a collection whose title or text contains every word of the query, ignoring case and accents. Leave out the query to list the newest entries.',
+  'mcp.tool.find_text.title': 'Find text across the site',
+  'mcp.tool.find_text.description':
+    'Finds a word or phrase in every page, global and entry, in every language unless you give a locale. It ignores case and accents and matches whole words, so "Acme" is found in "Acme\'s" but not in "Acmeville". It looks in text, rich text and button or link labels, not in link addresses, image descriptions or pages designed in code. For each page it returns its revisionId and, for each field, the path, the exact text as written and numbered occurrences with a snippet around each. To change them, use update_document with { path, find: <text>, replace, occurrences? }, one page or entry per call. Returns 20 pages at a time by default; use offset to see more.',
   'mcp.tool.list_gaps.title': 'List missing content',
   'mcp.tool.list_gaps.description':
     "Lists the pages and entries whose published version is missing something the site now requires, such as a required field added after they were published, with each missing field, and how many there are in all. Visitors still see them as they are. Fill in the fields with update_document, then publish. Give a type to list only that type. Returns 50 at a time by default; use offset to see the next ones.",
@@ -1543,6 +1546,14 @@ export const en = {
     '"draft" (the default) reads the latest version, with unpublished changes. "published" reads what visitors see.',
   'mcp.param.collection': 'The collection, as named in describe_site.',
   'mcp.param.query': 'The words to look for.',
+  'mcp.param.findText': 'The word or phrase to look for.',
+  'mcp.param.findType': 'Only look in this content type, as named in describe_site.',
+  'mcp.param.findLocale': 'Only look in this language, such as "en". Defaults to every language.',
+  'mcp.param.findLimit': 'How many pages and entries to return, at most 100. Defaults to 20.',
+  'mcp.param.findOffset': 'How many pages and entries to skip, to see the next ones. Defaults to 0.',
+  'mcp.findText.blank': 'Give the words to look for.',
+  'mcp.findText.designedInCode':
+    "These pages are designed in code. Their words are in the site's template, so only the site's developer can change them.",
   'mcp.param.limit': 'How many entries to return, at most 50. Defaults to 10.',
   'mcp.conflict': 'Someone else changed "{title}" since you read it. Read it again with get_document and redo your change.',
   'mcp.useGroupId':
@@ -1552,11 +1563,23 @@ export const en = {
   'mcp.change.both': 'This change has both a value and remove. Give a value to set the field, or remove: true to remove it, not both.',
   'mcp.change.required': "{field} is required, so it can't be removed. Give it a new value instead.",
   'mcp.change.neither': 'This change has no value. Give a value to set the field, or remove: true to remove it.',
+  'mcp.change.replaceShape':
+    'To replace text, give find and replace (replace can be "" to delete it), and optionally occurrences, but no value or remove.',
+  'mcp.change.notText':
+    'Text can only be replaced inside a text or rich text field, or a button or link label (the path ending in .text). Set this one with value instead.',
+  'mcp.change.notFound':
+    '{field} doesn\'t contain "{find}" written exactly like that. Look again with find_text or get_document.',
+  'mcp.change.occurrence':
+    '{field} contains "{find}" only {count} {count|time|times}. Number occurrences from 1, as find_text lists them, or leave occurrences out to change them all.',
+  'mcp.change.noOccurrences':
+    'occurrences is empty, so nothing in {field} would change. List which occurrences of "{find}" to change, numbered from 1 as find_text lists them, or leave occurrences out to change them all.',
+  'mcp.change.spansFormatting':
+    'In {field}, part of "{find}" is formatted differently or is a link, so it can\'t be replaced. Change the whole field with value instead, or leave that occurrence out with occurrences.',
   'mcp.tool.update_document.title': 'Change a page or entry',
   'mcp.designedInCode':
     "This page is designed in code: its words and layout are written into the site's template, so it has nothing to edit. Tell the person to ask their developer to change it.",
   'mcp.tool.update_document.description':
-    "Changes fields of one page, entry or global in one language, saved as a draft that visitors don't see until it is published. Give its document id and the revisionId you got from get_document as baseRevisionId. Each change sets the value at a dotted path (such as slots.hero.data.headline or fields.faq.0.question), in the same form get_document returns, or removes an optional field with remove: true. If anything is wrong, nothing is saved. Returns the new revisionId, the changes in plain words, and a preview link to give the user.",
+    "Changes fields of one page, entry or global in one language, saved as a draft that visitors don't see until it is published. Give its document id and the revisionId you got from get_document as baseRevisionId. Each change sets the value at a dotted path (such as slots.hero.data.headline or fields.faq.0.question), in the same form get_document returns, or removes an optional field with remove: true. A change of { path, find, replace, occurrences? } changes just that text inside a field (text, rich text or a button label) and keeps the rest, its links and formatting as they are. If anything is wrong, nothing is saved. Returns the new revisionId, the changes in plain words, and a preview link to give the user.",
   'mcp.tool.create_entry.title': 'Add an entry',
   'mcp.tool.create_entry.description':
     "Adds a new entry to a collection, as an unpublished draft. Give the collection's name from describe_site and the content in the form get_document returns (read describe_type first). Leave out the slug to make one from the title. Entries are created in the main language; add other languages with create_translation. Returns the new entry's id and groupId, and a preview link to give the user.",
@@ -1574,11 +1597,17 @@ export const en = {
     "Gives a link that shows the site with every unpublished change, for the user to check. Give a document id to open that page, or leave it out to open the home page. Globals and entries without a page open the home page.",
   'mcp.param.baseRevisionId':
     'The revisionId of the version your changes are based on, from get_document or your last update_document. If someone changed the document since then, nothing is saved.',
-  'mcp.param.changes': 'The changes to make, in order (1 to 100). Each one has a path and either a value or remove: true.',
+  'mcp.param.changes':
+    'The changes to make, in order (1 to 100). Each one has a path and either a value, remove: true, or find and replace.',
   'mcp.param.changePath':
     'Where to make the change: names and list positions joined by dots, such as slots.hero.data.headline or fields.faq.0.question. "fields" or "slots.<slot>" replaces all of it.',
   'mcp.param.changeValue': 'The new value, in the form get_document returns. Rich text is Markdown.',
   'mcp.param.changeRemove': 'true to remove the value at the path. Only optional fields can be removed.',
+  'mcp.param.changeFind':
+    'The exact text to replace in the field at the path, written as find_text reported it (same capitals and accents). It matches whole words only.',
+  'mcp.param.changeReplace': 'The new text for find. It is plain text, not Markdown. "" deletes it.',
+  'mcp.param.changeOccurrences':
+    'Which occurrences of find to change, numbered from 1 as find_text lists them. Leave it out to change them all.',
   'mcp.param.message': 'A short note about the change, kept in the history.',
   'mcp.param.content':
     'The content of the entry, in the form get_document returns: { slug?, path?, fields, slots }. A slot of { enabled: false } is switched off.',

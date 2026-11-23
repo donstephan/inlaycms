@@ -3,6 +3,7 @@ import { z } from 'zod'
 import { agentLinks, toAgent } from '../../../core/agent/format.js'
 import { agentTypeSchema } from '../../../core/agent/schema.js'
 import { docLabels } from '../../../core/content/schema.js'
+import { fold } from '../../../core/content/text-match.js'
 import { InlayError } from '../../../core/errors.js'
 import { t } from '../../../core/messages/index.js'
 import { designedInCode } from '../../../core/registry/designed.js'
@@ -36,6 +37,14 @@ const searchEntriesInput = z.object({
   query: z.string().describe(t('mcp.param.query')).optional(),
   locale: z.string().describe(t('mcp.param.locale')).optional(),
   limit: z.number().int().min(1).max(50).describe(t('mcp.param.limit')).optional(),
+})
+
+const findTextInput = z.object({
+  text: z.string().describe(t('mcp.param.findText')),
+  type: z.string().describe(t('mcp.param.findType')).optional(),
+  locale: z.string().describe(t('mcp.param.findLocale')).optional(),
+  limit: z.number().int().min(1).max(100).describe(t('mcp.param.findLimit')).optional(),
+  offset: z.number().int().min(0).describe(t('mcp.param.findOffset')).optional(),
 })
 
 /** `locale`, or the default locale when it's absent. An unknown locale is refused. */
@@ -266,7 +275,35 @@ async function searchEntries(deps: McpDeps, args: z.infer<typeof searchEntriesIn
   }
 }
 
-/** `describe_site`, `describe_type`, `get_document`, `search_entries` and `list_gaps`. */
+async function findText(deps: McpDeps, args: z.infer<typeof findTextInput>) {
+  if (fold(args.text).text.trim() === '') throw new InlayError('invalid_operation', 'mcp.findText.blank')
+  if (args.type !== undefined) await requireType(deps, args.type)
+  const locale = args.locale === undefined ? undefined : localeOf(deps.core.registry, args.locale)
+  const { total, documents, designedInCode } = await deps.core.findText(args.text, {
+    ...(args.type !== undefined && { type: args.type }),
+    ...(locale !== undefined && { locale }),
+    ...(args.limit !== undefined && { limit: args.limit }),
+    ...(args.offset !== undefined && { offset: args.offset }),
+  })
+  return {
+    total,
+    documents: documents.map(({ document: d, matches }) => ({
+      id: d.id,
+      groupId: d.groupId,
+      type: d.type,
+      kind: d.kind,
+      title: d.title,
+      locale: d.locale,
+      revisionId: d.headRev,
+      published: d.publishedRev !== null,
+      hasUnpublishedChanges: d.publishedRev !== d.headRev,
+      matches: matches.map((m) => ({ ...m, path: m.path.join('.') })),
+    })),
+    ...(designedInCode.length > 0 && { designedInCode, note: t('mcp.findText.designedInCode') }),
+  }
+}
+
+/** `describe_site`, `describe_type`, `get_document`, `search_entries`, `find_text` and `list_gaps`. */
 export function register(server: McpServer, deps: McpDeps, _ctx: Ctx): void {
   const run = <A>(fn: (args: A) => Promise<unknown> | unknown) =>
     tool<A, unknown>(async (args) => ok(await fn(args)), deps.log)
@@ -310,6 +347,16 @@ export function register(server: McpServer, deps: McpDeps, _ctx: Ctx): void {
       annotations: READ_ONLY,
     },
     run((args: z.infer<typeof searchEntriesInput>) => searchEntries(deps, args)),
+  )
+  server.registerTool(
+    'find_text',
+    {
+      title: t('mcp.tool.find_text.title'),
+      description: t('mcp.tool.find_text.description'),
+      inputSchema: findTextInput,
+      annotations: READ_ONLY,
+    },
+    run((args: z.infer<typeof findTextInput>) => findText(deps, args)),
   )
   server.registerTool(
     'list_gaps',

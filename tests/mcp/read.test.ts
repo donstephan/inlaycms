@@ -52,7 +52,7 @@ afterEach(async () => {
 })
 
 describe('MCP server', () => {
-  it('lists exactly the 24 tools of this phase, each with a description', async () => {
+  it('lists exactly the 25 tools of this phase, each with a description', async () => {
     const { tools } = await mcp.client.listTools()
     expect(tools.map((tool) => tool.name).sort()).toEqual(
       [
@@ -60,12 +60,13 @@ describe('MCP server', () => {
         'create_translation', 'delete_entry', 'list_pending_changes', 'get_preview_link', 'list_revisions',
         'diff_revisions', 'restore_revision', 'publish', 'unpublish', 'list_media', 'set_media_alt', 'delete_media',
         'upload_media_from_url', 'request_media_upload', 'list_redirects', 'create_redirect', 'delete_redirect',
-        'list_gaps',
+        'list_gaps', 'find_text',
       ].sort(),
     )
     const readOnly = [
       'describe_site', 'describe_type', 'get_document', 'search_entries', 'list_pending_changes', 'get_preview_link',
       'list_revisions', 'diff_revisions', 'list_media', 'request_media_upload', 'list_redirects', 'list_gaps',
+      'find_text',
     ]
     const destructive = ['delete_entry', 'unpublish', 'delete_media', 'delete_redirect']
     for (const tool of tools) {
@@ -78,7 +79,7 @@ describe('MCP server', () => {
 
   it('lists the read tools as read-only, with titles and descriptions', async () => {
     const { tools } = await mcp.client.listTools()
-    const read = ['describe_site', 'describe_type', 'get_document', 'search_entries']
+    const read = ['describe_site', 'describe_type', 'get_document', 'search_entries', 'find_text']
     expect(tools.map((tool) => tool.name)).toEqual(expect.arrayContaining(read))
     for (const tool of tools.filter((t) => read.includes(t.name))) {
       expect(tool.title).toBeTruthy()

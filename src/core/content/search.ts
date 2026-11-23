@@ -2,25 +2,11 @@ import { fieldValues } from '../fields/walk.js'
 import { richTextText, type RichTextDoc } from '../richtext/schema.js'
 import type { CoreDeps, DocumentSummary } from '../types.js'
 import { documentSchema } from './schema.js'
+import { fold } from './text-match.js'
 import { parseData, summaryQuery, toSummary } from './read.js'
 
 const KINDS: ReadonlySet<string> = new Set(['text', 'textarea', 'richText', 'inlineText'])
 const SNIPPET = 160
-
-/** Lower-cased text without accents, with each normalized character's index in the original. */
-function fold(text: string): { text: string; index: number[] } {
-  let out = ''
-  const index: number[] = []
-  let i = 0
-  for (const ch of text) {
-    for (const c of ch.normalize('NFKD').replace(/\p{M}/gu, '').toLowerCase()) {
-      out += c
-      index.push(i)
-    }
-    i += ch.length
-  }
-  return { text: out, index }
-}
 
 const normalize = (text: string) => fold(text).text
 

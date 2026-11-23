@@ -3,10 +3,12 @@ import { z } from 'zod'
 import { contentFromAgent, fromAgent, parsePath } from '../../../core/agent/format.js'
 import type { PatchOp } from '../../../core/core.js'
 import { formatDiff } from '../../../core/content/diff.js'
-import { patchProblems, unknownContentKeys } from '../../../core/content/patch.js'
+import { applyPatch, patchProblems, unknownContentKeys } from '../../../core/content/patch.js'
 import { docLabels, documentRefsWithPaths, normalizeContent } from '../../../core/content/schema.js'
+import { replaceText, type ReplaceKind } from '../../../core/content/text-replace.js'
 import { contentIssue, mergeIssues, validateContent } from '../../../core/content/validate.js'
 import { InlayError } from '../../../core/errors.js'
+import { fieldMeta } from '../../../core/fields/define.js'
 import { defOf, unwrap, type Schema } from '../../../core/fields/zod-internals.js'
 import { t } from '../../../core/messages/index.js'
 import { designedInCode } from '../../../core/registry/designed.js'
@@ -27,6 +29,9 @@ const updateDocumentInput = z.object({
         path: z.string().describe(t('mcp.param.changePath')),
         value: z.unknown().describe(t('mcp.param.changeValue')).optional(),
         remove: z.literal(true).describe(t('mcp.param.changeRemove')).optional(),
+        find: z.string().describe(t('mcp.param.changeFind')).optional(),
+        replace: z.string().describe(t('mcp.param.changeReplace')).optional(),
+        occurrences: z.array(z.number()).describe(t('mcp.param.changeOccurrences')).optional(),
       }),
     )
     .min(1)
@@ -149,15 +154,75 @@ async function groupIdIssues(deps: McpDeps, type: string, data: DocumentData): P
   return issues
 }
 
-/** The change list as patch operations, converted from the agent format, and the problems of the changes that can't be. */
+type Change = z.infer<typeof updateDocumentInput>['changes'][number]
+
+const REPLACE_KINDS: ReadonlySet<string> = new Set(['text', 'textarea', 'richText', 'inlineText'])
+
+/** The field a replace works on: the text field at `path`, or the link whose label `path` names. */
+function replaceTarget(registry: Registry, type: string, path: PathSegment[]): { path: PathSegment[]; kind: ReplaceKind } | null {
+  const field = fieldAt(registry, type, path)
+  const kind = field && fieldMeta(field as z.ZodType)?.kind
+  if (kind && REPLACE_KINDS.has(kind)) return { path, kind: kind as ReplaceKind }
+  if (path.at(-1) !== 'text') return null
+  const link = fieldAt(registry, type, path.slice(0, -1))
+  if (link && fieldMeta(link as z.ZodType)?.kind === 'link') return { path: path.slice(0, -1), kind: 'link' }
+  return null
+}
+
+function valueAt(data: DocumentData, path: PathSegment[]): unknown {
+  let current: unknown = data
+  for (const segment of path) {
+    if (typeof current !== 'object' || current === null) return undefined
+    current = (current as Record<string | number, unknown>)[segment]
+  }
+  return current
+}
+
+const REPLACE_FAILURES = {
+  notFound: 'mcp.change.notFound',
+  occurrence: 'mcp.change.occurrence',
+  noOccurrences: 'mcp.change.noOccurrences',
+  spansFormatting: 'mcp.change.spansFormatting',
+} as const
+
+/** A find-and-replace change as one patch op on the field, seeing what the ops before it did. */
+function replaceOp(
+  registry: Registry,
+  type: string,
+  data: DocumentData,
+  opsSoFar: PatchOp[],
+  path: PathSegment[],
+  change: Change & { find: string; replace: string },
+): { op: PatchOp; count: number } | ContentIssue {
+  const labels = docLabels(registry, type, path) ?? path.map(String)
+  const target = replaceTarget(registry, type, path)
+  if (target === null) return contentIssue(path, labels, 'invalid', 'mcp.change.notText')
+  const patched = applyPatch(registry, type, data, opsSoFar)
+  const current = valueAt(patched.ok ? patched.data : data, target.path)
+  const result =
+    current === undefined
+      ? ({ ok: false, reason: 'notFound', count: 0 } as const)
+      : replaceText(target.kind, current, change.find, change.replace, change.occurrences)
+  if (!result.ok) {
+    return contentIssue(path, labels, 'invalid', REPLACE_FAILURES[result.reason], { find: change.find, count: result.count })
+  }
+  return { op: { path: target.path, value: result.value }, count: result.count }
+}
+
+/**
+ * The change list as patch operations, converted from the agent format, and the problems of the changes that can't be.
+ * A replace works on `data` with the earlier changes applied, and is counted in `replaced`.
+ */
 function toOps(
   deps: McpDeps,
   type: string,
-  changes: z.infer<typeof updateDocumentInput>['changes'],
-): { ops: PatchOp[]; issues: ContentIssue[] } {
+  data: DocumentData,
+  changes: Change[],
+): { ops: PatchOp[]; issues: ContentIssue[]; replaced: Array<{ path: string; count: number }> } {
   const { registry } = deps.core
   const issues: ContentIssue[] = []
   const ops: PatchOp[] = []
+  const replaced: Array<{ path: string; count: number }> = []
   for (const change of changes) {
     const path = parsePath(change.path)
     if (path === null) {
@@ -166,6 +231,21 @@ function toOps(
     }
     const hasValue = change.value !== undefined
     const remove = change.remove === true
+    if (change.find !== undefined || change.replace !== undefined || change.occurrences !== undefined) {
+      if (change.find === undefined || change.replace === undefined || hasValue || remove) {
+        const labels = docLabels(registry, type, path) ?? path.map(String)
+        issues.push(contentIssue(path, labels, 'invalid', 'mcp.change.replaceShape'))
+        continue
+      }
+      const result = replaceOp(registry, type, data, ops, path, { ...change, find: change.find, replace: change.replace })
+      if ('op' in result) {
+        ops.push(result.op)
+        replaced.push({ path: change.path, count: result.count })
+      } else {
+        issues.push(result)
+      }
+      continue
+    }
     if (hasValue === remove) {
       const labels = docLabels(registry, type, path) ?? path.map(String)
       issues.push(contentIssue(path, labels, 'invalid', hasValue ? 'mcp.change.both' : 'mcp.change.neither'))
@@ -186,7 +266,7 @@ function toOps(
     if (result.ok) ops.push({ path, value: result.value })
     else issues.push(...result.issues)
   }
-  return { ops, issues }
+  return { ops, issues, replaced }
 }
 
 /**
@@ -197,7 +277,7 @@ async function updateDocument(deps: McpDeps, args: z.infer<typeof updateDocument
   const doc = await documentOf(deps, args.id)
   const def = deps.core.registry.getType(doc.type)
   if (def.kind !== 'collection' && designedInCode(def.template)) throw new InlayError('invalid_operation', 'mcp.designedInCode')
-  const { ops, issues } = toOps(deps, doc.type, args.changes)
+  const { ops, issues, replaced } = toOps(deps, doc.type, doc.data, args.changes)
   issues.push(...(await groupIdIssues(deps, doc.type, opsAsData(ops))))
   if (issues.length > 0) throw validation(mergeIssues(issues, patchProblems(deps.core.registry, doc.type, doc.data, ops)))
   let result
@@ -217,6 +297,7 @@ async function updateDocument(deps: McpDeps, args: z.infer<typeof updateDocument
     revisionId: result.document.headRev,
     changed: result.changed,
     changes: formatDiff(result.diff),
+    ...(args.changes.some((c) => c.find !== undefined) && { replaced }),
     previewUrl: previewLink(deps, path ?? '/'),
   }
 }

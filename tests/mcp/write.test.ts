@@ -3,6 +3,7 @@ import type { Core } from '../../src/core/core.js'
 import { f } from '../../src/core/fields/builtins.js'
 import { t } from '../../src/core/messages/index.js'
 import { defineCollection, defineTemplate, type SiteDefinition } from '../../src/core/registry/define.js'
+import { markdownToRichText } from '../../src/core/richtext/markdown.js'
 import type { Ctx } from '../../src/core/types.js'
 import { Quotes, webSite } from '../fixtures/web.js'
 import { makeCore } from '../helpers/core.js'
@@ -247,6 +248,219 @@ describe('update_document', () => {
     })
     expect(isError).toBe(true)
     expect(text.split('\n')[0]).toBe(t('mcp.documentNotFound', { id: 'nope' }))
+  })
+})
+
+describe('update_document replace', () => {
+  const md = (text: string) => (markdownToRichText(text) as { doc: unknown }).doc
+
+  async function put(type: string, path: string[], value: unknown) {
+    const doc = (await core.findSingleton(type))!
+    await core.patchDraft(doc.id, { baseRevisionId: doc.headRev, ops: [{ path, value }] }, owner)
+    return (await core.findSingleton(type))!
+  }
+
+  it('replaces a phrase inside rich text and returns the counts', async () => {
+    const about = await put('about', ['fields', 'body'], md('We love Acme. **Acme** rocks.'))
+    const { isError, text, json } = await mcp.call('update_document', {
+      id: about.id,
+      baseRevisionId: about.headRev,
+      changes: [{ path: 'fields.body', find: 'Acme', replace: 'Globex' }],
+    })
+    expect(isError, text).toBe(false)
+    expect(json.replaced).toEqual([{ path: 'fields.body', count: 2 }])
+    expect(json.changes.length).toBeGreaterThan(0)
+    const read = await mcp.call('get_document', { type: 'about' })
+    expect(read.json.content.fields.body.trim()).toBe('We love Globex. **Globex** rocks.')
+  })
+
+  it('leaves replaced out of the response of a call without replace changes', async () => {
+    const doc = await home()
+    const { json } = await mcp.call('update_document', {
+      id: doc.id,
+      baseRevisionId: doc.headRev,
+      changes: [{ path: 'slots.hero.data.headline', value: 'New' }],
+    })
+    expect(json).not.toHaveProperty('replaced')
+  })
+
+  it('changes a button label and keeps its target', async () => {
+    const doc = await put('home', ['slots', 'hero', 'data', 'cta'], { url: '/x', text: 'Try Acme' })
+    const { isError, text } = await mcp.call('update_document', {
+      id: doc.id,
+      baseRevisionId: doc.headRev,
+      changes: [{ path: 'slots.hero.data.cta.text', find: 'Acme', replace: 'Globex' }],
+    })
+    expect(isError, text).toBe(false)
+    expect((await core.getDocument(doc.id))!.data.slots.hero!.data.cta).toEqual({ url: '/x', text: 'Try Globex' })
+  })
+
+  it('changes only the numbered occurrences', async () => {
+    const doc = await put('home', ['slots', 'hero', 'data', 'headline'], 'Acme and Acme')
+    const { isError, text, json } = await mcp.call('update_document', {
+      id: doc.id,
+      baseRevisionId: doc.headRev,
+      changes: [{ path: 'slots.hero.data.headline', find: 'Acme', replace: 'Globex', occurrences: [2] }],
+    })
+    expect(isError, text).toBe(false)
+    expect(json.replaced).toEqual([{ path: 'slots.hero.data.headline', count: 1 }])
+    expect((await core.getDocument(doc.id))!.data.slots.hero!.data.headline).toBe('Acme and Globex')
+  })
+
+  it('sees earlier changes in the same call', async () => {
+    const doc = await home()
+    const { isError, text } = await mcp.call('update_document', {
+      id: doc.id,
+      baseRevisionId: doc.headRev,
+      changes: [
+        { path: 'slots.hero.data.headline', value: 'Acme now' },
+        { path: 'slots.hero.data.headline', find: 'Acme', replace: 'Globex' },
+      ],
+    })
+    expect(isError, text).toBe(false)
+    expect((await core.getDocument(doc.id))!.data.slots.hero!.data.headline).toBe('Globex now')
+  })
+
+  it('refuses bad replace changes and saves nothing', async () => {
+    const posted = await mcp.call('create_entry', {
+      collection: 'posts',
+      content: { slug: 'p', fields: { title: 'Acme and Acme', date: '2026-01-01', body: 'Big **Acme** Corp' } },
+    })
+    expect(posted.isError, posted.text).toBe(false)
+    const post = (await core.getDocument(posted.json.id))!
+    const cases: Array<[Record<string, unknown>, string]> = [
+      [{ path: 'fields.title', find: 'Acme', replace: 'X', value: 'Y' }, t('mcp.change.replaceShape')],
+      [{ path: 'fields.title', replace: 'X' }, t('mcp.change.replaceShape')],
+      [{ path: 'fields.title', value: 'Y', occurrences: [1] }, t('mcp.change.replaceShape')],
+      [{ path: 'fields.date', find: '2026', replace: '2027' }, t('mcp.change.notText', { field: 'Date' })],
+      [{ path: 'fields.title', find: 'Globex', replace: 'X' }, t('mcp.change.notFound', { field: 'Title', find: 'Globex' })],
+      [{ path: 'fields.title', find: 'acme', replace: 'X' }, t('mcp.change.notFound', { field: 'Title', find: 'acme' })],
+      [
+        { path: 'fields.title', find: 'Acme', replace: 'X', occurrences: [5] },
+        t('mcp.change.occurrence', { field: 'Title', find: 'Acme', count: 2 }),
+      ],
+      [
+        { path: 'fields.body', find: 'Acme Corp', replace: 'X' },
+        t('mcp.change.spansFormatting', { field: 'Body', find: 'Acme Corp' }),
+      ],
+    ]
+    for (const [change, message] of cases) {
+      const { isError, json } = await mcp.call('update_document', {
+        id: post.id,
+        baseRevisionId: post.headRev,
+        changes: [{ path: 'fields.date', value: '2026-02-02' }, change],
+      })
+      expect(isError, JSON.stringify(change)).toBe(true)
+      expect(json.error.code).toBe('validation')
+      expect(json.error.issues.map((i: { message: string }) => i.message)).toContain(message)
+      expect((await core.getDocument(post.id))!.headRev).toBe(post.headRev)
+    }
+  })
+
+  it('refuses an empty or fractional list of occurrences and saves nothing', async () => {
+    const doc = await put('home', ['slots', 'hero', 'data', 'headline'], 'Acme and Acme')
+    const cases: Array<[unknown[], string]> = [
+      [[], t('mcp.change.noOccurrences', { field: 'Hero → Headline', find: 'Acme' })],
+      [[1.5], t('mcp.change.occurrence', { field: 'Hero → Headline', find: 'Acme', count: 2 })],
+    ]
+    for (const [occurrences, message] of cases) {
+      const { isError, json } = await mcp.call('update_document', {
+        id: doc.id,
+        baseRevisionId: doc.headRev,
+        changes: [{ path: 'slots.hero.data.headline', find: 'Acme', replace: 'X', occurrences }],
+      })
+      expect(isError, JSON.stringify(occurrences)).toBe(true)
+      expect(json.error.code).toBe('validation')
+      expect(json.error.issues.map((i: { message: string }) => i.message)).toEqual([message])
+      expect((await core.getDocument(doc.id))!.headRev).toBe(doc.headRev)
+    }
+  })
+
+  it('replaces a phrase inside inline text and keeps its marks', async () => {
+    const Story = defineTemplate({
+      name: 'story',
+      label: 'Story',
+      fields: z.object({ title: f.text({ label: 'Title' }), headline: f.inlineText({ label: 'Headline' }) }),
+      render: () => '',
+    })
+    const made = await makeCore({
+      site: { ...webSite, collections: [...webSite.collections, defineCollection({ name: 'stories', label: 'Stories', template: Story })] },
+    })
+    const headline = {
+      type: 'doc',
+      content: [{ type: 'paragraph', content: [{ type: 'text', text: 'Meet ' }, { type: 'text', text: 'Acme', marks: [{ type: 'bold' }] }] }],
+    }
+    const story = await made.core.createEntry('stories', { fields: { title: 'S', headline } }, made.owner)
+    const other = await mcpClient({ core: made.core, actor: made.editor.actor })
+    try {
+      const { isError, text, json } = await other.call('update_document', {
+        id: story.id,
+        baseRevisionId: story.headRev,
+        changes: [{ path: 'fields.headline', find: 'Acme', replace: 'Globex' }],
+      })
+      expect(isError, text).toBe(false)
+      expect(json.replaced).toEqual([{ path: 'fields.headline', count: 1 }])
+      expect((await made.core.getDocument(story.id))!.data.fields.headline).toEqual({
+        type: 'doc',
+        content: [{ type: 'paragraph', content: [{ type: 'text', text: 'Meet ' }, { type: 'text', text: 'Globex', marks: [{ type: 'bold' }] }] }],
+      })
+    } finally {
+      await other.close()
+    }
+  })
+
+  it("saves nothing when the result breaks a field's rules", async () => {
+    const doc = await put('home', ['fields', 'seo'], { title: 'Acme' })
+    const { isError, json } = await mcp.call('update_document', {
+      id: doc.id,
+      baseRevisionId: doc.headRev,
+      changes: [{ path: 'fields.seo.title', find: 'Acme', replace: 'x'.repeat(301) }],
+    })
+    expect(isError).toBe(true)
+    expect(json.error.code).toBe('validation')
+    expect(json.error.issues[0].path).toBe('fields.seo.title')
+    expect((await core.getDocument(doc.id))!.headRev).toBe(doc.headRev)
+  })
+
+  it('refuses a stale baseRevisionId', async () => {
+    const doc = await put('home', ['slots', 'hero', 'data', 'headline'], 'Acme')
+    await core.patchDraft(doc.id, { baseRevisionId: doc.headRev, ops: [{ path: ['fields', 'title'], value: 'Mine' }] }, owner)
+    const { isError, json } = await mcp.call('update_document', {
+      id: doc.id,
+      baseRevisionId: doc.headRev,
+      changes: [{ path: 'slots.hero.data.headline', find: 'Acme', replace: 'Globex' }],
+    })
+    expect(isError).toBe(true)
+    expect(json.error.code).toBe('conflict')
+    expect(json.error.message).toBe(t('mcp.conflict', { title: 'Home' }))
+  })
+
+  it('feeds find_text straight into the replace', async () => {
+    const posted = await mcp.call('create_entry', {
+      collection: 'posts',
+      content: { slug: 'p', fields: { title: 'News', date: '2026-01-01', body: 'ACME and Acme, and *acme* too.' } },
+    })
+    expect(posted.isError, posted.text).toBe(false)
+    const found = await mcp.call('find_text', { text: 'acme' })
+    expect(found.isError, found.text).toBe(false)
+    const [hit] = found.json.documents
+    expect(hit.id).toBe(posted.json.id)
+    let revisionId = hit.revisionId
+    for (const match of hit.matches) {
+      const { isError, text, json } = await mcp.call('update_document', {
+        id: hit.id,
+        baseRevisionId: revisionId,
+        changes: [{ path: match.path, find: match.text, replace: 'Globex' }],
+      })
+      expect(isError, text).toBe(false)
+      expect(json.replaced).toEqual([{ path: match.path, count: match.count }])
+      expect(json.revisionId).toBeGreaterThan(revisionId)
+      revisionId = json.revisionId
+    }
+    const after = (await core.getDocument(hit.id))!
+    expect(after.headRev).toBe(revisionId)
+    expect(JSON.stringify(after.data.fields.body)).not.toMatch(/acme/i)
+    expect((await mcp.call('find_text', { text: 'acme' })).json.total).toBe(0)
   })
 })
 

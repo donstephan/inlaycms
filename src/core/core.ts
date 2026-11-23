@@ -1,5 +1,6 @@
 import type { Kysely } from 'kysely'
 import { findSingleton, findTranslation, getDocument, listEntries } from './content/read.js'
+import { findText, type FindTextResult } from './content/find-text.js'
 import { findEntry, searchEntries } from './content/search.js'
 import { recentActivity } from './content/activity.js'
 import { withTransaction } from './content/dry-run.js'
@@ -77,6 +78,10 @@ export interface Core {
     query: string,
     opts?: { locale?: string; limit?: number },
   ): Promise<Array<DocumentSummary & { snippet: string }>>
+  findText(
+    text: string,
+    opts?: { type?: string; locale?: string; limit?: number; offset?: number },
+  ): Promise<FindTextResult>
   publish(
     documentIds: string[],
     ctx: Ctx,
@@ -244,6 +249,7 @@ export function createCore(opts: CreateCoreOptions): Core {
     patchDraft: (id, input, ctx) => patchDraft(deps, id, input, ctx),
     findEntry: (type, slug, locale) => findEntry(deps, type, slug, locale),
     searchEntries: (type, query, o) => searchEntries(deps, type, query, o),
+    findText: (text, o) => findText(deps, text, o),
     publish: live((ids, ctx, o) => publish(deps, ids, ctx, o), (r, ...args) => published(r) && !args[2]?.dryRun),
     unpublish: live((ids, ctx, o) => unpublish(deps, ids, ctx, o), (r, ...args) => published(r) && !args[2]?.dryRun),
     describeChanges: (ids) => describeChanges(deps, ids),

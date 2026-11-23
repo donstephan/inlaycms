@@ -4,6 +4,8 @@ All notable changes to Inlay are recorded here. The format follows [Keep a Chang
 
 ## [Unreleased]
 
+## [0.7.0] - 2026-11-23
+
 ### Changed
 
 - **Breaking:** `inlaycms check` and `inlaycms pack` refuse a file in `public/` whose address at the site root (see below) would clash with one of Inlay's own paths (`/admin`, `/media`, `/public`, `/robots.txt`, `/sitemap.xml` and the rest), a route, a redirect in the site's code or a singleton page's path, naming the file and what it clashes with. A site with, say, `public/robots.txt` or `public/media/logo.png` has to rename or move it before it packs.
@@ -124,7 +126,8 @@ All notable changes to Inlay are recorded here. The format follows [Keep a Chang
 
 First release.
 
-[Unreleased]: https://github.com/donstephan/inlaycms/compare/v0.6.0...HEAD
+[Unreleased]: https://github.com/donstephan/inlaycms/compare/v0.7.0...HEAD
+[0.7.0]: https://github.com/donstephan/inlaycms/compare/v0.6.0...v0.7.0
 [0.6.0]: https://github.com/donstephan/inlaycms/compare/v0.5.0...v0.6.0
 [0.5.0]: https://github.com/donstephan/inlaycms/compare/v0.4.1...v0.5.0
 [0.4.1]: https://github.com/donstephan/inlaycms/compare/v0.4.0...v0.4.1

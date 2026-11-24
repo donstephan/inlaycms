@@ -1,3 +1,6 @@
 allowBuilds:
   '@parcel/watcher': false
   esbuild: false
+# docker/image lists what the Inlay image installs beside inlaycms's own dependencies (see the Dockerfile).
+packages:
+  - docker/image

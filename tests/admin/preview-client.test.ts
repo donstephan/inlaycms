@@ -61,7 +61,7 @@ describe('preview client', () => {
     const [url, init] = fetch.mock.calls[0]!
     expect(url).toBe('/admin/documents/x/preview')
     expect(init).toMatchObject({ method: 'POST', redirect: 'manual', credentials: 'same-origin' })
-    expect(results).toEqual([{ kind: 'page', html: '<p>ok</p>' }])
+    expect(results).toEqual([{ kind: 'page', html: '<p>ok</p>', hashes: [] }])
   })
 
   it('aborts an older request and ignores its late answer', async () => {
@@ -81,7 +81,7 @@ describe('preview client', () => {
     await vi.advanceTimersByTimeAsync(0)
     expect(fetch.mock.calls[0]![1].signal!.aborted).toBe(true)
     expect(fetch.mock.calls[1]![1].signal!.aborted).toBe(false)
-    expect(results).toEqual([{ kind: 'page', html: '<p>second</p>' }])
+    expect(results).toEqual([{ kind: 'page', html: '<p>second</p>', hashes: [] }])
   })
 
   it('posts the current form after htmx replaced it', async () => {
@@ -240,6 +240,13 @@ describe('preview page writer', () => {
     load()
     expect(calls.slice(4)).toEqual(['open', 'path /about', 'write <p>B</p>', 'close'])
     expect(onSwap).toHaveBeenCalledTimes(2)
+  })
+
+  it('asks the empty page to allow the written page\'s inline scripts', () => {
+    const { frame, location } = fakeFrame()
+    const { writer } = writerFor(frame)
+    writer.write('<p>A</p>', ['sha256-a+b/c=', 'sha256-d'])
+    expect(location.replace).toHaveBeenCalledWith(`${BLANK}?n=1&h=sha256-a%2Bb%2Fc%3D&h=sha256-d`)
   })
 
   it('keeps only the latest write', () => {

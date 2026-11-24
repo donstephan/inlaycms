@@ -134,10 +134,16 @@ export function agentLinks(registry: Registry, type: string, data: DocumentData,
   return [...out.values()]
 }
 
-/** A dotted field path; all-digit segments are list indexes. `null` if any segment is empty. */
+/** Segments that would reach an object's prototype rather than a field of the content. */
+const PROTOTYPE_SEGMENTS = new Set(['__proto__', 'constructor', 'prototype'])
+
+/**
+ * A dotted field path; all-digit segments are list indexes. `null` if any segment is empty or names an object's
+ * prototype: a path comes from a caller, and is walked through plain objects.
+ */
 export function parsePath(path: string): PathSegment[] | null {
   const segments = path.split('.')
-  if (segments.some((s) => s === '')) return null
+  if (segments.some((s) => s === '' || PROTOTYPE_SEGMENTS.has(s))) return null
   return segments.map((s) => (/^\d+$/.test(s) ? Number(s) : s))
 }
 

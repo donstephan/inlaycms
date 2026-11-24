@@ -10,6 +10,7 @@ import { t } from '../../../core/messages/index.js'
 import { manifestSchema, type ReleaseManifest } from '../../../core/release/manifest.js'
 import type { Actor } from '../../../core/types.js'
 import type { Renderable } from '../../../jsx/html.js'
+import { keyStillTrusted } from '../../../core/release/keys.js'
 import { formatDiff, structuralDiff } from '../../../host/diff.js'
 import type { ContentDiffResult } from '../../../host/hooks.js'
 import { currentManifest, packAgainWarning, pendingMigrations, PUSH_MAX_BYTES, RELEASE_NAME_MAX } from '../../../host/push.js'
@@ -129,6 +130,11 @@ function releaseRoutes(scope: FastifyInstance, ctx: AdminContext, db: Kysely<Dat
                   {packAgainWarning(r) !== null && (
                     <Badge tone="warning" class="ml-2">
                       {t('admin.releases.packAgainBadge')}
+                    </Badge>
+                  )}
+                  {r.state !== 'deleted' && !keyStillTrusted(r.signed_by, ctx.trustedKeys ?? []) && (
+                    <Badge tone="warning" class="ml-2">
+                      {t('admin.releases.keyUntrustedBadge')}
                     </Badge>
                   )}
                 </>
@@ -306,6 +312,11 @@ function releaseRoutes(scope: FastifyInstance, ctx: AdminContext, db: Kysely<Dat
         {packAgain !== null && (
           <Alert kind="warning" id="pack-again">
             {packAgain}
+          </Alert>
+        )}
+        {row.state !== 'deleted' && !keyStillTrusted(row.signed_by, ctx.trustedKeys ?? []) && (
+          <Alert kind="warning" id="key-untrusted">
+            {t(row.state === 'current' ? 'admin.releases.keyUntrustedLive' : 'admin.releases.keyUntrusted')}
           </Alert>
         )}
         {row.state === 'deleted' && <p>{t('admin.releases.deletedNote')}</p>}

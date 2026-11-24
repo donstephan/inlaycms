@@ -6,7 +6,8 @@
  */
 
 export type PreviewResult =
-  | { kind: 'page'; html: string }
+  /** `hashes`: the page's inline-script hashes, which the empty page it is written into must allow. */
+  | { kind: 'page'; html: string; hashes: string[] }
   | { kind: 'incomplete'; message: string }
   | { kind: 'error'; message: string }
 
@@ -24,7 +25,10 @@ async function messageOf(res: Response, fallback: string): Promise<string> {
 
 async function readResult(res: Response, signedOutMessage: string, failedMessage: string): Promise<PreviewResult> {
   if (res.type === 'opaqueredirect' || res.status === 401) return { kind: 'error', message: signedOutMessage }
-  if (res.status === 200) return { kind: 'page', html: await res.text() }
+  if (res.status === 200) {
+    const hashes = (res.headers.get('x-inlay-script-hashes') ?? '').split(' ').filter((hash) => hash !== '')
+    return { kind: 'page', html: await res.text(), hashes }
+  }
   if (res.status === 422) return { kind: 'incomplete', message: await messageOf(res, failedMessage) }
   if (res.status === 500) return { kind: 'error', message: await messageOf(res, failedMessage) }
   return { kind: 'error', message: failedMessage }
@@ -119,10 +123,10 @@ export function createPageWriter(opts: {
   onSwap: () => void
   /** How long to wait for the written page's stylesheets before showing it anyway. */
   fallbackMs: number
-}): { write(html: string): void; cancel(): void } {
+}): { write(html: string, hashes?: readonly string[]): void; cancel(): void } {
   let seq = 0
 
-  function write(html: string): void {
+  function write(html: string, hashes: readonly string[] = []): void {
     const token = ++seq
     const frame = opts.back()
     const onBlank = () => {
@@ -171,7 +175,9 @@ export function createPageWriter(opts: {
       timer = setTimeout(finish, opts.fallbackMs)
     }
     frame.addEventListener('load', onBlank)
-    const url = `${opts.blankUrl}${opts.blankUrl.includes('?') ? '&' : '?'}n=${token}`
+    // The empty page's policy is the written page's too, so it is asked to allow that page's inline scripts.
+    const allow = hashes.map((hash) => `&h=${encodeURIComponent(hash)}`).join('')
+    const url = `${opts.blankUrl}${opts.blankUrl.includes('?') ? '&' : '?'}n=${token}${allow}`
     // `replace` keeps the frame's loads out of the browser's back button.
     const win = frame.contentWindow
     if (win) win.location.replace(url)
@@ -487,7 +493,7 @@ function startPane(els: PaneElements): void {
   function onResult(result: PreviewResult): void {
     busy = false
     if (result.kind === 'page') {
-      writer.write(result.html)
+      writer.write(result.html, result.hashes)
       return
     }
     // A page still on its way is older than this message, so it must not replace the dimmed page and the message.

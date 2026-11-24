@@ -80,7 +80,7 @@ Going back to an older Inlay isn't supported once a newer one has updated the da
 
 ## Deploying
 
-Once a host is running, send it releases from your machine or CI with `inlaycms push`, which needs a push token: an owner's API key that may push releases. An owner makes one in the admin (an API key with "Can push releases" turned on), or on the host with the CLI, which prints the key once (alone on standard output, so a script can capture it) and works whether the server is running or not:
+Once a host is running, send it releases from your machine or CI with `inlaycms push`, which needs a push token: an owner's API key that can push, activate, list and delete releases and do nothing else (it is refused on `/mcp`, so it can't read or change content). An owner makes one in the admin (an API key with "For pushing releases only" turned on), or on the host with the CLI, which prints the key once (alone on standard output, so a script can capture it) and works whether the server is running or not:
 
 ```sh
 npx inlaycms create-token --email owner@example.com --name ci --push [--data <dir>]

@@ -1,6 +1,7 @@
 import {
   fingerprint,
   generateKeyPair,
+  keyStillTrusted,
   parsePublicKey,
   parsePublicKeys,
   publicKeyOf,
@@ -27,6 +28,15 @@ describe('release keys', () => {
     expect(verify(a.publicKey, data, 'not a signature')).toBe(false)
     expect(verify('garbage', data, sign(a.privateKey, data))).toBe(false)
     expect(verify('ed25519:AAAA', data, '')).toBe(false)
+  })
+
+  it('keyStillTrusted finds a fingerprint among the trusted keys', () => {
+    const a = generateKeyPair()
+    const b = generateKeyPair()
+    expect(keyStillTrusted(fingerprint(a.publicKey), [b.publicKey, a.publicKey])).toBe(true)
+    expect(keyStillTrusted(fingerprint(a.publicKey), [b.publicKey])).toBe(false)
+    // With no keys there is nothing to compare with: uploads are refused then, and nothing is called untrusted.
+    expect(keyStillTrusted(fingerprint(a.publicKey), [])).toBe(true)
   })
 
   it('fingerprint is stable and 16 hex', () => {

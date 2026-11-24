@@ -348,6 +348,21 @@ describe('the Releases screen', () => {
     expect(text).toContain(t('diff.release.typeAdded', { type: 'home' }).replace(/`/g, ''))
   })
 
+  it('says nothing about the key of a release signed with a trusted one', async () => {
+    await start({ releasesDir, trustedKeys: [keys.publicKey] })
+    expect(parseHtml((await olivia.get(`/admin/releases/${staged.id}`)).body).querySelector('#key-untrusted')).toBeNull()
+    expect(textOf((await olivia.get('/admin/releases')).body)).not.toContain(t('admin.releases.keyUntrustedBadge'))
+  })
+
+  it('warns about a release whose signing key is no longer trusted', async () => {
+    await start({ releasesDir, trustedKeys: [generateKeyPair().publicKey] })
+    const stagedPage = parseHtml((await olivia.get(`/admin/releases/${staged.id}`)).body)
+    expect(stagedPage.querySelector('#key-untrusted')?.textContent).toContain(t('admin.releases.keyUntrusted'))
+    const livePage = parseHtml((await olivia.get(`/admin/releases/${live.id}`)).body)
+    expect(livePage.querySelector('#key-untrusted')?.textContent).toContain(t('admin.releases.keyUntrustedLive'))
+    expect(textOf((await olivia.get('/admin/releases')).body)).toContain(t('admin.releases.keyUntrustedBadge'))
+  })
+
   it('refuses an upload signed by a key the host doesn\'t trust', async () => {
     await start({ releasesDir, trustedKeys: [generateKeyPair().publicKey] })
     const res = await olivia.upload('/admin/releases/upload', [

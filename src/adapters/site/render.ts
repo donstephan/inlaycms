@@ -104,7 +104,7 @@ export async function renderPageResult(core: Core, doc: LiveDocument, opts: Page
   return { html: withPreviewBanner(rendered.html, release), scriptHashes: rendered.scriptHashes }
 }
 
-export type PaneResult = { ok: true; html: string } | { ok: false; issues: ContentIssue[] }
+export type PaneResult = { ok: true; html: string; scriptHashes: string[] } | { ok: false; issues: ContentIssue[] }
 
 export const SLOT_START = (key: string) => `<!--inlay:slot ${key}-->`
 export const SLOT_END = (key: string) => `<!--/inlay:slot ${key}-->`
@@ -120,7 +120,8 @@ export async function renderPane(
   if (doc.path === null) throw new InlayError('invalid_operation', 'error.paneNoPath', { title: doc.title })
   const checked = validateContent(core.registry, doc.type, doc.data, 'strict')
   if (!checked.ok) return { ok: false, issues: checked.issues }
-  return { ok: true, html: (await renderTemplate(core, doc, { ...opts, state: 'preview' }, { pane: true })).html }
+  const rendered = await renderTemplate(core, doc, { ...opts, state: 'preview' }, { pane: true })
+  return { ok: true, html: rendered.html, scriptHashes: rendered.scriptHashes }
 }
 
 /** `template` rendered with `data` and its enabled slots rendered by their blocks: the page before its head is added. */

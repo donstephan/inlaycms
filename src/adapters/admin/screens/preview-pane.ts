@@ -1,8 +1,10 @@
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify'
 import { documentSchema } from '../../../core/content/schema.js'
 import { t } from '../../../core/messages/index.js'
+import type { SiteDefinition } from '../../../core/registry/define.js'
 import type { ContentIssue, DocumentData, DocumentSummary, LiveDocument } from '../../../core/types.js'
 import { escapeHtml } from '../../../jsx/html.js'
+import { buildCsp } from '../../site/csp.js'
 import { renderPane } from '../../site/render.js'
 import { adminActor, formValues, HTML, notFound, type AdminContext } from '../context.js'
 import { parseDocumentForm } from '../form/walk.js'
@@ -13,8 +15,41 @@ export const panePath = (id: string): string => `/admin/documents/${id}/preview`
 /** An empty page with the pane's headers. Each update loads it into the hidden frame before writing the page into it, so the page's scripts start in a fresh window. */
 export const blankPath = (id: string): string => `/admin/documents/${id}/preview/blank`
 
-/** The pane's own policy: it may only be framed by the admin. Set only on pane documents, so the admin's 404 page keeps the admin's. */
-const PANE_CSP = "frame-ancestors 'self'"
+const FRAMED_BY_ADMIN = "frame-ancestors 'self'"
+
+/** The response header a rendered pane page names its inline-script hashes in, for the empty page it is written into. */
+export const HASHES_HEADER = 'x-inlay-script-hashes'
+
+/** A hash as `ctx.script` writes it, without its quotes: the only thing the empty page takes into its policy. */
+const HASH = /^sha(?:256|384|512)-[A-Za-z0-9+/]+={0,2}$/
+const MAX_HASHES = 64
+
+/**
+ * The pane's policy: the public page's, so a script the public site would refuse doesn't run beside the admin either,
+ * and framed only by the admin. The pane renders no integrations, so none of their sources are allowed. A site that
+ * sets its own policy gets that one; a site that removes the policy gets only the framing rule. Set only on pane
+ * documents, so the admin's 404 page keeps the admin's.
+ */
+export function panePolicy(site: SiteDefinition, hashes: readonly string[]): string {
+  const own = Object.entries(site.headers).find(([name]) => name.toLowerCase() === 'content-security-policy')?.[1]
+  if (own === undefined) return buildCsp({ site: site.csp, integrations: [], hashes })
+  if (own === false) return FRAMED_BY_ADMIN
+  const kept = own
+    .split(';')
+    .map((part) => part.trim())
+    .filter((part) => part !== '' && !/^frame-ancestors(\s|$)/i.test(part))
+  return [...kept, FRAMED_BY_ADMIN].join('; ')
+}
+
+/** The hashes the empty page was asked to allow (`?h=sha256-…`, once per hash), quoted for the policy. */
+function askedHashes(query: unknown): string[] {
+  const h = typeof query === 'object' && query !== null ? (query as { h?: unknown }).h : undefined
+  const list = Array.isArray(h) ? h : h === undefined ? [] : [h]
+  return list
+    .filter((value): value is string => typeof value === 'string' && HASH.test(value))
+    .slice(0, MAX_HASHES)
+    .map((value) => `'${value}'`)
+}
 
 const BLANK = '<!doctype html><html><head><meta charset="utf-8"><title></title></head><body></body></html>'
 
@@ -51,7 +86,7 @@ export function registerPreviewPane(scope: FastifyInstance, ctx: AdminContext): 
     const { id } = request.params as { id: string }
     const live = await paneOf(id)
     if (!live) return notFound(reply, ctx, actor)
-    reply.header('content-security-policy', PANE_CSP)
+    reply.header('content-security-policy', panePolicy(registry.site, []))
 
     let data: DocumentData = live.data
     if (submitted) {
@@ -67,7 +102,12 @@ export function registerPreviewPane(scope: FastifyInstance, ctx: AdminContext): 
 
     try {
       const result = await renderPane(core, { ...live, data }, { page: 1, baseUrl: ctx.baseUrl })
-      if (result.ok) return reply.code(200).type(HTML).send(result.html)
+      if (result.ok) {
+        reply.header('content-security-policy', panePolicy(registry.site, result.scriptHashes))
+        // Without their quotes: the client sends them back as they are, in the empty page's address.
+        if (submitted) reply.header(HASHES_HEADER, result.scriptHashes.map((hash) => hash.slice(1, -1)).join(' '))
+        return reply.code(200).type(HTML).send(result.html)
+      }
       const issues: ContentIssue[] = result.issues
       const problem = issues[0]?.message ?? ''
       const message =
@@ -86,6 +126,10 @@ export function registerPreviewPane(scope: FastifyInstance, ctx: AdminContext): 
   scope.get('/admin/documents/:id/preview/blank', async (request, reply) => {
     const { id } = request.params as { id: string }
     if (!(await paneOf(id))) return notFound(reply, ctx, adminActor(request))
-    return reply.code(200).header('content-security-policy', PANE_CSP).type(HTML).send(BLANK)
+    return reply
+      .code(200)
+      .header('content-security-policy', panePolicy(registry.site, askedHashes(request.query)))
+      .type(HTML)
+      .send(BLANK)
   })
 }

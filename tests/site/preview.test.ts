@@ -17,25 +17,36 @@ describe('preview tokens', () => {
 
   it('is valid until 24h after it was made', () => {
     const token = createPreviewToken(secret, now)
-    expect(token).toMatch(/^v2\.[0-9a-z]+\.-\.[A-Za-z0-9_-]+$/)
-    expect(verifyPreviewToken(secret, token, at(PREVIEW_TTL_MS - 1))).toEqual({ expiresAt: at(PREVIEW_TTL_MS), release: null })
+    expect(token).toMatch(/^v3\.[0-9a-z]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/)
+    expect(verifyPreviewToken(secret, token, at(PREVIEW_TTL_MS - 1))).toEqual({ expiresAt: at(PREVIEW_TTL_MS), release: null, path: '/' })
     expect(verifyPreviewToken(secret, token, at(PREVIEW_TTL_MS + 1))).toBeNull()
+  })
+
+  it('names the one page it previews, signed', () => {
+    const token = createPreviewToken(secret, now, { path: '/blog/café' })
+    expect(verifyPreviewToken(secret, token, now)).toEqual({ expiresAt: at(PREVIEW_TTL_MS), release: null, path: '/blog/café' })
+    const [v, expiry, , sig] = token.split('.') as [string, string, string, string]
+    const other = Buffer.from('/pricing').toString('base64url')
+    expect(verifyPreviewToken(secret, `${v}.${expiry}.${other}.${sig}`, now)).toBeNull()
+    expect(() => createPreviewToken(secret, now, { path: `/${'a'.repeat(3000)}` })).toThrow()
   })
 
   it('names the release it previews, signed', () => {
     const token = createPreviewToken(secret, now, { release: 'rel-1' })
     expect(token).toMatch(/^v2\.[0-9a-z]+\.rel-1\.[A-Za-z0-9_-]+$/)
-    expect(verifyPreviewToken(secret, token, now)).toEqual({ expiresAt: at(PREVIEW_TTL_MS), release: 'rel-1' })
+    expect(verifyPreviewToken(secret, token, now)).toEqual({ expiresAt: at(PREVIEW_TTL_MS), release: 'rel-1', path: null })
     const [v, expiry, , sig] = token.split('.') as [string, string, string, string]
     expect(verifyPreviewToken(secret, `${v}.${expiry}.rel-2.${sig}`, now)).toBeNull()
     expect(verifyPreviewToken(secret, `${v}.${expiry}.-.${sig}`, now)).toBeNull()
     expect(() => createPreviewToken(secret, now, { release: '../x' })).toThrow()
   })
 
-  it('still accepts a v1 token, as previewing the live site', () => {
-    const payload = `v1.${(now.getTime() + 1000).toString(36)}`
-    const token = `${payload}.${createHmac('sha256', secret).update(payload).digest('base64url')}`
-    expect(verifyPreviewToken(secret, token, now)).toEqual({ expiresAt: at(1000), release: null })
+  it('no longer accepts the older tokens that showed every draft on the site', () => {
+    const expiry = (now.getTime() + 1000).toString(36)
+    for (const payload of [`v1.${expiry}`, `v2.${expiry}.-`]) {
+      const token = `${payload}.${createHmac('sha256', secret).update(payload).digest('base64url')}`
+      expect(verifyPreviewToken(secret, token, now), payload).toBeNull()
+    }
   })
 
   it('rejects tampered, foreign and malformed tokens', () => {
@@ -94,8 +105,8 @@ describe('preview mode', () => {
     return String(Array.isArray(header) ? header[0] : header)
   }
 
-  async function previewCookie(app: FastifyInstance): Promise<string> {
-    const res = await openLink(app, '/')
+  async function previewCookie(app: FastifyInstance, path = '/'): Promise<string> {
+    const res = await openLink(app, path)
     return cookieOf(res).split(';')[0]!
   }
 
@@ -105,7 +116,7 @@ describe('preview mode', () => {
     expect(url.origin).toBe('https://example.com')
     expect(url.pathname).toBe('/_inlay/preview')
     expect(url.searchParams.get('path')).toBe('/blog/draft-post')
-    expect(url.searchParams.get('token')).toMatch(/^v2\.[0-9a-z]+\.-\./)
+    expect(url.searchParams.get('token')).toMatch(/^v3\.[0-9a-z]+\./)
     expect(new URL(app.inlay.previewUrl()).searchParams.get('path')).toBe('/')
   })
 
@@ -115,7 +126,7 @@ describe('preview mode', () => {
     expect(res.statusCode).toBe(302)
     expect(res.headers.location).toBe('/blog/draft-post')
     const cookie = cookieOf(res)
-    expect(cookie).toMatch(/^inlay_preview=v2\.[^;]+; /)
+    expect(cookie).toMatch(/^inlay_preview=v3\.[^;]+; /)
     expect(cookie).toContain('; Path=/')
     expect(cookie).toContain('; HttpOnly')
     expect(cookie).toContain('; SameSite=Lax')
@@ -142,8 +153,23 @@ describe('preview mode', () => {
       expect(res.headers.location, path).toBe('/')
     }
     expect((await app.inject(`/_inlay/preview?token=${token}`)).headers.location).toBe('/')
+  })
+
+  it('opens the page the link was made for, whatever path the address asks for', async () => {
+    const { app } = await setup()
+    const token = createPreviewToken(secret, new Date('2026-01-01T00:00:00.000Z'), { path: '/café' })
+    for (const path of ['/caf%C3%A9', '/about', '//evil.com']) {
+      const res = await app.inject(`/_inlay/preview?token=${token}&path=${encodeURIComponent(path)}`)
+      expect(res.headers.location, path).toBe('/caf%C3%A9')
+    }
+  })
+
+  it('opens a release link at the path the address asks for', async () => {
+    const { app } = await setup()
+    const token = createPreviewToken(secret, new Date('2026-01-01T00:00:00.000Z'), { release: 'rel-1' })
     const encoded = await app.inject(`/_inlay/preview?token=${token}&path=${encodeURIComponent('/caf%C3%A9')}`)
     expect(encoded.headers.location).toBe('/caf%C3%A9')
+    expect((await app.inject(`/_inlay/preview?token=${token}&path=${encodeURIComponent('//evil.com')}`)).headers.location).toBe('/')
   })
 
   it('refuses an expired or bad token with a 403 and no cookie', async () => {
@@ -164,7 +190,7 @@ describe('preview mode', () => {
     await seed(core)
     const cookie = await previewCookie(app)
 
-    const post = await app.inject({ url: '/blog/draft-post', headers: { cookie } })
+    const post = await app.inject({ url: '/blog/draft-post', headers: { cookie: await previewCookie(app, '/blog/draft-post') } })
     expect(post.statusCode).toBe(200)
     expect(post.headers['cache-control']).toBe('no-store')
     expect(post.headers['x-robots-tag']).toBe('noindex')
@@ -186,6 +212,28 @@ describe('preview mode', () => {
     expect(live.body).not.toContain('Lovely')
     expect(live.body).not.toContain('inlay-preview')
     expect((await app.inject('/blog/draft-post')).statusCode).toBe(404)
+  })
+
+  it('shows drafts only on the page the link was made for', async () => {
+    const { app, core } = await setup()
+    await seed(core)
+    const cookie = await previewCookie(app, '/blog/draft-post')
+
+    for (const url of ['/blog/draft-post', '/blog/draft-post?page=1']) {
+      const post = await app.inject({ url, headers: { cookie } })
+      expect(post.statusCode, url).toBe(200)
+      expect(post.body, url).toContain('<h1>Draft post</h1>')
+    }
+    // Every other page is as a visitor sees it: no drafts, no banner, cached as usual.
+    const home = await app.inject({ url: '/', headers: { cookie } })
+    expect(home.body).toContain('<h1>Welcome to Inlay</h1>')
+    expect(home.body).not.toContain('Unpublished headline')
+    expect(home.body).not.toContain('inlay-preview')
+    expect(home.headers['x-robots-tag']).toBeUndefined()
+
+    const homeCookie = await previewCookie(app)
+    expect((await app.inject({ url: '/', headers: { cookie: homeCookie } })).body).toContain('<h1>Unpublished headline</h1>')
+    expect((await app.inject({ url: '/blog/draft-post', headers: { cookie: homeCookie } })).statusCode).toBe(404)
   })
 
   it('does not cache preview pages for later live requests', async () => {
@@ -215,7 +263,7 @@ describe('preview mode', () => {
   it('lists the problems of an incomplete draft instead of rendering it', async () => {
     const { app, core } = await setup()
     await core.createEntry('posts', { slug: 'blank', fields: { title: '', date: '2026-02-01', body: rt('x') } }, owner)
-    const cookie = await previewCookie(app)
+    const cookie = await previewCookie(app, '/blog/blank')
     const res = await app.inject({ url: '/blog/blank', headers: { cookie } })
     expect(res.statusCode).toBe(200)
     expect(res.headers['cache-control']).toBe('no-store')

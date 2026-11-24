@@ -6,9 +6,11 @@ import { initLengthCounters } from './length.js'
 import { initPublishDialog } from './publish.js'
 import { initSheets } from './sheet.js'
 import { initGlobalSearch } from './search.js'
+import { keepNavScroll } from './nav-scroll.js'
 import { initNotice } from './notice.js'
 import { localiseTimes } from './time.js'
 
+keepNavScroll()
 document.addEventListener('DOMContentLoaded', () => {
   localiseTimes(document)
   initDataTables(document)

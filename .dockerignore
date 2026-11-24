@@ -5,3 +5,4 @@ data
 .coop
 example/data
 website
+docker/image/node_modules

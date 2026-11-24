@@ -43,9 +43,11 @@ async function listRevisions(deps: McpDeps, args: z.infer<typeof listInput>) {
 
 async function diffRevisions(deps: McpDeps, args: z.infer<typeof diffInput>) {
   for (const revisionId of [args.from, args.to]) {
-    if (revisionId !== undefined && !(await deps.core.getRevision(revisionId))) {
-      throw new InlayError('not_found', 'mcp.revisionNotFound', { revisionId })
-    }
+    if (revisionId === undefined) continue
+    const revision = await deps.core.getRevision(revisionId)
+    // A deleted entry's versions are as gone as the entry: only an owner can bring it back, in the admin.
+    const doc = revision && (await deps.core.getDocument(revision.documentId))
+    if (!doc || doc.deletedAt !== null) throw new InlayError('not_found', 'mcp.revisionNotFound', { revisionId })
   }
   return { changes: formatDiff(await deps.core.diffRevisions(args.from ?? null, args.to)) }
 }

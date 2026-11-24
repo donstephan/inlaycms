@@ -157,6 +157,18 @@ async function cli(...argv: string[]) {
   return { code, out }
 }
 
+describe('a live release whose signing key is no longer trusted', () => {
+  it('is still served, with a warning in the log when the worker starts', async () => {
+    await activated()
+    config = { ...config, trustedKeys: [keys.publicKey] }
+    expect((await serveOnce()).logs).not.toContain('host.releaseKeyUntrusted')
+    config = { ...config, trustedKeys: [generateKeyPair().publicKey] }
+    const { res, logs } = await serveOnce()
+    expect(res?.status).toBe(200)
+    expect(logs).toContain('host.releaseKeyUntrusted')
+  })
+})
+
 describe('the pack again warning', () => {
   const packed = inlayVersion()
 

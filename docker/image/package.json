@@ -1,0 +1,10 @@
+{
+  "name": "inlaycms-image",
+  "private": true,
+  "description": "What the Inlay image (Dockerfile) installs beside inlaycms's own dependencies, so pnpm-lock.yaml pins them too. Keep the ranges in step with the root package.json.",
+  "dependencies": {
+    "@types/node": "^24.19.2",
+    "fastify": "^5.12.7",
+    "typescript": "^7.0.2"
+  }
+}

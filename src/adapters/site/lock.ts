@@ -36,6 +36,28 @@ const EXEMPT_PREFIXES = ['/admin', '/api/auth', '/mcp', '/.well-known', '/_inlay
 const TRICKY = /(^|\/)\.\.?(\/|$)|%2e|%2f|%5c|\\|\/\//i
 
 const locked = new WeakSet<FastifyRequest>()
+const assetOnly = new WeakSet<FastifyRequest>()
+
+/** True when the gate let this request through only as a file a previewed page loads: it must not be answered with a page. */
+export function isAssetOnlyRequest(request: FastifyRequest): boolean {
+  return assetOnly.has(request)
+}
+
+/**
+ * Whether the request is for a media file, or names a file where only a public file at the site's root can answer
+ * (the site's catch-all route, not a route of its own such as the sitemap or a release's); marks the latter.
+ */
+function pageAsset(request: FastifyRequest): boolean {
+  const q = request.url.indexOf('?')
+  const path = q === -1 ? request.url : request.url.slice(0, q)
+  if (TRICKY.test(path)) return false
+  if (path.startsWith('/media/')) return true
+  const route = request.routeOptions.url
+  if (route === undefined || !SITE_ROUTES.has(route)) return false
+  if (!path.slice(path.lastIndexOf('/') + 1).includes('.')) return false
+  assetOnly.add(request)
+  return true
+}
 
 /** True when the gate saw the lock on for this request. */
 export function isLockedRequest(request: FastifyRequest): boolean {
@@ -85,6 +107,8 @@ export function registerSiteLockGate(app: FastifyInstance, opts: SiteLockGateOpt
     // A preview of the live site's drafts; a release's preview is answered by its own worker, through the proxy.
     const preview = readPreview(request, opts.secret, now)
     if (preview.state === 'preview' && (preview.release === null || preview.release === opts.release)) return true
+    // A page's preview link opens that page and what it loads (media, and files at the site's root), not other pages.
+    if (preview.page !== null && pageAsset(request)) return true
     return (await requestActor(request, opts.service)) !== null
   }
 

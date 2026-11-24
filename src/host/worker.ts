@@ -6,6 +6,7 @@ import type { HostApi } from '../adapters/site/plugin.js'
 import { openDatabase } from '../core/db/connection.js'
 import { InlayError } from '../core/errors.js'
 import { t, type MessageId } from '../core/messages/index.js'
+import { keyStillTrusted } from '../core/release/keys.js'
 import { checkInlayVersion, loadRelease, type LoadedRelease } from '../core/release/read.js'
 import { packedVersion, releaseFit } from '../core/release/window.js'
 import { activateRelease, summarize } from './activate.js'
@@ -133,6 +134,7 @@ async function chooseRelease(config: HostConfig, log: NonNullable<WorkerIo['log'
     log('host.releaseMissing', { name: row.name })
     return { page: 'unavailable', id: row.id }
   }
+  if (!keyStillTrusted(row.signed_by, config.trustedKeys)) log('host.releaseKeyUntrusted', { name: row.name, key: row.signed_by })
   const packed = packedVersion(row.inlay_range)
   if (releaseFit(packed) === 'warn') log('host.releasePackAgain', { name: row.name, packed })
   return { loaded: opened.loaded, id: row.id, name: row.name }

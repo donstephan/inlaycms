@@ -52,6 +52,8 @@ export async function authenticateMcp(
   const key = header(request, 'x-api-key')
   if (key !== undefined && key !== '') {
     const found = await service.apiKeyActor(key)
+    // A push token is for the push API only: one that leaks from CI must not read or change content.
+    if (found?.permissions.release.includes('push')) return null
     if (found) return { actor: found.actor, authInfo: { token: key, clientId: 'api-key', scopes: [], extra: { actor: found.actor } } }
   }
   return null

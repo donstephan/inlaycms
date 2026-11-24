@@ -19,27 +19,43 @@ function readCookie(request: FastifyRequest, name: string): string | undefined {
 }
 
 /**
- * A link that turns preview on for 24 hours and opens `path` (a decoded site path, default `/`): of the live site's
- * drafts, or with `release` of that staged release.
+ * A link that turns preview on for 24 hours and opens `path` (a decoded site path, default `/`). It shows the live
+ * site's drafts on that page only: every other page stays as published. With `release`, it previews that whole staged
+ * release instead.
  */
 export function previewLink(
   opts: { baseUrl: string; secret: string; now: () => Date },
   path = '/',
   link: { release?: string } = {},
 ): string {
-  const token = createPreviewToken(opts.secret, opts.now(), link.release === undefined ? {} : { release: link.release })
+  const page = normalizePath(path) ?? '/'
+  const token = createPreviewToken(opts.secret, opts.now(), link.release === undefined ? { path: page } : { release: link.release })
   const query = new URLSearchParams({ token, path: encodePath(path) })
   return `${opts.baseUrl}${PREVIEW_PATH}?${query.toString()}`
 }
 
+/** The decoded site path the request asks for, or null if it isn't a clean one. */
+function requestPath(request: FastifyRequest): string | null {
+  const q = request.url.indexOf('?')
+  return normalizePath(q === -1 ? request.url : request.url.slice(0, q))
+}
+
 /**
- * What the request's preview cookie says: `'preview'` when it carries a valid one, otherwise `'published'`, and the
- * staged release it previews (null for the live site's drafts or without a cookie).
+ * What the request's preview cookie says. `state`: `'preview'` when the cookie is valid and covers this request (a
+ * release's cookie covers every page, a page's cookie only its own page), otherwise `'published'`. `release`: the
+ * staged release it previews. `page`: the one page of the live site's drafts it previews. Both are null without a
+ * valid cookie.
  */
-export function readPreview(request: FastifyRequest, secret: string, now: Date): { state: LiveState; release: string | null } {
+export function readPreview(
+  request: FastifyRequest,
+  secret: string,
+  now: Date,
+): { state: LiveState; release: string | null; page: string | null } {
   const token = readCookie(request, PREVIEW_COOKIE)
   const valid = token === undefined ? null : verifyPreviewToken(secret, token, now)
-  return valid === null ? { state: 'published', release: null } : { state: 'preview', release: valid.release }
+  if (valid === null) return { state: 'published', release: null, page: null }
+  const covered = valid.release !== null || valid.path === requestPath(request)
+  return { state: covered ? 'preview' : 'published', release: valid.release, page: valid.path }
 }
 
 /** `'preview'` when the request carries a valid preview cookie (of the live site or of a release), otherwise `'published'`. */
@@ -92,7 +108,9 @@ export function registerPreviewRoutes(
         .send(catalogPage('preview.expired.title', 'preview.expired'))
     }
     setCookie(reply, token, Math.ceil((valid.expiresAt.getTime() - now.getTime()) / 1000), secure)
-    return reply.redirect(safeTarget(query.path, mode), 302)
+    // A page's link opens its own page, whatever the address asks for: nowhere else would show a draft.
+    const target = valid.path === null ? safeTarget(query.path, mode) : presentHref(encodePath(valid.path), mode)
+    return reply.redirect(target, 302)
   })
 
   app.get(PREVIEW_EXIT_PATH, async (_request, reply) => {

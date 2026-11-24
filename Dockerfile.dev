@@ -6,6 +6,7 @@ WORKDIR /app
 RUN chown node:node /app
 USER node
 COPY --chown=node:node package.json pnpm-lock.yaml pnpm-workspace.yaml ./
+COPY --chown=node:node docker/image/package.json docker/image/
 # better-sqlite3 ships prebuilt binaries and pnpm-workspace.yaml turns off build scripts, so no compiler is needed.
 # --ignore-scripts skips our own "prepare" build, which needs the sources copied below.
 RUN --mount=type=cache,id=pnpm-dev,target=/home/node/.pnpm-store,uid=1000,gid=1000 \

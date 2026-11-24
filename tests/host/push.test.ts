@@ -449,6 +449,22 @@ describe('the other release routes', () => {
     expect((await app!.inject({ method: 'GET', url: '/_inlay/releases' })).statusCode).toBe(401)
   })
 
+  it('refuses to activate a release whose signing key is no longer trusted', async () => {
+    await start(null)
+    const pushed = (await push(file)).json<{ release: ReleaseRow }>().release
+    const db = openDatabase(config.paths.db)
+    try {
+      await db.updateTable('releases').set({ signed_by: '0'.repeat(16) }).where('id', '=', pushed.id).execute()
+    } finally {
+      await db.destroy()
+    }
+    const res = await app!.inject({ method: 'POST', url: `/_inlay/releases/${pushed.id}/activate`, headers: auth() })
+    expect(res.statusCode).toBeGreaterThanOrEqual(400)
+    expect(res.statusCode).toBeLessThan(500)
+    expect(res.body).toContain('no longer trusts')
+    expect(host.requestActivation).not.toHaveBeenCalled()
+  })
+
   it('activates a stored release by id', async () => {
     await start(null)
     const pushed = (await push(file)).json<{ release: ReleaseRow }>().release

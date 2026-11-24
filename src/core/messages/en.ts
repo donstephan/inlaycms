@@ -197,7 +197,7 @@ export const en = {
   'error.paneNoPath': 'The page "{title}" has no address, so it can\'t be shown in the live preview.',
   'log.redirectLoop':
     'The redirects for {path} send visitors in a loop, so the "page not found" page was shown instead. Check the redirects from: {rules}.',
-  'preview.banner': 'You are previewing unpublished changes. Visitors still see the published site.',
+  'preview.banner': 'You are previewing unpublished changes on this page. Other pages show the published site, as visitors see it.',
   'preview.exit': 'Exit preview',
   'preview.publish': 'Review and publish',
   'preview.expired.title': 'Preview link expired',
@@ -438,6 +438,9 @@ export const en = {
   'error.releaseCurrent': "{name} is the release the site is running, so it can't be deleted. Activate another release first.",
   'error.releaseUnknown': "There's no release with the ID {id}.",
   'error.releasePointerInvalid': "The file {file} that says which release is live is damaged. Activate a release again to replace it.",
+  'error.releaseKeyUntrusted':
+    "{name} was signed with the key {key}, which this server no longer trusts, so a push token can't activate it. Push the site again signed with a trusted key, or have an owner activate it on the Releases screen.",
+  'error.previewPath': "This page's address is too long to make a preview link for.",
   'error.releaseDeleted': "{name} was deleted, so it can't be activated. Push it again to use it.",
   'error.releaseSecret':
     "This release needs the secret {name}, which isn't set on the server. Set the environment variable {name} on the host (an empty value is fine) and activate the release again.",
@@ -461,7 +464,7 @@ export const en = {
     "This release needs secrets that aren't set on the server: {names}. Set them as environment variables on the host (an empty value is fine) and push the release again.",
   'error.pushUnauthorized': 'This needs a push token. Send it as "Authorization: Bearer <token>".',
   'error.pushForbidden':
-    "This token can't push or manage releases. Only an owner's API key with \"Can push releases\" turned on can.",
+    "This token can't push or manage releases. Only an owner's API key with \"For pushing releases only\" turned on can.",
   'error.pushContentType': 'Send the release file as the request body, with the content type application/gzip.',
   'error.pushTooLarge': 'This release file is larger than {mb} MB, so it wasn\'t accepted.',
   'error.pushFailed': 'The release couldn\'t be received: {problem}',
@@ -893,6 +896,11 @@ export const en = {
   'admin.releases.title': 'Releases',
   'admin.releases.intro': 'A release is a version of the site\'s design and code. Upload or push a new one, check what it changes, then activate it to make it live.',
   'admin.releases.packAgainBadge': 'Pack again',
+  'admin.releases.keyUntrustedBadge': 'Key no longer trusted',
+  'admin.releases.keyUntrusted':
+    "This release was signed with a key this server no longer trusts. It was accepted while the key was still trusted. If the key was removed because it leaked, don't activate this release: delete it, and push the site again signed with a new key.",
+  'admin.releases.keyUntrustedLive':
+    'The live release was signed with a key this server no longer trusts. It was accepted while the key was still trusted, and it stays live. If the key was removed because it leaked, push the site again signed with a new key and activate that.',
   'admin.releases.table': 'Releases',
   'admin.releases.empty': 'No releases yet. Push one from the command line or upload a release file.',
   'admin.releases.name': 'Name',
@@ -1030,8 +1038,8 @@ export const en = {
   'admin.account.revokeLabel': 'Revoke the key {name}',
   'admin.account.createHeading': 'Create an API key',
   'admin.account.keyNameHint': 'A name that reminds you what it is for, such as "Claude on my laptop".',
-  'admin.account.keyPush': 'Can push releases',
-  'admin.account.keyPushHint': 'Lets this key send a new version of the site to this server. Only tick this for a key you use to publish site updates.',
+  'admin.account.keyPush': 'For pushing releases only',
+  'admin.account.keyPushHint': "Makes this a push token: it can send a new version of the site to this server and make it live, and nothing else. An assistant can't use it to read or change content. Only tick this for a key you use to publish site updates.",
   'admin.account.create': 'Create key',
   'admin.account.keyCreatedTitle': 'Your new API key',
   'admin.account.key': 'API key',
@@ -1594,7 +1602,7 @@ export const en = {
     "Lists every page, entry and global with changes that aren't published yet, with each one's document id and groupId and its changes in plain words. New ones that were never published are marked isNew.",
   'mcp.tool.get_preview_link.title': 'Get a preview link',
   'mcp.tool.get_preview_link.description':
-    "Gives a link that shows the site with every unpublished change, for the user to check. Give a document id to open that page, or leave it out to open the home page. Globals and entries without a page open the home page.",
+    "Gives a link that shows one page with its unpublished changes, for the user to check. It works for 24 hours and shows drafts on that page only: every other page stays as published, so make a link for each page the user should check. Give a document id to open that page, or leave it out to open the home page. Globals and entries without a page open the home page.",
   'mcp.param.baseRevisionId':
     'The revisionId of the version your changes are based on, from get_document or your last update_document. If someone changed the document since then, nothing is saved.',
   'mcp.param.changes':
@@ -1717,6 +1725,8 @@ export const en = {
     'The live release {name} is missing from this server, so visitors see the "temporarily unavailable" page. Make it live again with inlaycms activate <file> to bring the site back.',
   'host.releaseTooOld':
     'The live release {name} was packed with Inlay {packed}, and Inlay {version} runs releases packed with Inlay {oldest} or later, so visitors see the "temporarily unavailable" page. Pack the site again with this version and push it, or make another release live.',
+  'host.releaseKeyUntrusted':
+    'The live release {name} was signed with the key {key}, which is no longer among the trusted keys. It is still served. If the key was removed because it leaked, push the site again signed with a trusted key and activate that.',
   'host.releasePackAgain':
     'The live release {name} was packed with Inlay {packed}. The next version of Inlay that changes what sites use won\'t run it: pack the site again with this version and push it.',
   'host.releaseTooNew':

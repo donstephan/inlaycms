@@ -4,6 +4,7 @@ import { t } from '../../src/core/messages/index.js'
 import { defineSingleton, defineSite } from '../../src/core/registry/define.js'
 import type { Ctx, DocumentSummary } from '../../src/core/types.js'
 import { Hero, Home, webSite } from '../fixtures/web.js'
+import { HASHES_HEADER, panePolicy } from '../../src/adapters/admin/screens/preview-pane.js'
 import { makeApp } from '../helpers/app.js'
 import { signIn, submittedForm, type AdminClient } from '../helpers/admin.js'
 
@@ -65,7 +66,10 @@ describe('admin preview pane', () => {
     const get = await eddie.get(paneUrl(home.id))
     const post = await eddie.post(paneUrl(home.id), await bodyFor(home))
     for (const res of [get, post]) {
-      expect(res.headers['content-security-policy']).toBe("frame-ancestors 'self'")
+      const csp = String(res.headers['content-security-policy'])
+      expect(csp).toMatch(/(^|; )script-src 'self'(;|$)/)
+      expect(csp).toContain("form-action 'self'")
+      expect(csp).toContain("frame-ancestors 'self'")
       expect(res.headers['cache-control']).toContain('no-store')
       expect(res.headers['x-robots-tag']).toBe('noindex')
     }
@@ -139,11 +143,30 @@ describe('admin preview pane', () => {
     }
   })
 
+  it('names the page\'s inline-script hashes on POST, for the empty page it is written into', async () => {
+    const post = await eddie.post(paneUrl(home.id), await bodyFor(home))
+    expect(post.headers[HASHES_HEADER]).toBe('')
+    expect((await eddie.get(paneUrl(home.id))).headers[HASHES_HEADER]).toBeUndefined()
+  })
+
+  it('lets the empty page allow only well-formed script hashes', async () => {
+    const good = 'sha256-47DEQpj8HBSa+/TImW+5JCeuQeRkm5NMpJWZG3hSuFU='
+    const query = [good, "'unsafe-inline'", 'sha256-x; script-src *', 'https://evil.example'].map((h) => `h=${encodeURIComponent(h)}`).join('&')
+    const res = await eddie.get(`${blankUrl(home.id)}?n=1&${query}`)
+    expect(res.statusCode).toBe(200)
+    const csp = String(res.headers['content-security-policy'])
+    expect(csp).toContain(`script-src 'self' '${good}';`)
+    expect(csp).not.toContain('unsafe-inline\' ')
+    expect(csp).not.toContain('evil.example')
+    expect(csp).not.toContain('script-src *')
+  })
+
   it('serves an empty page with the pane headers for each update to start from', async () => {
     const res = await eddie.get(`${blankUrl(home.id)}?n=3`)
     expect(res.statusCode).toBe(200)
     expect(res.headers['content-type']).toContain('text/html')
-    expect(res.headers['content-security-policy']).toBe("frame-ancestors 'self'")
+    expect(String(res.headers['content-security-policy'])).toMatch(/(^|; )script-src 'self'(;|$)/)
+    expect(res.headers['content-security-policy']).toContain("frame-ancestors 'self'")
     expect(res.headers['cache-control']).toContain('no-store')
     expect(res.headers['x-robots-tag']).toBe('noindex')
     expect(res.body).toMatch(/^<!doctype html>/)
@@ -159,5 +182,25 @@ describe('admin preview pane', () => {
     expect(anon.headers.location).toContain('/admin/login')
     const res = await eddie.post(paneUrl(home.id), await bodyFor(home), { origin: 'https://evil.example' })
     expect(res.statusCode).toBe(403)
+  })
+})
+
+describe('panePolicy', () => {
+  const site = (headers: Record<string, string | false>) => ({ ...webSite, csp: {}, headers }) as unknown as Parameters<typeof panePolicy>[0]
+
+  it('is the public policy with the page\'s hashes', () => {
+    const csp = panePolicy(site({}), ["'sha256-abc='"])
+    expect(csp).toContain("script-src 'self' 'sha256-abc=';")
+    expect(csp).toContain("frame-ancestors 'self'")
+  })
+
+  it('keeps a site\'s own policy, framed by the admin only', () => {
+    expect(panePolicy(site({ 'Content-Security-Policy': "default-src 'none'; frame-ancestors 'none'; img-src *" }), [])).toBe(
+      "default-src 'none'; img-src *; frame-ancestors 'self'",
+    )
+  })
+
+  it('is only the framing rule when the site removes the policy', () => {
+    expect(panePolicy(site({ 'content-security-policy': false }), [])).toBe("frame-ancestors 'self'")
   })
 })

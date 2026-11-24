@@ -652,3 +652,24 @@ describe('get_preview_link', () => {
     for (const name of ['list_pending_changes', 'get_preview_link']) expect(hint(name)).toBe(true)
   })
 })
+
+describe('update_document paths that name an object prototype', () => {
+  afterEach(() => {
+    delete (Object.prototype as Record<string, unknown>).polluted
+  })
+
+  for (const path of ['__proto__.polluted', 'fields.__proto__.polluted', 'constructor.prototype.polluted', 'slots.hero.__proto__.polluted']) {
+    it(`refuses ${path} and leaves Object.prototype alone`, async () => {
+      const before = await home()
+      const { isError, text } = await mcp.call('update_document', {
+        id: before.id,
+        baseRevisionId: before.headRev,
+        changes: [{ path, value: 'yes' }],
+      })
+      expect(({} as Record<string, unknown>).polluted).toBeUndefined()
+      expect(isError).toBe(true)
+      expect(text).toContain(t('mcp.change.badPath', { path }))
+      expect((await home()).headRev).toBe(before.headRev)
+    })
+  }
+})

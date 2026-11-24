@@ -30,7 +30,7 @@ function Head({ ctx, title, scripts }: { ctx: AdminContext; title: string; scrip
       <link rel="stylesheet" href={ctx.assets.url('admin.css')} />
       {theme.css !== '' && <style>{raw(theme.css)}</style>}
       {scripts.map((script) => (
-        <script type="module" src={ctx.assets.url(script)}></script>
+        <script type="module" src={ctx.assets.url(script)} blocking={script === 'admin.js' ? 'render' : undefined}></script>
       ))}
     </head>
   )
@@ -472,7 +472,7 @@ export async function adminPage(ctx: AdminContext, opts: AdminPageOptions, body:
               {workspace ? <div class="flex min-h-0 flex-1 flex-col">{body}</div> : body}
             </main>
           </div>
-          <div class="drawer-side z-40">
+          <div id="admin-nav" class="drawer-side z-40">
             <label for="admin-nav-toggle" aria-label={t('admin.nav.close')} class="drawer-overlay">
               <span class="sr-only">{t('admin.nav.close')}</span>
             </label>

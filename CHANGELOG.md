@@ -4,6 +4,24 @@ All notable changes to Inlay are recorded here. The format follows [Keep a Chang
 
 ## [Unreleased]
 
+### Changed
+
+- **Breaking:** a preview link now shows unpublished changes on the page it was made for and nowhere else, so a link that gets forwarded or lands in a log shows one page, not every draft on the site. Every other page stays as visitors see it, without the preview banner; to check two pages, make a link for each. On a site with a site password, the link opens its page, the page's media and the public files at the site root, and no other page, the sitemap or a release's own routes. A link to a staged release still previews that whole release. Preview links made before the upgrade stop working.
+- **Breaking:** a push token is for pushing releases only. It can push, activate, list and delete releases, and is refused on `/mcp`, so a token that leaks from CI can't read or change content. In the admin, the option on a new API key is now called "For pushing releases only". Use a separate API key for an assistant.
+- Taking a key off `INLAY_TRUSTED_KEYS` no longer goes unnoticed for the releases it signed. `inlaycms serve` says in its log when the live release was signed with such a key (and keeps serving it), the admin's Releases screen marks each such release and warns before an owner activates one, and a push token can't activate one at all.
+- The editor's preview pane sends the same Content-Security-Policy as the public page, instead of a looser one. An inline `<script>` that isn't written with `ctx.script` is now blocked in the pane too, as it already was on the public site.
+- The Inlay image installs every dependency from `pnpm-lock.yaml`, with no install scripts, instead of resolving them afresh each time the image is built.
+
+### Fixed
+
+- The admin's menu stays where you scrolled it when you follow one of its links, instead of going back to the top.
+
+### Security
+
+- `update_document` refuses a change whose path names an object's prototype (`__proto__`, `constructor`, `prototype`). Before, an editor's API key, or an assistant using one, could send such a path and make the public site show unpublished drafts to every visitor and stop `/mcp` from answering, until the server restarted.
+- `diff_revisions` no longer reads the versions of a deleted entry, which only an owner can bring back.
+- `inlaycms serve` keeps the tokens in preview links, media upload links and sign-in addresses out of its request log.
+
 ## [0.7.0] - 2026-11-23
 
 ### Changed

@@ -16,6 +16,7 @@ import { openDatabase } from '../core/db/connection.js'
 import type { Database } from '../core/db/schema.js'
 import { InlayError } from '../core/errors.js'
 import { t, type MessageId } from '../core/messages/index.js'
+import { keyStillTrusted } from '../core/release/keys.js'
 import { manifestOfRegistry, manifestSchema, type ReleaseManifest } from '../core/release/manifest.js'
 import { packedVersion, releaseFit } from '../core/release/window.js'
 import type { Registry } from '../core/registry/registry.js'
@@ -484,6 +485,10 @@ export function registerPushRoutes(
       const row = await getRelease(db, id)
       if (row === null) return sendError(request, reply, new InlayError('not_found', 'error.releaseUnknown', { id }))
       if (row.state === 'deleted') return sendError(request, reply, new InlayError('release', 'error.releaseDeleted', { name: row.name }))
+      // A token can't make live a release whose key was taken off the trusted list: an owner can, in the admin, warned.
+      if (!keyStillTrusted(row.signed_by, opts.config.trustedKeys)) {
+        return sendError(request, reply, new InlayError('release', 'error.releaseKeyUntrusted', { name: row.name, key: row.signed_by }))
+      }
       let activation: ActivationSummary
       try {
         activation = await host.requestActivation(id)

@@ -295,6 +295,13 @@ describe('parsePath', () => {
     expect(parsePath('')).toBeNull()
     expect(parsePath('fields.')).toBeNull()
   })
+
+  it('rejects segments that name an object prototype', () => {
+    expect(parsePath('__proto__.x')).toBeNull()
+    expect(parsePath('fields.__proto__.x')).toBeNull()
+    expect(parsePath('constructor.prototype.x')).toBeNull()
+    expect(parsePath('fields.prototype')).toBeNull()
+  })
 })
 
 describe('agentRefsNeeded and agentLinks', () => {

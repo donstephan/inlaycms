@@ -34,7 +34,7 @@ import { createRenderContext } from './context.js'
 import { registerSiteHeaders, siteHeaders } from './headers.js'
 import { createSiteIntegrations, type SiteIntegrations } from './integrations.js'
 import { startBackupSchedule, type BackupSchedule } from './backup-schedule.js'
-import { isLockedRequest, registerSiteLockGate, registerUnlockRoute } from './lock.js'
+import { isAssetOnlyRequest, isLockedRequest, registerSiteLockGate, registerUnlockRoute } from './lock.js'
 import { codeFilesFor, registerCodeFileRoutes } from './code-files.js'
 import { registerMediaRoutes } from './media-routes.js'
 import { registerPublicRoutes, rootPublicPath, sendPublicFile } from './public.js'
@@ -342,6 +342,10 @@ function registerSiteRoutes(
         const sent = await sendPublicFile(request, reply, { ...opts.rootPublic, autoHead: true }, rootPath)
         if (sent !== null) return sent
       }
+    }
+    // Let through the site lock as a file a previewed page loads, and it isn't one: no page answers in its place.
+    if (isAssetOnlyRequest(request)) {
+      return reply.code(404).header('cache-control', 'no-store').type(HTML).send(catalogPage('site.notFound.title', 'site.notFound'))
     }
     const state = opts.preview === 'forced' ? 'preview' : stateOf(request)
     const preview = state === 'preview'

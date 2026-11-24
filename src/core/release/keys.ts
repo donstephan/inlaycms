@@ -45,6 +45,14 @@ export function fingerprint(publicKey: string): string {
   return createHash('sha256').update(rawBytes(publicKey)).digest('hex').slice(0, 16)
 }
 
+/**
+ * Whether the key with fingerprint `signedBy` is among `trustedKeys` now. A release is checked when it arrives, so one
+ * signed with a key taken off the list since is still stored; with no keys to compare, nothing is said to be untrusted.
+ */
+export function keyStillTrusted(signedBy: string, trustedKeys: readonly string[]): boolean {
+  return trustedKeys.length === 0 || trustedKeys.some((key) => fingerprint(key) === signedBy)
+}
+
 export function sign(privateKeyPem: string, data: Uint8Array): string {
   return cryptoSign(null, data, createPrivateKey(privateKeyPem)).toString('base64')
 }

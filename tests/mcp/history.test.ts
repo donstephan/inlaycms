@@ -30,6 +30,17 @@ async function setHeadline(headline: string, ctx: Ctx = editor) {
 }
 
 describe('history tools', () => {
+  it('does not read the versions of a deleted entry', async () => {
+    const post = await core.createEntry('posts', { fields: { title: 'Gone', date: '2026-02-01', body: 'Hello' } }, editor)
+    expect((await mcp.call('diff_revisions', { to: post.headRev })).isError).toBe(false)
+    await core.deleteEntry(post.groupId, owner)
+    for (const args of [{ to: post.headRev }, { from: post.headRev, to: (await home()).headRev }]) {
+      const { isError, text } = await mcp.call('diff_revisions', args)
+      expect(isError).toBe(true)
+      expect(text).not.toContain('Gone')
+    }
+  })
+
   it('lists revisions newest first with head and published marks', async () => {
     const first = await home()
     await setHeadline('One')

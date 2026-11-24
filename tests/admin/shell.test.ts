@@ -350,6 +350,9 @@ describe('branding', () => {
     const doc = parseHtml((await owner.get('/admin')).body)
     expect(doc.querySelector('link[rel="stylesheet"]')?.getAttribute('href')).toMatch(/^\/admin\/assets\/admin\.css\?v=[0-9a-f]{10}$/)
     expect(doc.querySelector('script[type="module"]')?.getAttribute('src')).toMatch(/^\/admin\/assets\/admin\.js\?v=[0-9a-f]{10}$/)
+    // The menu's scroll is put back before the first paint (client/admin/nav-scroll.ts).
+    expect(doc.querySelector('script[type="module"]')?.getAttribute('blocking')).toBe('render')
+    expect(doc.querySelector('#admin-nav nav')).not.toBeNull()
     const config = JSON.parse(doc.querySelector('meta[name="htmx-config"]')?.getAttribute('content') ?? '{}')
     expect(config).toMatchObject({ allowEval: false, allowScriptTags: false, includeIndicatorStyles: false, selfRequestsOnly: true })
     expect(doc.querySelectorAll('script:not([src])').length).toBe(0)

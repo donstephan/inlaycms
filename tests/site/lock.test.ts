@@ -188,6 +188,23 @@ describe('site lock gate', () => {
     expectScreen(await app.inject({ url: '/', headers: { cookie } }))
   })
 
+  it("lets a page's preview link open that page and its media, and no other page", async () => {
+    const { app, image, lock } = await setup()
+    await lock()
+    const link = await app.inject(`/_inlay/preview?token=${createPreviewToken(SECRET, new Date(), { path: '/about' })}`)
+    const header = link.headers['set-cookie']
+    const cookie = String(Array.isArray(header) ? header[0] : header).split(';')[0]!
+    const get = (url: string) => app.inject({ url, headers: { cookie } })
+    expect((await get('/about')).statusCode).toBe(200)
+    expect((await get(`/media/${image.id}`)).statusCode).toBe(200)
+    for (const url of ['/', '/no-such-page', '/sitemap.xml']) expectScreen(await get(url))
+    // A path that names a file may be a public file at the site's root; when it isn't, no page answers for it.
+    const file = await get('/about.html')
+    expect(file.statusCode).toBe(404)
+    expect(file.body).not.toContain('About us')
+    expect(file.body).not.toContain('Welcome to Inlay')
+  })
+
   it('lets in signed-in admins and preview cookies', async () => {
     const { app, lock } = await setup()
     await lock()

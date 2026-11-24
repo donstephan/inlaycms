@@ -123,7 +123,8 @@ function opsAsData(ops: PatchOp[]): DocumentData {
         container[segment] = op.value
         return
       }
-      const existing = container[segment]
+      // Own properties only: an inherited one is the prototype every object shares.
+      const existing = Object.hasOwn(container, segment) ? container[segment] : undefined
       const next = typeof existing === 'object' && existing !== null ? existing : typeof op.path[i + 1] === 'number' ? [] : {}
       container[segment] = next
       parent = next as Record<string, unknown> | unknown[]

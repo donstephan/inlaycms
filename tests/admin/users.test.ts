@@ -260,7 +260,7 @@ describe('admin users and account', () => {
       const box = ownerForm?.querySelector<HTMLInputElement>('input#key-push[type=checkbox][name=push]')
       expect(box).not.toBeNull()
       expect(box?.hasAttribute('checked')).toBe(false)
-      expect(ownerForm?.querySelector('label[for="key-push"]')?.textContent).toContain('Can push releases')
+      expect(ownerForm?.querySelector('label[for="key-push"]')?.textContent).toContain('For pushing releases only')
 
       const pushing = await olivia.post('/admin/account/keys', { name: 'deploy', push: 'on' })
       expect(pushing.statusCode).toBe(200)

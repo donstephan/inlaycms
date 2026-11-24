@@ -169,8 +169,8 @@ describe("trailingSlash: 'always'", () => {
 
   it('opens a preview link at the presented path', async () => {
     const { app } = await setup()
-    const token = createPreviewToken('s'.repeat(32), new Date('2026-01-01T00:00:00.000Z'))
-    for (const path of ['/about', '/about/']) {
+    const token = createPreviewToken('s'.repeat(32), new Date('2026-01-01T00:00:00.000Z'), { path: '/about' })
+    for (const path of ['/about', '/about/', '/']) {
       const res = await app.inject(`/_inlay/preview?token=${token}&path=${encodeURIComponent(path)}`)
       expect(res.statusCode, path).toBe(302)
       expect(res.headers.location, path).toBe('/about/')

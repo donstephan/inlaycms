@@ -24,6 +24,8 @@ This writes `keys/release.key` (the private key: keep it secret and out of the r
 
 What makes a release trusted is its signature: a host runs only releases signed with a key it trusts, so trust a key only if you trust everyone who can sign with it. A push runs the release's code on the host straight away, a dry run too: the host starts the release's preview to work out what it would change in your content. So the signature is what stands between the host and the code it runs: only trust keys whose private half you control, and keep that half out of the repository.
 
+A release is checked when it arrives, so taking a key off the trusted list doesn't remove the releases it signed. The host keeps serving a live one and says so in its log when it starts; the Releases screen marks each such release, and an owner can still activate one there. A push token can't: `inlaycms activate <host> <id>` is refused for a release whose key is no longer trusted. If you removed the key because it leaked, delete those releases, then push the site again signed with a new key.
+
 The example site in `example/` commits a key pair in `example/keys/` for development only: never trust `example/keys/dev.pub` on a real host.
 
 How to pack and sign a release: [Packing a release](/docs/guides/releases#packing-a-release).
@@ -34,9 +36,13 @@ Site code imports Inlay from `inlaycms/site` (and JSX from `inlaycms/jsx-runtime
 
 Those checks catch mistakes; they don't make a release safe to run. The signature is what makes a release trusted (see [Signed releases and trusted keys](#signed-releases-and-trusted-keys)).
 
+## Preview links
+
+A preview link shows unpublished changes without signing in, for 24 hours. A link made for a page (from the editor, or by an assistant) shows drafts on that page only, so a link that gets forwarded or lands in a log shows one page, not every draft on the site. Every other page stays as visitors see it, and on a site with a [site password](/docs/guides/site-password) stays behind the password screen. A link to a staged release, which only an owner or a push can make, previews that whole release.
+
 ## Push tokens
 
-`inlaycms push` sends releases to a running host and needs a push token: an owner's API key that may push releases. An owner makes one in the admin (an API key with "Can push releases" turned on), or on the host with the CLI, which prints the key once (alone on standard output, so a script can capture it) and works whether the server is running or not:
+`inlaycms push` sends releases to a running host and needs a push token: an owner's API key that can push, activate, list and delete releases and do nothing else (it is refused on `/mcp`, so it can't read or change content). An owner makes one in the admin (an API key with "For pushing releases only" turned on), or on the host with the CLI, which prints the key once (alone on standard output, so a script can capture it) and works whether the server is running or not:
 
 ```sh
 npx inlaycms create-token --email owner@example.com --name ci --push [--data <dir>]
@@ -93,7 +99,7 @@ export const site = defineSite({
 
 The directives you can declare are `script-src`, `style-src`, `img-src`, `font-src`, `connect-src`, `frame-src`, `media-src`, `form-action` and `worker-src` (`worker-src 'self'` is added only when something declares it). A source is an origin (`https://images.example.com`, `https://*.example.com`, `wss://live.example.com`: lowercase, no path), a bare scheme such as `data:` or `blob:`, or one of the keywords `'unsafe-inline'`, `'unsafe-eval'` and `'wasm-unsafe-eval'`. Anything else, an unknown directive included, fails `inlaycms check`, `pack` and boot. A switched-on integration's `csp` is merged in beside the site's, each source once.
 
-Browsers ignore `'unsafe-inline'` in `script-src` when a hash is present. So when the site or a switched-on integration declares it, Inlay leaves the hashes out and inline scripts are simply allowed. `inlaycms check` warns about that, and about `'unsafe-eval'`, and the Integrations screen says so on the integration concerned. Public SVG files, the admin and the editor pane keep their own stricter policies.
+Browsers ignore `'unsafe-inline'` in `script-src` when a hash is present. So when the site or a switched-on integration declares it, Inlay leaves the hashes out and inline scripts are simply allowed. `inlaycms check` warns about that, and about `'unsafe-eval'`, and the Integrations screen says so on the integration concerned. Public SVG files and the admin keep their own stricter policies. The editor's preview pane gets the public page's policy without the integrations' sources (it renders none), and only the admin may frame it.
 
 When the site's base URL is `https://`, responses also carry `Strict-Transport-Security: max-age=31536000`, so browsers keep to https for a year. A response that sets one of these headers itself keeps its own.
 

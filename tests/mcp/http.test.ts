@@ -58,6 +58,19 @@ describe('/mcp over HTTP', () => {
     })
   }
 
+  it('refuses a push token: it is for the push API only', async () => {
+    const { app: a, pushKey, ownerKey } = await app()
+    const post = (key: string) =>
+      a.inject({
+        method: 'POST',
+        url: '/mcp',
+        headers: { 'x-api-key': key, 'content-type': 'application/json', accept: 'application/json, text/event-stream' },
+        payload: { jsonrpc: '2.0', id: 1, method: 'tools/list' },
+      })
+    expect((await post(pushKey)).statusCode).toBe(401)
+    expect((await post(ownerKey)).statusCode).not.toBe(401)
+  })
+
   it('answers a legacy GET with 405', async () => {
     const { app: a, editorKey } = await app()
     const res = await a.inject({ method: 'GET', url: '/mcp', headers: { 'x-api-key': editorKey, accept: 'text/event-stream' } })

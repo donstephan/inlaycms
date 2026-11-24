@@ -624,8 +624,35 @@ async function resetPassword(io: CliIo, target: Target, email: string): Promise<
   }
 }
 
+/** Turns off two-step login for the user with this email, who has lost their phone. Ends their sessions. */
+async function resetTwoFactor(io: CliIo, target: Target, email: string): Promise<number> {
+  const { db, auth } = await bootInlay({
+    site: target.site,
+    db: target.db,
+    backups: target.backups,
+    ...(target.media !== undefined && { media: target.media }),
+    ...(target.content && { content: target.content }),
+    auth: { secret: randomBytes(32).toString('hex'), baseUrl: 'http://localhost' },
+  })
+  try {
+    const user = await db.selectFrom('user').select('id').where('email', '=', email.toLowerCase()).executeTakeFirst()
+    if (user === undefined) {
+      io.err(t('cli.resetNoUser', { email }))
+      return 1
+    }
+    if (!(await auth.resetTwoFactor(user.id))) {
+      io.err(t('cli.twoFactorNotOn', { email }))
+      return 1
+    }
+    io.out(t('cli.twoFactorReset', { email }))
+    return 0
+  } finally {
+    await db.destroy()
+  }
+}
+
 /** The commands that also run on a host, from its data folder, without a config file. */
-const HOST_COMMANDS: readonly string[] = ['backup', 'export', 'import', 'restore-backup', 'create-owner', 'create-token', 'reset-password']
+const HOST_COMMANDS: readonly string[] = ['backup', 'export', 'import', 'restore-backup', 'create-owner', 'create-token', 'reset-password', 'reset-two-factor']
 
 function hasConfigFile(io: CliIo): boolean {
   return ['inlay.config.ts', 'inlay.config.js', 'inlay.config.mjs'].some((name) => existsSync(join(io.cwd, name)))
@@ -714,7 +741,7 @@ type Values = {
   'server-stopped'?: boolean | undefined
 }
 
-/** `backup`, `export`, `import`, `restore-backup`, `create-owner`, `create-token` and `reset-password` on a host: everything is in its data folder. */
+/** `backup`, `export`, `import`, `restore-backup`, `create-owner`, `create-token`, `reset-password` and `reset-two-factor` on a host: everything is in its data folder. */
 async function onHost(io: CliIo, command: string, dir: string, values: Values, arg: string): Promise<number> {
   const paths = hostPaths(dir)
   const serverStopped = values['server-stopped'] === true
@@ -744,9 +771,10 @@ async function onHost(io: CliIo, command: string, dir: string, values: Values, a
       if (!existsSync(paths.db)) throw new InlayError('not_found', 'error.noDatabase', { path: paths.db })
       return await createToken(io, target, { email: values.email ?? '', name: values.name ?? '', push: values.push === true })
     }
-    if (command === 'reset-password') {
+    if (command === 'reset-password' || command === 'reset-two-factor') {
       if (!existsSync(paths.db)) throw new InlayError('not_found', 'error.noDatabase', { path: paths.db })
-      return await resetPassword(io, target, values.email ?? '')
+      const reset = command === 'reset-password' ? resetPassword : resetTwoFactor
+      return await reset(io, target, values.email ?? '')
     }
     return await exportContent(io, target, values.out)
   } catch (e) {
@@ -800,6 +828,7 @@ export async function runCli(argv: string[], io: CliIo): Promise<number> {
     'create-owner',
     'create-token',
     'reset-password',
+    'reset-two-factor',
     'keygen',
     'pack',
     'push',
@@ -823,12 +852,12 @@ export async function runCli(argv: string[], io: CliIo): Promise<number> {
     !only(values.name, 'create-owner', 'create-token', 'keygen', 'pack', 'push', offline === 'activate' ? 'activate' : '') ||
     !only(values.key, 'pack', 'push') ||
     !only(values['no-typecheck'], 'pack', 'push') ||
-    !only(values.db, 'check', 'backup', 'export', 'import', 'restore-backup', 'create-owner', 'create-token', 'reset-password') ||
+    !only(values.db, 'check', 'backup', 'export', 'import', 'restore-backup', 'create-owner', 'create-token', 'reset-password', 'reset-two-factor') ||
     !only(values.export, 'check') ||
     !only(values['dry-run'], 'import', 'push') ||
     !only(values['server-stopped'], 'import', 'restore-backup', offline === 'activate' ? 'activate' : '') ||
     !only(values.data, offline === 'activate' || offline === 'releases' ? offline : '', ...HOST_COMMANDS) ||
-    !only(values.email, 'create-owner', 'create-token', 'reset-password') ||
+    !only(values.email, 'create-owner', 'create-token', 'reset-password', 'reset-two-factor') ||
     !only(values.token, remote ? command : '') ||
     !only(values.insecure, remote ? command : '') ||
     !only(values.file, 'push') ||
@@ -842,7 +871,7 @@ export async function runCli(argv: string[], io: CliIo): Promise<number> {
     return usage(io)
   }
   if ((command === 'create-owner' || command === 'create-token') && (!values.email || !values.name)) return usage(io)
-  if (command === 'reset-password' && !values.email) return usage(io)
+  if ((command === 'reset-password' || command === 'reset-two-factor') && !values.email) return usage(io)
   if ((command === 'pack' || command === 'activate' || command === 'push') && values.name !== undefined && values.name.trim() === '') {
     io.err(t('cli.packName'))
     return 2
@@ -990,9 +1019,10 @@ export async function runCli(argv: string[], io: CliIo): Promise<number> {
       if (!existsSync(dbPath)) throw new InlayError('not_found', 'error.noDatabase', { path: dbPath })
       return await createToken(io, target, { email: values.email ?? '', name: values.name ?? '', push: values.push === true })
     }
-    if (command === 'reset-password') {
+    if (command === 'reset-password' || command === 'reset-two-factor') {
       if (!existsSync(dbPath)) throw new InlayError('not_found', 'error.noDatabase', { path: dbPath })
-      return await resetPassword(io, target, values.email ?? '')
+      const reset = command === 'reset-password' ? resetPassword : resetTwoFactor
+      return await reset(io, target, values.email ?? '')
     }
     if (command === 'import') {
       return await importFile(io, target, resolve(io.cwd, rest[0] ?? ''), { serverStopped: values['server-stopped'] === true })

@@ -62,6 +62,18 @@ Create the owner with `inlaycms create-owner --email <email> --name <name>` (it 
 
 See [Connect your assistant](/docs/guides/assistant) for the first run, and [Running a host](/docs/guides/releases#running-a-host) for how these commands find the host's data folder.
 
+## Two-step login
+
+Each person can ask for a code from an authenticator app after their password. Under Account in the admin, they enter their password, scan the QR code (or type the key) and enter a six-digit code. It works with any authenticator app that supports the standard time-based codes. Turning it on signs that person out of their other sessions, and turning it off needs their password.
+
+At login, the code is asked for after the password. Five wrong codes end that login attempt, and ten wrong codes in a row lock the second step for 15 minutes. Owners see who has it on in the Users screen, but the admin's screens have no way to require it or to reset it for someone else.
+
+API keys, push tokens and assistants that are already connected don't ask for a code. Connecting a new assistant asks for a code only when the person has to log in first, because that goes through the login page; someone already logged in to the admin goes straight to the consent page.
+
+If someone loses their phone, run `inlaycms reset-two-factor --email <email>` on the server. It turns two-step login off for that person and signs them out everywhere, and leaves their password, API keys and connected assistants alone. They log in with their password and set it up again. `reset-password` and an owner setting a password never turn it off.
+
+The keys are encrypted with `INLAY_SECRET`. If the secret changes, no code is accepted any more, so run `reset-two-factor` for each person who had it on.
+
 ## Consent and third-party scripts
 
 A third-party script (a tag manager, analytics, a chat widget) is an integration: the site's developer ships it in the release and the site's owner switches it on in the admin. An owner or an editor can never paste a script into a page, so Inlay knows every script the site uses. That is what lets public pages carry the strict policy in [Security headers](#security-headers).

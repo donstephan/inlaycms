@@ -1,8 +1,9 @@
 import type { FastifyInstance } from 'fastify'
 import type { AuthService } from '../../src/core/auth/service.js'
+import { t } from '../../src/core/messages/index.js'
 import type { Actor } from '../../src/core/types.js'
 import { makeApp, OWNER_PASSWORD } from '../helpers/app.js'
-import { parseHtml, signIn, type AdminClient } from '../helpers/admin.js'
+import { parseHtml, setUpTwoStep, signIn, type AdminClient } from '../helpers/admin.js'
 
 const textOf = (html: string) => parseHtml(html).body.textContent.replace(/\s+/g, ' ')
 
@@ -41,6 +42,20 @@ describe('admin users and account', () => {
       for (const id of ['name', 'email', 'password', 'confirm', 'role']) {
         expect(doc.querySelector(`label[for="${id}"]`), id).not.toBeNull()
       }
+    })
+
+    it('shows who has two-step login on', async () => {
+      await setUpTwoStep(eddie)
+      const doc = parseHtml((await olivia.get('/admin/users')).body)
+      const headers = [...doc.querySelectorAll('thead th')].map((th) => th.textContent.trim())
+      const column = headers.indexOf(t('admin.users.twoStep'))
+      expect(column).toBe(headers.indexOf(t('admin.users.role')) + 1)
+      const cellOf = (name: string) => {
+        const row = [...doc.querySelectorAll('tbody tr')].find((tr) => tr.textContent.includes(name))
+        return row?.children[column]?.textContent.trim()
+      }
+      expect(cellOf('Eddie Editor')).toBe(t('admin.account.twoStep.on'))
+      expect(cellOf('Olivia Owner')).not.toContain(t('admin.account.twoStep.on'))
     })
 
     it('puts the intro under the heading and Add a user beside it', async () => {
@@ -215,7 +230,7 @@ describe('admin users and account', () => {
 
       const doc = parseHtml((await eddie.get('/admin/account')).body)
       const headings = [...doc.querySelectorAll('section[aria-labelledby]')].map((s) => s.getAttribute('aria-labelledby'))
-      expect(headings).toEqual(['password-heading', 'assistants-heading', 'keys-heading'])
+      expect(headings).toEqual(['password-heading', 'two-step-heading', 'assistants-heading', 'keys-heading'])
       const section = doc.querySelector('section[aria-labelledby="assistants-heading"]')!
       expect(section.querySelector<HTMLInputElement>('input#mcp-url')?.value).toBe('https://example.com/mcp')
       expect(section.querySelector<HTMLInputElement>('input#mcp-command')?.value).toBe('claude mcp add --transport http inlay https://example.com/mcp')

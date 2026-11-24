@@ -25,6 +25,8 @@ export interface UserInfo {
   role: UserRole | null
   banned: boolean
   createdAt: string
+  /** Whether two-step login is on: a confirmed authenticator app is asked for a code at every login. */
+  twoStep: boolean
 }
 
 export interface ApiKeyInfo {
@@ -114,6 +116,17 @@ export interface AuthService {
    * assistant (OAuth) tokens, but not their API keys.
    */
   changePassword(userId: string, current: string, next: string, keep?: Headers): Promise<void>
+  /** Whether the user has two-step login on (a key set up and confirmed). */
+  twoStepOn(userId: string): Promise<boolean>
+  /** Ends the user's sessions, except the one `keep` (request headers) carries. API keys and assistant tokens stay. */
+  endOtherSessions(userId: string, keep: Headers): Promise<void>
+  /**
+   * Turns two-step login off: deletes the user's key rows always (a stray or unconfirmed one must not block a later
+   * setup), and ends all their sessions only when it was on; when it wasn't, their sessions are left alone. API keys,
+   * assistant tokens and the password stay. Returns whether it was on; not_found `error.userNotFound` for an unknown
+   * user.
+   */
+  resetTwoFactor(userId: string): Promise<boolean>
   /** The user's API keys, newest first; never the keys themselves. */
   listApiKeys(userId: string): Promise<ApiKeyInfo[]>
   /** not_found unless `keyId` is one of the user's own keys. */
@@ -255,7 +268,15 @@ export function createAuthService(opts: AuthOptions): AuthService {
     if (other === undefined) throw new InlayError('invalid_operation', 'error.lastOwner')
   }
 
-  type BetterAuthUser = { id: string; name: string; email: string; role?: string | null; banned?: boolean | null; createdAt: Date }
+  type BetterAuthUser = {
+    id: string
+    name: string
+    email: string
+    role?: string | null
+    banned?: boolean | null
+    twoFactorEnabled?: boolean | null
+    createdAt: Date
+  }
 
   const userInfo = (user: BetterAuthUser): UserInfo => ({
     id: user.id,
@@ -264,6 +285,7 @@ export function createAuthService(opts: AuthOptions): AuthService {
     role: isRole(user.role) ? user.role : null,
     banned: user.banned === true,
     createdAt: iso(user.createdAt),
+    twoStep: user.twoFactorEnabled === true,
   })
 
   /**
@@ -282,6 +304,23 @@ export function createAuthService(opts: AuthOptions): AuthService {
       .values({ user_id: userId, before })
       .onConflict((oc) => oc.column('user_id').doUpdateSet({ before }))
       .execute()
+  }
+
+  /** Ends the user's sessions, except the one `keep` (request headers) carries when it is theirs. */
+  async function endSessions(userId: string, keep?: Headers): Promise<void> {
+    const { internalAdapter } = await auth.$context
+    let kept: string | undefined
+    if (keep) {
+      try {
+        const session = await auth.api.getSession({ headers: keep })
+        if (session?.user.id === userId) kept = session.session.token
+      } catch (e) {
+        if (!(e instanceof APIError)) throw e
+      }
+    }
+    const sessions = await internalAdapter.listSessions(userId)
+    const others = sessions.map((s) => s.token).filter((token) => token !== kept)
+    if (others.length > 0) await internalAdapter.deleteSessions(others)
   }
 
   async function findUser(userId: string): Promise<BetterAuthUser> {
@@ -458,6 +497,7 @@ export function createAuthService(opts: AuthOptions): AuthService {
         const { adapter, internalAdapter } = await auth.$context
         // API keys point at their user without a foreign key, so they go first, by hand.
         await adapter.deleteMany({ model: 'apikey', where: [{ field: 'referenceId', value: userId }] })
+        await adapter.deleteMany({ model: 'twoFactor', where: [{ field: 'userId', value: userId }] })
         await internalAdapter.deleteUserSessions(userId)
         // Also deletes the user's accounts; OAuth tokens and consents cascade. Revisions keep the author's name.
         await internalAdapter.deleteUser(userId)
@@ -475,19 +515,28 @@ export function createAuthService(opts: AuthOptions): AuthService {
       issues.push(...checkPassword(next))
       if (issues.length > 0) throw invalid(issues)
       await ctx.internalAdapter.updatePassword(userId, await ctx.password.hash(next))
-      let kept: string | undefined
-      if (keep) {
-        try {
-          const session = await auth.api.getSession({ headers: keep })
-          if (session?.user.id === userId) kept = session.session.token
-        } catch (e) {
-          if (!(e instanceof APIError)) throw e
-        }
-      }
-      const sessions = await ctx.internalAdapter.listSessions(userId)
-      const others = sessions.map((s) => s.token).filter((token) => token !== kept)
-      if (others.length > 0) await ctx.internalAdapter.deleteSessions(others)
+      await endSessions(userId, keep)
       await endTokens(userId, { apiKeys: false })
+    },
+
+    async twoStepOn(userId) {
+      const { internalAdapter } = await auth.$context
+      const user = (await internalAdapter.findUserById(userId)) as BetterAuthUser | null
+      return user?.twoFactorEnabled === true
+    },
+
+    endOtherSessions: endSessions,
+
+    async resetTwoFactor(userId) {
+      return serially(async () => {
+        const user = await findUser(userId)
+        const { adapter, internalAdapter } = await auth.$context
+        await adapter.deleteMany({ model: 'twoFactor', where: [{ field: 'userId', value: userId }] })
+        if (user.twoFactorEnabled !== true) return false
+        await internalAdapter.updateUser(userId, { twoFactorEnabled: false })
+        await endSessions(userId)
+        return true
+      })
     },
 
     async listApiKeys(userId) {

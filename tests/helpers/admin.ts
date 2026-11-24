@@ -1,3 +1,4 @@
+import { createHmac } from 'node:crypto'
 import type { FastifyInstance, LightMyRequestResponse } from 'fastify'
 import { Window } from 'happy-dom'
 import { OWNER_PASSWORD } from './app.js'
@@ -49,8 +50,41 @@ function toParams(form: URLSearchParams | Record<string, string | string[]>): UR
   return params
 }
 
-/** Logs in through `POST /admin/login` and returns a client carrying the session. */
-export async function signIn(app: FastifyInstance, email: string, password = OWNER_PASSWORD): Promise<AdminClient> {
+const BASE32 = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ234567'
+
+/** The bytes of a base32 key (RFC 4648, padding and case ignored). */
+function base32Bytes(key: string): Buffer {
+  const bytes: number[] = []
+  let bits = 0
+  let value = 0
+  for (const char of key.toUpperCase().replace(/=+$/, '')) {
+    const index = BASE32.indexOf(char)
+    if (index === -1) throw new Error(`Not a base32 key: ${key}`)
+    value = (value << 5) | index
+    bits += 5
+    if (bits >= 8) {
+      bits -= 8
+      bytes.push((value >>> bits) & 0xff)
+    }
+  }
+  return Buffer.from(bytes)
+}
+
+/** The six-digit code an authenticator app shows for the base32 `key` at `at` (ms): RFC 6238, HMAC-SHA1, 30 s steps. */
+export function totpCode(key: string, at = Date.now()): string {
+  const counter = Buffer.alloc(8)
+  counter.writeBigUInt64BE(BigInt(Math.floor(at / 30_000)))
+  const mac = createHmac('sha1', base32Bytes(key)).update(counter).digest()
+  const offset = mac[mac.length - 1]! & 0x0f
+  const number = mac.readUInt32BE(offset) & 0x7fffffff
+  return String(number % 1_000_000).padStart(6, '0')
+}
+
+/**
+ * Logs in through `POST /admin/login` and returns a client carrying the session. When the login asks for a code
+ * (two-step login is on), `key` answers it on `/admin/login/code`.
+ */
+export async function signIn(app: FastifyInstance, email: string, password = OWNER_PASSWORD, key?: string): Promise<AdminClient> {
   const jar = new Jar()
   const login = await app.inject({
     method: 'POST',
@@ -60,6 +94,17 @@ export async function signIn(app: FastifyInstance, email: string, password = OWN
   })
   if (login.statusCode !== 302) throw new Error(`Login as ${email} failed with ${login.statusCode}`)
   jar.store(login)
+  if (String(login.headers.location ?? '').startsWith('/admin/login/code')) {
+    if (key === undefined) throw new Error(`Login as ${email} asks for a code`)
+    const code = await app.inject({
+      method: 'POST',
+      url: '/admin/login/code',
+      headers: { 'content-type': 'application/x-www-form-urlencoded', origin: ORIGIN, cookie: jar.header() },
+      payload: new URLSearchParams({ code: totpCode(key) }).toString(),
+    })
+    if (code.statusCode !== 302) throw new Error(`The code for ${email} failed with ${code.statusCode}`)
+    jar.store(code)
+  }
 
   const send = async (opts: { method: 'GET' | 'POST'; url: string; headers?: Record<string, string>; payload?: string | Buffer }) => {
     const cookie = jar.header()
@@ -96,6 +141,22 @@ export async function signIn(app: FastifyInstance, email: string, password = OWN
       return send({ method: 'POST', url, headers: { 'content-type': request.headers.get('content-type')! }, payload })
     },
   }
+}
+
+/**
+ * Turns two-step login on through the account page's two forms (the password, then the current code) and returns
+ * the key the page showed.
+ */
+export async function setUpTwoStep(client: AdminClient, password = OWNER_PASSWORD): Promise<string> {
+  const setup = await client.post('/admin/account/two-step/setup', { password })
+  if (setup.statusCode !== 200) throw new Error(`Setting up two-step login failed with ${setup.statusCode}`)
+  const doc = parseHtml(setup.body)
+  const key = doc.querySelector('#two-step-key')?.textContent.replace(/\s/g, '') ?? ''
+  const uri = doc.querySelector<HTMLInputElement>('form[action="/admin/account/two-step/confirm"] input[name="uri"]')?.value ?? ''
+  if (key === '' || uri === '') throw new Error('Setting up two-step login showed no key')
+  const confirm = await client.post('/admin/account/two-step/confirm', { code: totpCode(key), uri })
+  if (confirm.statusCode !== 303) throw new Error(`Turning on two-step login failed with ${confirm.statusCode}`)
+  return key
 }
 
 let window: Window | undefined

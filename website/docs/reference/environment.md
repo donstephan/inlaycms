@@ -14,7 +14,7 @@ Every `INLAY_` environment variable Inlay reads. A host running `inlaycms serve`
 | --- | --- | --- | --- |
 | `INLAY_DATA_DIR` | The folder holding `inlay.db`, `media/`, `backups/` and `releases/`. | none | Yes |
 | `INLAY_BASE_URL` | The full address of the site, starting with `https://` or `http://`, with nothing after the domain, such as `https://example.com`. Used for canonical, Open Graph and sitemap URLs, sign-in and preview links. | none | Yes |
-| `INLAY_SECRET` | The server's own secret, at least 32 characters, used to sign sessions and preview links. Keep it private. | none | Yes |
+| `INLAY_SECRET` | The server's own secret, at least 32 characters, used to sign sessions and preview links, and to encrypt the keys of [two-step login](/docs/guides/security#two-step-login). Keep it private. | none | Yes |
 | `INLAY_TRUSTED_KEYS` | The public keys whose releases the host accepts, as `inlaycms keygen` prints them, separated by commas or new lines. | none | Yes, or `INLAY_TRUSTED_KEYS_FILE` |
 | `INLAY_TRUSTED_KEYS_FILE` | A file listing trusted public keys, one per line; lines starting with `#` are ignored. Its keys are added to `INLAY_TRUSTED_KEYS`. | none | Yes, or `INLAY_TRUSTED_KEYS` |
 | `INLAY_PORT` | The port to listen on, 1 to 65535. | `3000` | No |

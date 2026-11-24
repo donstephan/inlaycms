@@ -11,7 +11,7 @@ import { LOGIN_PATH, requestActor } from '../auth/request.js'
 import { copyCookies, safeNext, sameOrigin, toWebRequest } from '../web.js'
 import { registerAssetRoutes, type AdminAssets } from './assets.js'
 import { adminActor, formOf, hostOf, HTML, notFound, registerScreens, SETUP_PATH } from './context.js'
-import { badOriginPage, consentPage, loginPage, messagePage, setupPage, type SetupField } from './pages.js'
+import { badOriginPage, codePage, consentPage, loginPage, messagePage, setupPage, type SetupField } from './pages.js'
 import { registerPublishRoutes } from './publish.js'
 import { registerBackups } from './screens/backups.js'
 import { registerIntegrations } from './screens/integrations.js'
@@ -31,6 +31,7 @@ import type { ResolvedTheme } from './theme.js'
 import { registerUploadRoutes } from './upload.js'
 
 const CONSENT_PATH = '/admin/consent'
+const CODE_PATH = '/admin/login/code'
 const SETUP_FIELDS: readonly string[] = ['name', 'email', 'password', 'confirm'] satisfies SetupField[]
 
 export interface AdminRouteOptions {
@@ -94,18 +95,53 @@ function rawQuery(url: string): string | undefined {
   return q === -1 ? undefined : url.slice(q + 1)
 }
 
+/** better-auth's JSON answer, or `null` when it isn't JSON. */
+async function jsonOf(res: Response): Promise<unknown> {
+  return res.headers.get('content-type')?.includes('application/json') ? await res.json() : null
+}
+
 /** The `url` of better-auth's JSON `{ redirect: true, url }`, which tells the browser where to go next. */
-async function redirectOf(res: Response): Promise<string | undefined> {
-  const json: unknown = res.headers.get('content-type')?.includes('application/json') ? await res.json() : null
+function redirectIn(json: unknown): string | undefined {
   if (typeof json === 'object' && json !== null && 'redirect' in json && json.redirect === true && 'url' in json) {
     if (typeof json.url === 'string') return json.url
   }
   return undefined
 }
 
+const redirectOf = async (res: Response): Promise<string | undefined> => redirectIn(await jsonOf(res))
+
+/** The `code` of a better-auth error answer, such as the two-step login plugin's `INVALID_CODE`. */
+function errorCodeIn(json: unknown): string | undefined {
+  return typeof json === 'object' && json !== null && 'code' in json && typeof json.code === 'string' ? json.code : undefined
+}
+
 /** The raw query string when it carries a signed OAuth authorize request (`sig=`). */
 function oauthQueryOf(raw: string | undefined): string | undefined {
   return raw !== undefined && /(?:^|&)sig=/.test(raw) ? raw : undefined
+}
+
+/** Why the code step sent someone back to log in, as the login page's `problem` parameter: never free text. */
+const PROBLEMS = { expired: 'auth.code.expired', attempts: 'auth.tooManyAttempts' } as const satisfies Record<string, MessageId>
+type Problem = keyof typeof PROBLEMS
+
+/** The message for the login page's `problem` parameter, if it names one. */
+function problemMessage(raw: unknown): string | undefined {
+  return typeof raw === 'string' && Object.hasOwn(PROBLEMS, raw) ? t(PROBLEMS[raw as Problem]) : undefined
+}
+
+/** `raw` without its `problem` parameter, so a signed OAuth query passed back to the login page stays as signed. */
+function withoutProblem(raw: string | undefined): string | undefined {
+  if (raw === undefined) return undefined
+  const params = new URLSearchParams(raw)
+  if (!params.has('problem')) return raw
+  params.delete('problem')
+  return params.toString()
+}
+
+/** Where the login form goes with `next` or a signed OAuth query: the code step, or back to the login page. */
+function carrying(path: string, next: string, oauthQuery: string | undefined, problem?: Problem): string {
+  const extra = problem === undefined ? '' : `&problem=${problem}`
+  return oauthQuery !== undefined ? `${path}?${oauthQuery}${extra}` : `${path}?${new URLSearchParams({ next }).toString()}${extra}`
 }
 
 /**
@@ -188,8 +224,13 @@ export function registerAdminRoutes(app: FastifyInstance, opts: AdminRouteOption
 
     child.get(LOGIN_PATH, async (request, reply) => {
       const query = request.query as Record<string, unknown>
-      const oauthQuery = oauthQueryOf(rawQuery(request.url))
-      return page(reply, 200, await loginPage(opts, { next: safeNext(query.next), ...(oauthQuery !== undefined && { oauthQuery }) }))
+      const oauthQuery = oauthQueryOf(withoutProblem(rawQuery(request.url)))
+      const error = problemMessage(query.problem)
+      return page(
+        reply,
+        200,
+        await loginPage(opts, { next: safeNext(query.next), ...(oauthQuery !== undefined && { oauthQuery }), ...(error !== undefined && { error }) }),
+      )
     })
 
     child.post(LOGIN_PATH, async (request, reply) => {
@@ -214,10 +255,52 @@ export function registerAdminRoutes(app: FastifyInstance, opts: AdminRouteOption
       }
       // Bad credentials (401), a banned user (403) or a malformed email (400) all read the same.
       if (!res.ok) return again(401, t('auth.loginFailed'))
+      const json = await jsonOf(res)
       copyCookies(reply, res)
+      // Two-step login is on: no session yet, only the plugin's pending cookie. The code step comes next.
+      if (typeof json === 'object' && json !== null && 'twoFactorRedirect' in json && json.twoFactorRedirect === true) {
+        return reply.redirect(carrying(CODE_PATH, next, oauthQuery), 302)
+      }
       // The OAuth redirect better-auth returns itself (the consent page or the client's redirect URI).
-      const url = await redirectOf(res)
-      return reply.redirect(url ?? next, 302)
+      return reply.redirect(redirectIn(json) ?? next, 302)
+    })
+
+    child.get(CODE_PATH, async (request, reply) => {
+      const query = request.query as Record<string, unknown>
+      const oauthQuery = oauthQueryOf(rawQuery(request.url))
+      return page(reply, 200, await codePage(opts, { next: safeNext(query.next), ...(oauthQuery !== undefined && { oauthQuery }) }))
+    })
+
+    child.post(CODE_PATH, async (request, reply) => {
+      if (!sameOrigin(request, baseUrl)) return refuseOrigin(reply)
+      const form = formOf(request)
+      const next = safeNext(form.next)
+      const oauthQuery = oauthQueryOf(form.oauth_query)
+      const again = async (status: number, error: string) =>
+        page(reply, status, await codePage(opts, { next, error, ...(oauthQuery !== undefined && { oauthQuery }) }))
+      const backToLogin = (problem: Problem) => reply.redirect(carrying(LOGIN_PATH, next, oauthQuery, problem), 302)
+
+      // `oauth_query` lets the OAuth plugin continue the authorization once the session exists, as on login.
+      const res = await service.auth.handler(
+        toWebRequest(request, baseUrl, {
+          path: `${AUTH_BASE_PATH}/two-factor/verify-totp`,
+          body: JSON.stringify({ code: (form.code ?? '').replace(/\s/g, ''), ...(oauthQuery !== undefined && { oauth_query: oauthQuery }) }),
+          headers: { 'content-type': 'application/json', accept: 'application/json' },
+        }),
+      )
+      if (res.status >= 500) {
+        request.log.error({ status: res.status }, await res.text())
+        return failed(reply)
+      }
+      const json = await jsonOf(res)
+      copyCookies(reply, res)
+      if (res.ok) return reply.redirect(redirectIn(json) ?? next, 302)
+      const code = errorCodeIn(json)
+      if (res.status === 429 || code === 'ACCOUNT_TEMPORARILY_LOCKED') return again(429, t('auth.tooManyAttempts'))
+      if (code === 'INVALID_CODE') return again(401, t('auth.code.wrong'))
+      if (code === 'TOO_MANY_ATTEMPTS_REQUEST_NEW_CODE') return backToLogin('attempts')
+      // INVALID_TWO_FACTOR_COOKIE, or anything else: the pending login is gone or unusable.
+      return backToLogin('expired')
     })
 
     child.get(CONSENT_PATH, async (request, reply) => {

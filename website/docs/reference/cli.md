@@ -8,7 +8,7 @@ Every `inlaycms` command with its options, in one place. The guides explain when
 
 ## The CLI
 
-The commands that work on a site's code or database (`check`, `backup`, `export`, `import`, `restore-backup`, `create-owner`, `create-token`, `reset-password`, `pack`, `push`) read `inlay.config.ts` (or `.js`, `.mjs`) in the current directory, or the file given with `--config`. On a host, which has no config file, `backup`, `export`, `import`, `restore-backup`, `create-owner`, `create-token` and `reset-password` work on its data folder instead (see [Running a host](/docs/guides/releases#running-a-host)):
+The commands that work on a site's code or database (`check`, `backup`, `export`, `import`, `restore-backup`, `create-owner`, `create-token`, `reset-password`, `reset-two-factor`, `pack`, `push`) read `inlay.config.ts` (or `.js`, `.mjs`) in the current directory, or the file given with `--config`. On a host, which has no config file, `backup`, `export`, `import`, `restore-backup`, `create-owner`, `create-token`, `reset-password` and `reset-two-factor` work on its data folder instead (see [Running a host](/docs/guides/releases#running-a-host)):
 
 ```ts
 import { defineConfig } from 'inlaycms/site'
@@ -27,14 +27,14 @@ Run `inlaycms check` before every deploy. When the config's database doesn't exi
 
 ### Config file or data folder
 
-`backup`, `export`, `import`, `restore-backup`, `create-owner`, `create-token` and `reset-password` take the data folder from `--data <dir>`, or from `INLAY_DATA_DIR` when no config file is given or found in the current directory. When both are there, the command says which one it uses. `--data` can't be combined with `--config` or `--db`. On a host, `export`, `import` and `create-owner` use the site of the live release; `import` refuses when there is none.
+`backup`, `export`, `import`, `restore-backup`, `create-owner`, `create-token`, `reset-password` and `reset-two-factor` take the data folder from `--data <dir>`, or from `INLAY_DATA_DIR` when no config file is given or found in the current directory. When both are there, the command says which one it uses. `--data` can't be combined with `--config` or `--db`. On a host, `export`, `import` and `create-owner` use the site of the live release; `import` refuses when there is none.
 
 `activate` and `releases` without a host address always work on a data folder (`--data`, or `INLAY_DATA_DIR`) and never read a config file.
 
 ### Exit codes
 
 - `0`: the command did what it was asked.
-- `1`: a check found problems (`check`, `import`), `pack` refused the site (a failed type check, or code a release can't hold), a host refused (`push`, and `activate` and `releases` with a host), or a user or value was refused (`create-owner`, `create-token`, `reset-password`).
+- `1`: a check found problems (`check`, `import`), `pack` refused the site (a failed type check, or code a release can't hold), a host refused (`push`, and `activate` and `releases` with a host), or a user or value was refused (`create-owner`, `create-token`, `reset-password`, `reset-two-factor`).
 - `2`: a usage, config or database problem: an unknown command or option, a missing config file, token, signing key or release file, or a database that looks in use.
 
 ## dev
@@ -256,3 +256,17 @@ Sets a new password for a user, for when they are locked out. The password is re
 - `--config <file>`, `--db <file>`, `--data <dir>`: as for `backup`.
 
 See [Connect your assistant](/docs/guides/assistant).
+
+## reset-two-factor
+
+```sh
+npx inlaycms reset-two-factor --email <email> [--config <file>] [--db <file>]
+npx inlaycms reset-two-factor --email <email> --data <dir>
+```
+
+Turns [two-step login](/docs/guides/security#two-step-login) off for a user, for when they lost their authenticator app. The user is signed out everywhere. Their password, API keys and connected assistants are untouched. It exits with `1` for an unknown user, or one who doesn't have two-step login on (their sessions are left alone).
+
+- `--email <email>`: the user. Required.
+- `--config <file>`, `--db <file>`, `--data <dir>`: as for `backup`.
+
+See [Two-step login](/docs/guides/security#two-step-login).

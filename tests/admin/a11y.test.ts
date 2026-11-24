@@ -14,7 +14,7 @@ import { adminSite } from '../fixtures/admin.js'
 import { jpeg, png } from '../fixtures/media.js'
 import { generateKeyPair } from '../../src/core/release/keys.js'
 import { packRelease } from '../../src/core/release/pack.js'
-import { makeApp } from '../helpers/app.js'
+import { makeApp, OWNER_PASSWORD } from '../helpers/app.js'
 import { parseHtml, signIn, submittedForm, type AdminClient } from '../helpers/admin.js'
 
 const withIntegration = defineSite({
@@ -225,6 +225,8 @@ describe('admin accessibility sweep', () => {
       400,
     )
     expectAccessible('create key with problems', await olivia.post('/admin/account/keys', { name: '  ' }), 400)
+    expectAccessible('two-step setup with problems', await olivia.post('/admin/account/two-step/setup', { password: 'wrong' }), 400)
+    expectAccessible('two-step setup', await olivia.post('/admin/account/two-step/setup', { password: OWNER_PASSWORD }), 200)
 
     for (const url of [
       '/admin/pick/media?kind=image',

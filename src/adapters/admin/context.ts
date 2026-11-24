@@ -53,6 +53,8 @@ export const NOTICES: Record<string, { id: MessageId; params?: readonly string[]
   userUpdated: { id: 'admin.notice.userUpdated' },
   userRemoved: { id: 'admin.notice.userRemoved' },
   keyRevoked: { id: 'admin.notice.keyRevoked' },
+  twoStepOn: { id: 'admin.notice.twoStepOn' },
+  twoStepOff: { id: 'admin.notice.twoStepOff' },
   redirectAdded: { id: 'admin.notice.redirectAdded' },
   redirectRemoved: { id: 'admin.notice.redirectRemoved' },
   imported: { id: 'admin.notice.imported', params: ['created', 'updated'] },

@@ -36,11 +36,32 @@ function withConsentPrompt(params: URLSearchParams): URLSearchParams {
   return next
 }
 
+/**
+ * Endpoints better-auth's plugins add that no browser may reach.
+ *
+ * - The two-step login plugin's: the admin calls them through `auth.handler` itself; from a browser they would open
+ *   backup codes, emailed codes and enabling or disabling without the admin's forms.
+ * - The admin plugin's: Inlay manages users through `AuthService`, and these would let an owner's session act as
+ *   another user or change their account (two-step login included) behind the Users screen's rules.
+ */
+const CLOSED_PREFIXES = [`${AUTH_BASE_PATH}/two-factor/`, `${AUTH_BASE_PATH}/admin/`]
+
+/** `url`'s path as better-auth will see it: the URL parser resolves `.`, `..` and `%2e` segments. */
+function resolvedPath(url: string): string {
+  const q = url.indexOf('?')
+  return new URL(q === -1 ? url : url.slice(0, q), 'http://inlay.invalid').pathname
+}
+
+/** Whether `url` reaches one of the closed endpoints (empty segments collapsed, to be safe). */
+function closed(url: string): boolean {
+  const path = resolvedPath(url).replace(/\/{2,}/g, '/')
+  return CLOSED_PREFIXES.some((prefix) => path.startsWith(prefix))
+}
+
 /** An authorize request's URL and form body with consent forced; any other request unchanged. */
 function forceConsent(url: string, body: Buffer | undefined): { url: string; body: Buffer | undefined } {
   const q = url.indexOf('?')
-  // Compare the path as better-auth will see it: the URL parser resolves `.`, `..` and `%2e` segments.
-  const path = new URL(q === -1 ? url : url.slice(0, q), 'http://inlay.invalid').pathname
+  const path = resolvedPath(url)
   if (path !== AUTHORIZE_PATH) return { url, body }
   const query = withConsentPrompt(new URLSearchParams(q === -1 ? '' : url.slice(q + 1)))
   const form = body && body.length > 0 ? Buffer.from(withConsentPrompt(new URLSearchParams(body.toString('utf8'))).toString()) : body
@@ -55,6 +76,7 @@ export function registerAuthHandler(app: FastifyInstance, opts: { service: AuthS
   const { service, baseUrl } = opts
 
   async function forward(request: FastifyRequest, reply: FastifyReply, path?: string): Promise<FastifyReply> {
+    if (closed(path ?? request.url)) return reply.code(404).send()
     const forced = forceConsent(path ?? request.url, Buffer.isBuffer(request.body) ? request.body : undefined)
     const body = forced.body
     const res = await service.auth.handler(toWebRequest(request, baseUrl, { ...(body && { body }), path: forced.url }))

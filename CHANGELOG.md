@@ -4,6 +4,10 @@ All notable changes to Inlay are recorded here. The format follows [Keep a Chang
 
 ## [Unreleased]
 
+### Added
+
+- Two-step login: each person can turn on a code from an authenticator app under Account, asked for after their password at login. API keys, push tokens and connected assistants don't ask for it. `inlaycms reset-two-factor --email <email>` turns it off for someone who lost their phone.
+
 ### Changed
 
 - **Breaking:** a preview link now shows unpublished changes on the page it was made for and nowhere else, so a link that gets forwarded or lands in a log shows one page, not every draft on the site. Every other page stays as visitors see it, without the preview banner; to check two pages, make a link for each. On a site with a site password, the link opens its page, the page's media and the public files at the site root, and no other page, the sitemap or a release's own routes. A link to a staged release still previews that whole release. Preview links made before the upgrade stop working.
@@ -11,6 +15,7 @@ All notable changes to Inlay are recorded here. The format follows [Keep a Chang
 - Taking a key off `INLAY_TRUSTED_KEYS` no longer goes unnoticed for the releases it signed. `inlaycms serve` says in its log when the live release was signed with such a key (and keeps serving it), the admin's Releases screen marks each such release and warns before an owner activates one, and a push token can't activate one at all.
 - The editor's preview pane sends the same Content-Security-Policy as the public page, instead of a looser one. An inline `<script>` that isn't written with `ctx.script` is now blocked in the pane too, as it already was on the public site.
 - The Inlay image installs every dependency from `pnpm-lock.yaml`, with no install scripts, instead of resolving them afresh each time the image is built.
+- The user-management endpoints better-auth adds under `/api/auth/admin/` now answer 404. The admin never used them (the Users screen has its own rules), and they let an owner's session act as another user, or change their account, without going through that screen.
 
 ### Fixed
 

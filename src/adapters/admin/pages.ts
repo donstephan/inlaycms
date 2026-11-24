@@ -14,6 +14,8 @@ interface FieldOptions {
   value?: string
   hint?: string
   errors?: string[]
+  inputmode?: 'numeric'
+  autofocus?: boolean
 }
 
 /** A labeled input, with its hint and problems tied to it through `aria-describedby`. */
@@ -25,6 +27,8 @@ function field(opts: FieldOptions): SafeHtml {
   return html`<div class="flex flex-col gap-1"><label for="${opts.id}" class="font-medium">${opts.label}</label>${
     opts.hint !== undefined ? html`<p class="text-sm" id="${hintId}">${opts.hint}</p>` : ''
   }${errors.length > 0 ? html`<p class="text-sm text-error" id="${errorId}">${errors.join(' ')}</p>` : ''}<input id="${opts.id}" name="${opts.id}" type="${opts.type}" autocomplete="${opts.autocomplete}"${
+    opts.inputmode !== undefined ? html` inputmode="${opts.inputmode}"` : ''
+  }${opts.autofocus === true ? html` autofocus` : ''}${
     opts.value !== undefined ? html` value="${opts.value}"` : ''
   } class="input w-full" required${describedBy.length > 0 ? html` aria-describedby="${describedBy.join(' ')}"` : ''}${
     errors.length > 0 ? html` aria-invalid="true"` : ''
@@ -64,6 +68,20 @@ export function loginPage(
     field({ id: 'password', label: t('label.user.password'), type: 'password', autocomplete: 'current-password' }),
   ]}<button type="submit" class="btn btn-primary">${t('auth.login.submit')}</button></form>`
   return authPage(ctx, t('auth.login.title'), body)
+}
+
+/**
+ * The second step of logging in, for a user with two-step login on: the code from their authenticator app. `next`
+ * and `oauthQuery` carry on from the login form.
+ */
+export function codePage(ctx: AdminContext, opts: { next: string; oauthQuery?: string; error?: string }): Promise<string> {
+  const back = opts.oauthQuery !== undefined ? `/admin/login?${opts.oauthQuery}` : `/admin/login?${new URLSearchParams({ next: opts.next }).toString()}`
+  const body = html`<p>${t('auth.code.intro')}</p>${alert(opts.error)}<form method="post" action="/admin/login/code" class="flex flex-col gap-4"><input type="hidden" name="next" value="${opts.next}">${
+    opts.oauthQuery !== undefined ? html`<input type="hidden" name="oauth_query" value="${opts.oauthQuery}">` : ''
+  }${field({ id: 'code', label: t('auth.code.label'), type: 'text', autocomplete: 'one-time-code', inputmode: 'numeric', autofocus: true })}<button type="submit" class="btn btn-primary">${t(
+    'auth.code.submit',
+  )}</button></form><p class="text-sm">${t('auth.code.lostPhone')}</p><p><a href="${back}" class="link">${t('auth.code.back')}</a></p>`
+  return authPage(ctx, t('auth.code.title'), body)
 }
 
 /** `/admin` until the dashboard: who is signed in and a link to the publish page. The navigation has the logout button. */

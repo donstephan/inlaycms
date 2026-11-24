@@ -5,6 +5,7 @@ import { createAccessControl } from 'better-auth/plugins/access'
 import { admin } from 'better-auth/plugins/admin'
 import { adminAc, defaultStatements } from 'better-auth/plugins/admin/access'
 import { jwt } from 'better-auth/plugins/jwt'
+import { twoFactor } from 'better-auth/plugins/two-factor'
 import { hashPassword, verifyPassword } from 'better-auth/crypto'
 import type { Kysely } from 'kysely'
 import type { Database } from '../db/schema.js'
@@ -18,6 +19,8 @@ export interface AuthOptions {
   baseUrl: string
   /** Off only in tests. */
   rateLimit?: boolean
+  /** The name an authenticator app shows for this site; the host of `baseUrl` by default. */
+  issuer?: string
 }
 
 export interface PasswordHasher {
@@ -66,6 +69,8 @@ export function createAuth(opts: AuthOptions) {
     rateLimit: { enabled: opts.rateLimit ?? true, storage: 'memory' },
     advanced: { ipAddress: { ipAddressHeaders: ['x-inlay-client-ip'] }, database: { validateSchema: false } },
     plugins: [
+      // First, so its sign-in hook removes the session before the OAuth plugin's hook continues an authorization with it.
+      twoFactor({ issuer: opts.issuer ?? new URL(opts.baseUrl).host }),
       admin({ ac, roles: { owner, editor }, adminRoles: ['owner'], defaultRole: 'editor' }),
       jwt(),
       mcp({

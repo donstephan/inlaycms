@@ -1,9 +1,12 @@
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify'
+import { renderSVG } from 'uqr'
+import { AUTH_BASE_PATH } from '../../../core/auth/auth.js'
 import { MIN_PASSWORD, type UserInfo, type UserRole } from '../../../core/auth/service.js'
 import { InlayError } from '../../../core/errors.js'
 import { t } from '../../../core/messages/index.js'
 import type { Actor } from '../../../core/types.js'
-import { webHeaders } from '../../web.js'
+import { raw } from '../../../jsx/html.js'
+import { copyCookies, toWebRequest, webHeaders } from '../../web.js'
 import { adminActor, formOf, forbidden, hostOf, HTML, noticeOf, notFound, type AdminContext } from '../context.js'
 import { DataTable } from '../views/data-table.js'
 import { Icon } from '../views/icons.js'
@@ -43,6 +46,7 @@ function Field(props: {
   hint?: string
   errors?: string[] | undefined
   autocomplete?: string
+  inputmode?: string
 }) {
   const errors = props.errors ?? []
   const hintId = props.hint !== undefined ? `${props.id}-hint` : undefined
@@ -59,6 +63,7 @@ function Field(props: {
         type={props.type ?? 'text'}
         value={props.value}
         autocomplete={props.autocomplete}
+        inputmode={props.inputmode}
         class="input input-bordered w-full max-w-md"
         aria-describedby={described === '' ? undefined : described}
         aria-invalid={errors.length > 0 ? 'true' : undefined}
@@ -118,6 +123,89 @@ function General({ errors, id }: { errors: Errors; id: string }) {
 const USER_FIELDS = ['name', 'email', 'password', 'confirm', 'role'] as const
 const PASSWORD_FIELDS = ['current', 'password', 'confirm'] as const
 
+/** An `otpauth://totp/` URI and the base32 key in it. */
+interface AuthenticatorLink {
+  uri: string
+  key: string
+}
+
+/** Longer than any URI the two-step login plugin makes, so a posted value can't make an outsized QR code. */
+const MAX_URI = 2048
+
+/**
+ * The setup form posts the URI back, so it is read as untrusted: only an `otpauth://totp/` URI with a base32
+ * `secret` counts. Anything else gives `undefined`.
+ */
+function authenticatorLink(raw: string | undefined): AuthenticatorLink | undefined {
+  if (raw === undefined || raw.length > MAX_URI || !raw.startsWith('otpauth://totp/')) return undefined
+  let url: URL
+  try {
+    url = new URL(raw)
+  } catch {
+    return undefined
+  }
+  const key = url.searchParams.get('secret')
+  if (key === null || !/^[A-Z2-7]+=*$/i.test(key)) return undefined
+  return { uri: raw, key: key.replace(/=+$/, '').toUpperCase() }
+}
+
+/** better-auth's JSON answer, or `null` when it isn't JSON. */
+async function jsonOf(res: Response): Promise<unknown> {
+  return res.headers.get('content-type')?.includes('application/json') ? await res.json() : null
+}
+
+/** The `code` of a better-auth error answer, such as the two-step login plugin's `INVALID_CODE`. */
+function errorCodeIn(json: unknown): string | undefined {
+  return typeof json === 'object' && json !== null && 'code' in json && typeof json.code === 'string' ? json.code : undefined
+}
+
+/** The `totpURI` of the plugin's answer to enable. */
+function totpUriIn(json: unknown): string | undefined {
+  return typeof json === 'object' && json !== null && 'totpURI' in json && typeof json.totpURI === 'string' ? json.totpURI : undefined
+}
+
+/**
+ * The request's headers with its cookies updated by the `set-cookie`s of `res`, as the browser will send them next:
+ * after the plugin replaces the session, these carry the new one.
+ */
+function headersAfter(request: FastifyRequest, res: Response): Headers {
+  const jar = new Map<string, string>()
+  for (const pair of (request.headers.cookie ?? '').split(';')) {
+    const eq = pair.indexOf('=')
+    if (eq > 0) jar.set(pair.slice(0, eq).trim(), pair.slice(eq + 1).trim())
+  }
+  for (const line of res.headers.getSetCookie()) {
+    const [pair = '', ...attrs] = line.split(';')
+    const eq = pair.indexOf('=')
+    if (eq <= 0) continue
+    const name = pair.slice(0, eq).trim()
+    const value = pair.slice(eq + 1).trim()
+    if (value === '' || attrs.some((a) => /^\s*max-age=0\s*$/i.test(a))) jar.delete(name)
+    else jar.set(name, value)
+  }
+  const headers = webHeaders(request)
+  headers.set('cookie', [...jar].map(([k, v]) => `${k}=${v}`).join('; '))
+  return headers
+}
+
+/** The QR code of `uri`, drawn on the server as an inline SVG. */
+function QrCode({ uri }: { uri: string }) {
+  // The four-module white margin QR codes need to scan, also on the admin's dark theme.
+  const svg = renderSVG(uri, { border: 4 })
+  const viewBox = /viewBox="([^"]*)"/.exec(svg)?.[1]
+  const inner = svg.replace(/^<svg[^>]*>/, '').replace(/<\/svg>\s*$/, '')
+  return (
+    <svg
+      xmlns="http://www.w3.org/2000/svg"
+      viewBox={viewBox}
+      role="img"
+      aria-label={t('admin.account.twoStep.qrAlt')}
+      class="size-48 shrink-0 rounded-box border border-base-300"
+    >
+      {raw(inner)}
+    </svg>
+  )
+}
 /** The owner's Users screens and everyone's own account page. */
 export function registerUsers(scope: FastifyInstance, ctx: AdminContext): void {
   const { service } = ctx
@@ -174,6 +262,11 @@ export function registerUsers(scope: FastifyInstance, ctx: AdminContext): void {
                   )}
                 </>
               ),
+            },
+            {
+              key: 'twoStep',
+              label: t('admin.users.twoStep'),
+              cell: (user) => user.twoStep && <Badge tone="success">{t('admin.account.twoStep.on')}</Badge>,
             },
             { key: 'added', label: t('admin.users.added'), cell: (user) => <Time iso={user.createdAt} relative /> },
             {
@@ -483,6 +576,96 @@ export function registerUsers(scope: FastifyInstance, ctx: AdminContext): void {
   interface AccountState {
     password?: Errors
     keyName?: { value: string; push: boolean; errors: Errors }
+    /** `setup` holds the link being set up, shown until its code is confirmed; `errors` by field (`password`, `code`). */
+    twoStep?: { setup?: AuthenticatorLink; errors?: Errors }
+  }
+
+  /** The two-step login section: Off with the password to set it up, the QR code and key while setting up, or On. */
+  function TwoStepSection({ on, state }: { on: boolean; state: NonNullable<AccountState['twoStep']> }) {
+    const errors = state.errors ?? {}
+    const setup = on ? undefined : state.setup
+    const passwordField = (
+      <Field
+        id="two-step-password"
+        name="password"
+        type="password"
+        label={t('admin.account.twoStep.password')}
+        errors={errors.password}
+        autocomplete="current-password"
+      />
+    )
+    return (
+      <section aria-labelledby="two-step-heading" class="flex flex-col gap-4">
+        <div class="flex items-center gap-3">
+          <h2 id="two-step-heading" class="text-lg font-semibold">
+            {t('admin.account.twoStep.heading')}
+          </h2>
+          <span data-two-step-state>
+            <Badge tone={on ? 'success' : 'ghost'}>{t(on ? 'admin.account.twoStep.on' : 'admin.account.twoStep.off')}</Badge>
+          </span>
+        </div>
+        <General errors={errors} id="two-step-error-all" />
+        {on ? (
+          <>
+            <p>{t('admin.account.twoStep.onIntro')}</p>
+            <form method="post" action="/admin/account/two-step/off" class="flex flex-col gap-4">
+              {passwordField}
+              <div>
+                <button type="submit" class="btn">
+                  {t('admin.account.twoStep.turnOff')}
+                </button>
+              </div>
+            </form>
+          </>
+        ) : setup !== undefined ? (
+          <>
+            <p>{t('admin.account.twoStep.scan')}</p>
+            <div class="flex flex-wrap items-start gap-6">
+              <QrCode uri={setup.uri} />
+              <div class="flex max-w-xs flex-col gap-2">
+                <p>{t('admin.account.twoStep.key')}</p>
+                <code id="two-step-key" class="font-mono break-words">
+                  {(setup.key.match(/.{1,4}/g) ?? []).join(' ')}
+                </code>
+              </div>
+            </div>
+            <p>{t('admin.account.twoStep.enterCode')}</p>
+            <form method="post" action="/admin/account/two-step/confirm" class="flex flex-col gap-4">
+              <input type="hidden" name="uri" value={setup.uri} />
+              <Field
+                id="two-step-code"
+                name="code"
+                label={t('auth.code.label')}
+                errors={errors.code}
+                autocomplete="one-time-code"
+                inputmode="numeric"
+              />
+              <div class="flex flex-wrap items-center gap-4">
+                <button type="submit" class="btn">
+                  {t('admin.account.twoStep.turnOn')}
+                </button>
+                <a href="/admin/account" class="link">
+                  {t('admin.account.twoStep.cancel')}
+                </a>
+              </div>
+            </form>
+          </>
+        ) : (
+          <>
+            <p>{t('admin.account.twoStep.offIntro')}</p>
+            <form method="post" action="/admin/account/two-step/setup" class="flex flex-col gap-4">
+              {passwordField}
+              <div>
+                <button type="submit" class="btn">
+                  {t('admin.account.twoStep.setUp')}
+                </button>
+              </div>
+            </form>
+          </>
+        )}
+        <p class="text-sm">{t('admin.account.twoStep.keysNote')}</p>
+      </section>
+    )
   }
 
   async function accountPage(request: FastifyRequest, reply: FastifyReply, status: number, state: AccountState = {}) {
@@ -490,6 +673,7 @@ export function registerUsers(scope: FastifyInstance, ctx: AdminContext): void {
     if (actor.id === null) return forbidden(reply, ctx, actor)
     const keys = await service.listApiKeys(actor.id)
     const assistants = await service.listAssistants(actor.id)
+    const twoStepOn = await service.twoStepOn(actor.id)
     const passwordErrors = state.password ?? {}
     const keyErrors = state.keyName?.errors ?? {}
     const body = (
@@ -533,6 +717,7 @@ export function registerUsers(scope: FastifyInstance, ctx: AdminContext): void {
             </div>
           </form>
         </section>
+        <TwoStepSection on={twoStepOn} state={state.twoStep ?? {}} />
         <section aria-labelledby="assistants-heading" class="flex flex-col gap-4">
           <h2 id="assistants-heading" class="text-lg font-semibold">
             {t('admin.account.assistantsHeading')}
@@ -688,6 +873,78 @@ export function registerUsers(scope: FastifyInstance, ctx: AdminContext): void {
       return accountPage(request, reply, 400, { password: errorsOf(e, PASSWORD_FIELDS) })
     }
     return reply.redirect('/admin/account?notice=passwordChanged', 303)
+  })
+
+  /** Sends `body` to the two-step login plugin's `endpoint` as the signed-in user, with the request's cookies. */
+  const twoFactor = (request: FastifyRequest, endpoint: 'enable' | 'verify-totp' | 'disable', body: Record<string, string>) =>
+    service.auth.handler(
+      toWebRequest(request, ctx.baseUrl, {
+        path: `${AUTH_BASE_PATH}/two-factor/${endpoint}`,
+        body: JSON.stringify(body),
+        headers: { 'content-type': 'application/json', accept: 'application/json' },
+      }),
+    )
+
+  /** An answer from the plugin none of the forms expects: logged, then the admin's error page. */
+  function unexpected(request: FastifyRequest, res: Response, json: unknown): never {
+    request.log.error({ status: res.status, code: errorCodeIn(json) }, 'two-step login: unexpected answer')
+    throw new InlayError('invalid_operation', 'admin.error')
+  }
+
+  const wrongPassword = () => [t('issue.wrongPassword', { field: t('admin.account.twoStep.password') })]
+  const tooManyAttempts = () => ({ '': [t('auth.tooManyAttempts')] })
+
+  scope.post('/admin/account/two-step/setup', async (request, reply) => {
+    const actor = adminActor(request)
+    if (actor.id === null) return forbidden(reply, ctx, actor)
+    const res = await twoFactor(request, 'enable', { password: formOf(request).password ?? '' })
+    const json = await jsonOf(res)
+    copyCookies(reply, res)
+    if (res.status === 429) return accountPage(request, reply, 429, { twoStep: { errors: tooManyAttempts() } })
+    if (res.ok) {
+      const setup = authenticatorLink(totpUriIn(json))
+      if (setup === undefined) return unexpected(request, res, json)
+      // The page itself, not a redirect, so the key is never in a URL.
+      return accountPage(request, reply, 200, { twoStep: { setup } })
+    }
+    const code = errorCodeIn(json)
+    if (code === 'INVALID_PASSWORD') return accountPage(request, reply, 400, { twoStep: { errors: { password: wrongPassword() } } })
+    if (code === 'TOTP_ALREADY_ENABLED') return reply.redirect('/admin/account', 303)
+    return unexpected(request, res, json)
+  })
+
+  scope.post('/admin/account/two-step/confirm', async (request, reply) => {
+    const actor = adminActor(request)
+    if (actor.id === null) return forbidden(reply, ctx, actor)
+    const form = formOf(request)
+    const setup = authenticatorLink(form.uri)
+    if (setup === undefined) return accountPage(request, reply, 400)
+    const res = await twoFactor(request, 'verify-totp', { code: (form.code ?? '').replace(/\s/g, '') })
+    const json = await jsonOf(res)
+    copyCookies(reply, res)
+    if (res.status === 429) return accountPage(request, reply, 429, { twoStep: { setup, errors: tooManyAttempts() } })
+    if (res.ok) {
+      // Confirming replaced the session: the one to keep is the new one the browser was just given.
+      await service.endOtherSessions(actor.id, headersAfter(request, res))
+      return reply.redirect('/admin/account?notice=twoStepOn', 303)
+    }
+    const code = errorCodeIn(json)
+    if (code === 'INVALID_CODE') return accountPage(request, reply, 400, { twoStep: { setup, errors: { code: [t('auth.code.wrong')] } } })
+    // No key waiting to be confirmed (it was never set up, or was turned off since): start again.
+    if (code === 'TOTP_NOT_ENABLED') return accountPage(request, reply, 400)
+    return unexpected(request, res, json)
+  })
+
+  scope.post('/admin/account/two-step/off', async (request, reply) => {
+    const actor = adminActor(request)
+    if (actor.id === null) return forbidden(reply, ctx, actor)
+    const res = await twoFactor(request, 'disable', { password: formOf(request).password ?? '' })
+    const json = await jsonOf(res)
+    copyCookies(reply, res)
+    if (res.status === 429) return accountPage(request, reply, 429, { twoStep: { errors: tooManyAttempts() } })
+    if (res.ok) return reply.redirect('/admin/account?notice=twoStepOff', 303)
+    if (errorCodeIn(json) === 'INVALID_PASSWORD') return accountPage(request, reply, 400, { twoStep: { errors: { password: wrongPassword() } } })
+    return unexpected(request, res, json)
   })
 
   scope.post('/admin/account/keys', async (request, reply) => {
